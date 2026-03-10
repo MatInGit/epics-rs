@@ -13,6 +13,7 @@ pub struct PluginBaseParams {
     pub nd_array_port: usize,
     pub nd_array_addr: usize,
     pub plugin_type: usize,
+    pub execution_time: usize,
 }
 
 impl PluginBaseParams {
@@ -28,6 +29,7 @@ impl PluginBaseParams {
             nd_array_port: port_base.create_param("PLUGIN_NDARRAY_PORT", ParamType::Octet)?,
             nd_array_addr: port_base.create_param("PLUGIN_NDARRAY_ADDR", ParamType::Int32)?,
             plugin_type: port_base.create_param("PLUGIN_TYPE", ParamType::Octet)?,
+            execution_time: port_base.create_param("EXECUTION_TIME", ParamType::Float64)?,
         })
     }
 }

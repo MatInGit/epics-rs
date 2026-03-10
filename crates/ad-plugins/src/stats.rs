@@ -3,7 +3,7 @@ use std::sync::Arc;
 use ad_core::ndarray::{NDArray, NDDataBuffer};
 use ad_core::ndarray_pool::NDArrayPool;
 use ad_core::plugin::registry::{build_plugin_base_registry, ParamInfo, ParamRegistry};
-use ad_core::plugin::runtime::{NDPluginProcess, ParamUpdate, PluginRuntimeHandle, ProcessResult};
+use ad_core::plugin::runtime::{NDPluginProcess, ParamUpdate, PluginParamSnapshot, PluginRuntimeHandle, ProcessResult};
 use asyn_rs::param::ParamType;
 use asyn_rs::port::PortDriverBase;
 use parking_lot::Mutex;
@@ -500,6 +500,13 @@ pub struct StatsProcessor {
     do_compute_centroid: bool,
     do_compute_histogram: bool,
     do_compute_profiles: bool,
+    bgd_width: usize,
+    centroid_threshold: f64,
+    cursor_x: usize,
+    cursor_y: usize,
+    hist_size: usize,
+    hist_min: f64,
+    hist_max: f64,
     params: NDStatsParams,
     /// Shared cell to export params after register_params is called.
     params_out: Arc<Mutex<NDStatsParams>>,
@@ -512,6 +519,13 @@ impl StatsProcessor {
             do_compute_centroid: true,
             do_compute_histogram: false,
             do_compute_profiles: false,
+            bgd_width: 0,
+            centroid_threshold: 0.0,
+            cursor_x: 0,
+            cursor_y: 0,
+            hist_size: 256,
+            hist_min: 0.0,
+            hist_max: 255.0,
             params: NDStatsParams::default(),
             params_out: Arc::new(Mutex::new(NDStatsParams::default())),
         }
@@ -539,30 +553,22 @@ impl NDPluginProcess for StatsProcessor {
         let p = &self.params;
         let info = array.info();
 
-        // Read bgd_width from params (default 0)
-        let bgd_width = 0usize; // will be overridden by param if set
-
-        let mut result = compute_stats(&array.data, &array.dims, bgd_width);
+        let mut result = compute_stats(&array.data, &array.dims, self.bgd_width);
 
         // Centroid computation
         let mut centroid = CentroidResult::default();
         if self.do_compute_centroid {
             if info.color_size == 1 && array.dims.len() >= 2 {
-                // threshold defaults to 0.0 if not set
-                let threshold = 0.0f64;
                 centroid = compute_centroid(
-                    &array.data, info.x_size, info.y_size, threshold,
+                    &array.data, info.x_size, info.y_size, self.centroid_threshold,
                 );
             }
         }
 
         // Histogram computation
         if self.do_compute_histogram {
-            let hist_size = 256usize;
-            let hist_min = 0.0f64;
-            let hist_max = 255.0f64;
             let (histogram, below, above, entropy) =
-                compute_histogram(&array.data, hist_size, hist_min, hist_max);
+                compute_histogram(&array.data, self.hist_size, self.hist_min, self.hist_max);
             result.histogram = histogram;
             result.hist_below = below;
             result.hist_above = above;
@@ -571,18 +577,15 @@ impl NDPluginProcess for StatsProcessor {
 
         // Profile computation
         if self.do_compute_profiles && info.color_size == 1 && array.dims.len() >= 2 {
-            let cursor_x = 0usize;
-            let cursor_y = 0usize;
-            let threshold = 0.0f64;
             let profiles = compute_profiles(
                 &array.data,
                 info.x_size,
                 info.y_size,
-                threshold,
+                self.centroid_threshold,
                 centroid.centroid_x,
                 centroid.centroid_y,
-                cursor_x,
-                cursor_y,
+                self.cursor_x,
+                self.cursor_y,
             );
             result.profile_avg_x = profiles.avg_x;
             result.profile_avg_y = profiles.avg_y;
@@ -675,12 +678,41 @@ impl NDPluginProcess for StatsProcessor {
 
         self.params.compute_profiles = base.create_param("COMPUTE_PROFILES", ParamType::Int32)?;
         self.params.cursor_x = base.create_param("CURSOR_X", ParamType::Int32)?;
+        base.set_int32_param(self.params.cursor_x, 0, 0)?;
         self.params.cursor_y = base.create_param("CURSOR_Y", ParamType::Int32)?;
+        base.set_int32_param(self.params.cursor_y, 0, 0)?;
 
         // Export params so create_stats_runtime can retrieve them after the move
         *self.params_out.lock() = self.params;
 
         Ok(())
+    }
+
+    fn on_param_change(&mut self, reason: usize, snapshot: &PluginParamSnapshot) {
+        let p = &self.params;
+        if reason == p.compute_statistics {
+            // toggle handled by do_compute_centroid etc. if needed
+        } else if reason == p.compute_centroid {
+            self.do_compute_centroid = snapshot.value.as_i32() != 0;
+        } else if reason == p.compute_histogram {
+            self.do_compute_histogram = snapshot.value.as_i32() != 0;
+        } else if reason == p.compute_profiles {
+            self.do_compute_profiles = snapshot.value.as_i32() != 0;
+        } else if reason == p.bgd_width {
+            self.bgd_width = snapshot.value.as_i32().max(0) as usize;
+        } else if reason == p.centroid_threshold {
+            self.centroid_threshold = snapshot.value.as_f64();
+        } else if reason == p.cursor_x {
+            self.cursor_x = snapshot.value.as_i32().max(0) as usize;
+        } else if reason == p.cursor_y {
+            self.cursor_y = snapshot.value.as_i32().max(0) as usize;
+        } else if reason == p.hist_size {
+            self.hist_size = (snapshot.value.as_i32().max(1)) as usize;
+        } else if reason == p.hist_min {
+            self.hist_min = snapshot.value.as_f64();
+        } else if reason == p.hist_max {
+            self.hist_max = snapshot.value.as_f64();
+        }
     }
 }
 

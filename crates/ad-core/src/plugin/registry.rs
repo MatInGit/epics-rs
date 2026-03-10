@@ -109,4 +109,5 @@ pub fn insert_plugin_base_params(map: &mut ParamRegistry, plug: &PluginBaseParam
     map.insert("NDArrayAddress".into(), ParamInfo::int32(plug.nd_array_addr, "PLUGIN_NDARRAY_ADDR"));
     map.insert("NDArrayAddress_RBV".into(), ParamInfo::int32(plug.nd_array_addr, "PLUGIN_NDARRAY_ADDR"));
     map.insert("PluginType_RBV".into(), ParamInfo::string(plug.plugin_type, "PLUGIN_TYPE"));
+    map.insert("ExecutionTime_RBV".into(), ParamInfo::float64(plug.execution_time, "EXECUTION_TIME"));
 }

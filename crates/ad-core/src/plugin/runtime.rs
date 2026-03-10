@@ -16,6 +16,29 @@ use crate::params::ndarray_driver::NDArrayDriverParams;
 use super::channel::{ndarray_channel, NDArrayOutput, NDArrayReceiver, NDArraySender};
 use super::params::PluginBaseParams;
 
+/// Value sent through the param change channel from control plane to data plane.
+#[derive(Debug, Clone, Copy)]
+pub enum ParamChangeValue {
+    Int32(i32),
+    Float64(f64),
+}
+
+impl ParamChangeValue {
+    pub fn as_i32(&self) -> i32 {
+        match self {
+            ParamChangeValue::Int32(v) => *v,
+            ParamChangeValue::Float64(v) => *v as i32,
+        }
+    }
+
+    pub fn as_f64(&self) -> f64 {
+        match self {
+            ParamChangeValue::Int32(v) => *v as f64,
+            ParamChangeValue::Float64(v) => *v,
+        }
+    }
+}
+
 /// A single parameter update produced by a plugin's process_array.
 pub enum ParamUpdate {
     Int32(usize, i32),
@@ -65,6 +88,10 @@ pub trait NDPluginProcess: Send + 'static {
 /// Read-only snapshot of param values available to the processing thread.
 pub struct PluginParamSnapshot {
     pub enable_callbacks: bool,
+    /// The param reason that changed.
+    pub reason: usize,
+    /// The new value.
+    pub value: ParamChangeValue,
 }
 
 /// PortDriver implementation for a plugin's control plane.
@@ -73,7 +100,7 @@ pub struct PluginPortDriver {
     base: PortDriverBase,
     ndarray_params: NDArrayDriverParams,
     plugin_params: PluginBaseParams,
-    param_change_tx: tokio::sync::mpsc::Sender<usize>,
+    param_change_tx: tokio::sync::mpsc::Sender<(usize, ParamChangeValue)>,
 }
 
 impl PluginPortDriver {
@@ -82,7 +109,7 @@ impl PluginPortDriver {
         plugin_type_name: &str,
         queue_size: usize,
         ndarray_port: &str,
-        param_change_tx: tokio::sync::mpsc::Sender<usize>,
+        param_change_tx: tokio::sync::mpsc::Sender<(usize, ParamChangeValue)>,
         processor: &mut P,
     ) -> AsynResult<Self> {
         let mut base = PortDriverBase::new(
@@ -137,7 +164,7 @@ impl PortDriver for PluginPortDriver {
         let reason = user.reason;
         self.base.set_int32_param(reason, 0, value)?;
         self.base.call_param_callbacks(0)?;
-        let _ = self.param_change_tx.try_send(reason);
+        let _ = self.param_change_tx.try_send((reason, ParamChangeValue::Int32(value)));
         Ok(())
     }
 
@@ -145,7 +172,7 @@ impl PortDriver for PluginPortDriver {
         let reason = user.reason;
         self.base.set_float64_param(reason, 0, value)?;
         self.base.call_param_callbacks(0)?;
-        let _ = self.param_change_tx.try_send(reason);
+        let _ = self.param_change_tx.try_send((reason, ParamChangeValue::Float64(value)));
         Ok(())
     }
 }
@@ -188,7 +215,7 @@ pub fn create_plugin_runtime<P: NDPluginProcess>(
     ndarray_port: &str,
 ) -> (PluginRuntimeHandle, thread::JoinHandle<()>) {
     // Param change channel (control plane -> data plane)
-    let (param_tx, param_rx) = tokio::sync::mpsc::channel::<usize>(64);
+    let (param_tx, param_rx) = tokio::sync::mpsc::channel::<(usize, ParamChangeValue)>(64);
 
     // Capture plugin type before mutable borrow
     let plugin_type_name = processor.plugin_type().to_string();
@@ -227,6 +254,7 @@ pub fn create_plugin_runtime<P: NDPluginProcess>(
                 pool,
                 enable_callbacks_reason,
                 ndarray_params,
+                plugin_params,
                 port_handle,
             );
         })
@@ -246,11 +274,12 @@ pub fn create_plugin_runtime<P: NDPluginProcess>(
 fn plugin_data_loop<P: NDPluginProcess>(
     mut processor: P,
     mut array_rx: NDArrayReceiver,
-    mut param_rx: tokio::sync::mpsc::Receiver<usize>,
+    mut param_rx: tokio::sync::mpsc::Receiver<(usize, ParamChangeValue)>,
     array_output: Arc<parking_lot::Mutex<NDArrayOutput>>,
     pool: Arc<NDArrayPool>,
     enable_callbacks_reason: usize,
     ndarray_params: NDArrayDriverParams,
+    plugin_params: PluginBaseParams,
     port_handle: PortHandle,
 ) {
     let enabled = true;
@@ -260,9 +289,11 @@ fn plugin_data_loop<P: NDPluginProcess>(
         match array_rx.blocking_recv() {
             Some(array) => {
                 // Drain pending param changes
-                while let Ok(reason) = param_rx.try_recv() {
+                while let Ok((reason, value)) = param_rx.try_recv() {
                     let snapshot = PluginParamSnapshot {
                         enable_callbacks: enabled,
+                        reason,
+                        value,
                     };
                     if reason == enable_callbacks_reason {
                         // We can't read from port handle here easily,
@@ -275,7 +306,9 @@ fn plugin_data_loop<P: NDPluginProcess>(
                     continue;
                 }
 
+                let t0 = std::time::Instant::now();
                 let result = processor.process_array(&array, &pool);
+                let elapsed_ms = t0.elapsed().as_secs_f64() * 1000.0;
 
                 // Publish output arrays to downstream plugins
                 let output = array_output.lock();
@@ -295,6 +328,15 @@ fn plugin_data_loop<P: NDPluginProcess>(
                 port_handle.write_int32_no_wait(ndarray_params.array_size_y, 0, info.y_size as i32);
                 port_handle.write_int32_no_wait(ndarray_params.data_type, 0, array.data.data_type() as i32);
                 port_handle.write_int32_no_wait(ndarray_params.color_mode, 0, color_mode);
+
+                // Publish timestamp from array
+                let ts_f64 = array.timestamp.as_f64();
+                port_handle.write_float64_no_wait(ndarray_params.timestamp_rbv, 0, ts_f64);
+                port_handle.write_int32_no_wait(ndarray_params.epics_ts_sec, 0, array.timestamp.sec as i32);
+                port_handle.write_int32_no_wait(ndarray_params.epics_ts_nsec, 0, array.timestamp.nsec as i32);
+
+                // Publish execution time (ms)
+                port_handle.write_float64_no_wait(plugin_params.execution_time, 0, elapsed_ms);
 
                 // Write plugin-specific param updates
                 for update in &result.param_updates {
@@ -336,7 +378,7 @@ pub fn create_plugin_runtime_with_output<P: NDPluginProcess>(
     output: NDArrayOutput,
     ndarray_port: &str,
 ) -> (PluginRuntimeHandle, thread::JoinHandle<()>) {
-    let (param_tx, param_rx) = tokio::sync::mpsc::channel::<usize>(64);
+    let (param_tx, param_rx) = tokio::sync::mpsc::channel::<(usize, ParamChangeValue)>(64);
 
     let plugin_type_name = processor.plugin_type().to_string();
     let driver = PluginPortDriver::new(port_name, &plugin_type_name, queue_size, ndarray_port, param_tx, &mut processor)
@@ -366,6 +408,7 @@ pub fn create_plugin_runtime_with_output<P: NDPluginProcess>(
                 pool,
                 enable_callbacks_reason,
                 ndarray_params,
+                plugin_params,
                 port_handle,
             );
         })

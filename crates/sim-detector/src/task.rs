@@ -227,6 +227,9 @@ fn acquisition_loop(
             // Only doCallbacksGenericPointer (publish) is gated by array_callbacks.
             port_handle.write_int32_no_wait(ad.base.array_counter, 0, array_counter);
             port_handle.write_int32_no_wait(ad.num_images_counter, 0, num_counter);
+            port_handle.write_float64_no_wait(ad.base.timestamp_rbv, 0, frame.timestamp.as_f64());
+            port_handle.write_int32_no_wait(ad.base.epics_ts_sec, 0, frame.timestamp.sec as i32);
+            port_handle.write_int32_no_wait(ad.base.epics_ts_nsec, 0, frame.timestamp.nsec as i32);
             let _ = port_handle.call_param_callbacks_blocking(0);
 
             if config.array_callbacks {
