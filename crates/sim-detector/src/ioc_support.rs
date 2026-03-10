@@ -356,7 +356,8 @@ impl SimDeviceSupport {
             drv_info: String::new(),
         };
         Self {
-            inner: AsynDeviceSupport::from_handle(handle, link, "asynInt32"),
+            inner: AsynDeviceSupport::from_handle(handle, link, "asynInt32")
+                .with_initial_readback(),
             registry,
         }
     }

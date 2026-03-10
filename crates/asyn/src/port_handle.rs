@@ -389,6 +389,20 @@ impl PortHandle {
         self.submit_blocking(RequestOp::CallParamCallbacks { addr }, user)?;
         Ok(())
     }
+
+    /// Send a write request without waiting for the reply.
+    /// The actor still processes it in FIFO order, so a subsequent blocking
+    /// call (e.g. call_param_callbacks_blocking) guarantees prior writes are done.
+    pub fn submit_no_wait(&self, op: RequestOp, user: AsynUser) {
+        let (reply_tx, _reply_rx) = oneshot::channel();
+        let msg = ActorMessage::new(op, user, CancelToken::new(), reply_tx);
+        let _ = self.tx.blocking_send(msg);
+    }
+
+    pub fn write_int32_no_wait(&self, reason: usize, addr: i32, value: i32) {
+        let user = AsynUser::new(reason).with_addr(addr);
+        self.submit_no_wait(RequestOp::Int32Write { value }, user);
+    }
 }
 
 #[cfg(test)]

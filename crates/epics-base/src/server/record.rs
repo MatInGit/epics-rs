@@ -1243,9 +1243,9 @@ impl RecordInstance {
                 let mon_snap = self.make_monitor_snapshot(value.clone());
                 for sub in subs {
                     let sub_mask = EventMask::from_bits(sub.mask);
-                    // If snapshot has no mask info (legacy path), always send.
-                    // Otherwise filter by mask intersection.
-                    if posting_mask.is_empty() || sub_mask.intersects(posting_mask) {
+                    // Only send when posting mask intersects subscriber mask.
+                    // Empty posting mask means nothing changed — skip.
+                    if !posting_mask.is_empty() && sub_mask.intersects(posting_mask) {
                         let _ = sub.tx.try_send(MonitorEvent {
                             snapshot: mon_snap.clone(),
                         });

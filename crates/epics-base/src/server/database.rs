@@ -957,22 +957,27 @@ impl PvDatabase {
                 event_mask |= EventMask::ALARM;
             }
 
-            // Build snapshot
+            // Build snapshot — only include fields when something actually triggered
             let mut changed_fields = Vec::new();
             if include_val {
                 if let Some(val) = instance.record.val() {
                     changed_fields.push(("VAL".to_string(), val));
                 }
-            }
-            changed_fields.push(("SEVR".to_string(), EpicsValue::Short(instance.common.sevr as i16)));
-            changed_fields.push(("STAT".to_string(), EpicsValue::Short(instance.common.stat as i16)));
-            changed_fields.push(("UDF".to_string(), EpicsValue::Char(if instance.common.udf { 1 } else { 0 })));
-            for (field, subs) in &instance.subscribers {
-                if !subs.is_empty() && field != "VAL" && field != "SEVR" && field != "STAT" && field != "UDF" {
-                    if let Some(val) = instance.resolve_field(field) {
-                        changed_fields.push((field.clone(), val));
+                // Include other subscribed fields only when value changes
+                for (field, subs) in &instance.subscribers {
+                    if !subs.is_empty() && field != "VAL" && field != "SEVR" && field != "STAT" && field != "UDF" {
+                        if let Some(val) = instance.resolve_field(field) {
+                            changed_fields.push((field.clone(), val));
+                        }
                     }
                 }
+            }
+            if alarm_result.alarm_changed {
+                changed_fields.push(("SEVR".to_string(), EpicsValue::Short(instance.common.sevr as i16)));
+                changed_fields.push(("STAT".to_string(), EpicsValue::Short(instance.common.stat as i16)));
+            }
+            if !event_mask.is_empty() {
+                changed_fields.push(("UDF".to_string(), EpicsValue::Char(if instance.common.udf { 1 } else { 0 })));
             }
             let snapshot = super::record::ProcessSnapshot { changed_fields, event_mask };
 

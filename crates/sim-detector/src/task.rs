@@ -104,12 +104,32 @@ impl TaskState {
 }
 
 /// Check if a Stop command has been received within the given duration.
+/// Uses spin + try_recv for short delays to avoid macOS recv_timeout oversleep.
 fn wait_for_stop(acq_rx: &std::sync::mpsc::Receiver<AcqCommand>, duration: Duration) -> bool {
-    match acq_rx.recv_timeout(duration) {
-        Ok(AcqCommand::Stop) => true,
-        Ok(AcqCommand::Start) => false, // stale start, ignore
-        Err(std::sync::mpsc::RecvTimeoutError::Timeout) => false,
-        Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => true,
+    let deadline = Instant::now() + duration;
+
+    if duration.as_millis() < 10 {
+        // Short delay: spin with try_recv to avoid macOS timer resolution issues
+        loop {
+            match acq_rx.try_recv() {
+                Ok(AcqCommand::Stop) => return true,
+                Ok(AcqCommand::Start) => {} // stale start, ignore
+                Err(std::sync::mpsc::TryRecvError::Disconnected) => return true,
+                Err(std::sync::mpsc::TryRecvError::Empty) => {}
+            }
+            if Instant::now() >= deadline {
+                return false;
+            }
+            std::hint::spin_loop();
+        }
+    } else {
+        // Longer delay: use recv_timeout
+        match acq_rx.recv_timeout(duration) {
+            Ok(AcqCommand::Stop) => true,
+            Ok(AcqCommand::Start) => false,
+            Err(std::sync::mpsc::RecvTimeoutError::Timeout) => false,
+            Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => true,
+        }
     }
 }
 
@@ -158,19 +178,28 @@ fn acquisition_loop(
         let _ = port_handle.write_int32_blocking(ad.acquire_busy, 0, 1);
 
         let mut num_counter = 0;
+        let mut array_counter = port_handle.read_int32_blocking(ad.base.array_counter, 0).unwrap_or(0);
+
+        // Read initial config
+        let mut config = match SimConfigSnapshot::read_via_handle(&port_handle, &ad, &sim) {
+            Ok(cfg) => cfg,
+            Err(_) => continue,
+        };
 
         loop {
             let start_time = Instant::now();
 
-            // Read config via PortHandle
-            let config = match SimConfigSnapshot::read_via_handle(&port_handle, &ad, &sim) {
-                Ok(cfg) => cfg,
-                Err(_) => break,
-            };
-
             // Take dirty flags (shared with driver)
             let dirty_flags = dirty.lock().take();
             let reset = dirty_flags.any();
+
+            // Only re-read config when parameters changed
+            if reset {
+                config = match SimConfigSnapshot::read_via_handle(&port_handle, &ad, &sim) {
+                    Ok(cfg) => cfg,
+                    Err(_) => break,
+                };
+            }
             task_state.apply_dirty(&dirty_flags, &config);
 
             let mut frame = task_state.compute_frame(&config, reset);
@@ -186,21 +215,22 @@ fn acquisition_loop(
                 let _ = port_handle.call_param_callbacks_blocking(0);
                 break;
             }
-
-            // Update counters
+            // Update counters (local to avoid blocking round-trips)
             num_counter += 1;
-            let counter = port_handle.read_int32_blocking(ad.base.array_counter, 0).unwrap_or(0);
+            array_counter += 1;
 
-            frame.unique_id = counter + 1;
+            frame.unique_id = array_counter;
             frame.timestamp = ad_core::timestamp::EpicsTimestamp::now();
 
-            // Publish via NDArrayOutput (updates array_counter via the output path)
-            // We need to update array_counter on the driver too
-            let _ = port_handle.write_int32_blocking(ad.base.array_counter, 0, counter + 1);
-            let _ = port_handle.write_int32_blocking(ad.num_images_counter, 0, num_counter);
+            // Counter updates + callParamCallbacks always run (like C EPICS).
+            // Only doCallbacksGenericPointer (publish) is gated by array_callbacks.
+            port_handle.write_int32_no_wait(ad.base.array_counter, 0, array_counter);
+            port_handle.write_int32_no_wait(ad.num_images_counter, 0, num_counter);
             let _ = port_handle.call_param_callbacks_blocking(0);
 
-            array_output.lock().publish(Arc::new(frame));
+            if config.array_callbacks {
+                array_output.lock().publish(Arc::new(frame));
+            }
 
             // Check stop conditions
             let image_mode = config.image_mode;

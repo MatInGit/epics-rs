@@ -264,7 +264,11 @@ async fn wire_device_support(
                 };
                 if let Some(mut dev) = dev_opt {
                     dev.set_record_info(&name, instance.common.scan);
-                    let _ = dev.init(&mut *instance.record);
+                    let init_ok = dev.init(&mut *instance.record).is_ok();
+                    // Clear UDF if init successfully set a value (e.g. initial readback)
+                    if init_ok && instance.record.val().is_some() {
+                        instance.common.udf = false;
+                    }
                     instance.device = Some(dev);
                     count += 1;
                 } else {

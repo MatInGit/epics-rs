@@ -112,7 +112,8 @@ impl PluginDeviceSupport {
             drv_info: String::new(),
         };
         Self {
-            inner: AsynDeviceSupport::from_handle(handle, link, "asynInt32"),
+            inner: AsynDeviceSupport::from_handle(handle, link, "asynInt32")
+                .with_initial_readback(),
             registry,
             dtyp_name: dtyp_name.to_string(),
             mapped: false,

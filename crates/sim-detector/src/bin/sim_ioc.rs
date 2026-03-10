@@ -290,10 +290,10 @@ async fn main() -> CaResult<()> {
     // Computed from CARGO_MANIFEST_DIR at compile time so they work regardless of CWD
     // External env vars take priority; only set defaults for development
     if std::env::var_os("ADCORE").is_none() {
-        unsafe { std::env::set_var("ADCORE", concat!(env!("CARGO_MANIFEST_DIR"), "/../../ADCore")) };
+        unsafe { std::env::set_var("ADCORE", concat!(env!("CARGO_MANIFEST_DIR"), "/../ad-core")) };
     }
     if std::env::var_os("ADSIMDETECTOR").is_none() {
-        unsafe { std::env::set_var("ADSIMDETECTOR", concat!(env!("CARGO_MANIFEST_DIR"), "/../../ADSimDetector")) };
+        unsafe { std::env::set_var("ADSIMDETECTOR", env!("CARGO_MANIFEST_DIR")) };
     }
 
     let script = if args.len() > 1 && !args[1].starts_with('-') {
@@ -304,7 +304,7 @@ async fn main() -> CaResult<()> {
         eprintln!("The st.cmd script should contain:");
         eprintln!(r#"  epicsEnvSet("PREFIX", "SIM1:")"#);
         eprintln!(r#"  simDetectorConfig("SIM1", 256, 256, 50000000)"#);
-        eprintln!(r#"  dbLoadRecords("$(ADSIMDETECTOR)/simDetectorApp/Db/simDetector.template", "P=$(PREFIX),R=cam1:,PORT=SIM1,DTYP=asynSimDetector")"#);
+        eprintln!(r#"  dbLoadRecords("$(ADSIMDETECTOR)/db/simDetector.template", "P=$(PREFIX),R=cam1:,PORT=SIM1,DTYP=asynSimDetector")"#);
         std::process::exit(1);
     };
 

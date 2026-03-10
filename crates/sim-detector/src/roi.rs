@@ -20,10 +20,16 @@ pub fn crop_roi(
     };
     let dims = dst_layout.make_dims();
     let data_type = source_data.data_type();
-    let num_elements = dst_layout.num_elements();
 
     let mut result = NDArray::new(dims, data_type);
 
+    // Fast path: full-frame copy (no actual crop needed)
+    if min_x == 0 && min_y == 0 && size_x == src_layout.size_x && size_y == src_layout.size_y {
+        result.data = source_data.clone();
+        return result;
+    }
+
+    let num_elements = dst_layout.num_elements();
     with_buffer!(source_data, |src_v| {
         let mut dst_data = NDDataBuffer::zeros(data_type, num_elements);
         crate::pixel_cast::with_buffer_mut!(&mut dst_data, |dst_v| {
