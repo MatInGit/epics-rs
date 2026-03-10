@@ -17,6 +17,32 @@ pub fn parse_pv_name(name: &str) -> (&str, &str) {
     }
 }
 
+/// Apply timestamp to a record based on its TSE field.
+/// `is_soft` indicates a Soft Channel device type.
+fn apply_timestamp(common: &mut super::record::CommonFields, is_soft: bool) {
+    match common.tse {
+        0 => {
+            // System time (default behavior)
+            if is_soft || common.time == std::time::SystemTime::UNIX_EPOCH {
+                common.time = crate::runtime::time::now_wall();
+            }
+        }
+        -1 => {
+            // Device-provided time; fallback to system time if not set
+            if common.time == std::time::SystemTime::UNIX_EPOCH {
+                common.time = crate::runtime::time::now_wall();
+            }
+        }
+        -2 => {
+            // Keep TIME field as-is
+        }
+        _ => {
+            // generalTime (not implemented), fallback to system time
+            common.time = crate::runtime::time::now_wall();
+        }
+    }
+}
+
 /// Unified entry in the PV database.
 pub enum PvEntry {
     Simple(Arc<ProcessVariable>),
@@ -235,6 +261,7 @@ impl PvDatabase {
             match field.as_str() {
                 "PACT" => return Err(CaError::ReadOnlyField("PACT".into())),
                 "LCNT" => return Err(CaError::ReadOnlyField("LCNT".into())),
+                "PUTF" => return Err(CaError::ReadOnlyField("PUTF".into())),
                 _ => {}
             }
 
@@ -265,6 +292,7 @@ impl PvDatabase {
         // Normal field put (write lock)
         let (common_result, scan) = {
             let mut instance = rec.write().await;
+            instance.common.putf = true;
 
             // Coerce value to the field's native DBR type (e.g. String → Double for ao.VAL).
             // This matches C EPICS db_put_field() which converts from the CA client's type
@@ -291,8 +319,13 @@ impl PvDatabase {
                 Err(CaError::FieldNotFound(_)) => {
                     instance.put_common_field(&field, value)?
                 }
-                Err(e) => return Err(e),
+                Err(e) => {
+                    instance.common.putf = false;
+                    return Err(e);
+                }
             };
+
+            instance.common.putf = false;
 
             instance.cleanup_subscribers();
             // For non-Passive, notify immediately; Passive will notify after process
@@ -668,6 +701,26 @@ impl PvDatabase {
             }
         }
 
+        // 0.3. TSEL link: read TSE value from another record
+        {
+            let tsel_link = {
+                let instance = rec.read().await;
+                instance.parsed_tsel.clone()
+            };
+            if let super::record::ParsedLink::Db(ref link) = tsel_link {
+                let pv_name = if link.field == "VAL" {
+                    link.record.clone()
+                } else {
+                    format!("{}.{}", link.record, link.field)
+                };
+                if let Ok(val) = self.get_pv(&pv_name).await {
+                    let tse_val = val.to_f64().unwrap_or(0.0) as i16;
+                    let mut instance = rec.write().await;
+                    instance.common.tse = tse_val;
+                }
+            }
+        }
+
         // 0.5. Simulation mode check
         let sim_result = self.check_simulation_mode(&rec).await;
         if let Some(sim_handled) = sim_result {
@@ -842,10 +895,8 @@ impl PvDatabase {
             // Transfer nsta/nsev → sevr/stat, detect alarm change
             let alarm_result = crate::server::recgbl::rec_gbl_reset_alarms(&mut instance.common);
 
-            // Device support may have set timestamp; if not, use now
-            if is_soft || instance.common.time == std::time::SystemTime::UNIX_EPOCH {
-                instance.common.time = crate::runtime::time::now_wall();
-            }
+            // Apply timestamp based on TSE
+            apply_timestamp(&mut instance.common, is_soft);
             if instance.record.clears_udf() {
                 instance.common.udf = false;
             }
@@ -1054,6 +1105,23 @@ impl PvDatabase {
             }
         }
 
+        // 7. RPRO: if reprocess requested, clear flag and reprocess
+        {
+            let needs_rpro = {
+                let mut instance = rec.write().await;
+                if instance.common.rpro {
+                    instance.common.rpro = false;
+                    true
+                } else {
+                    false
+                }
+            };
+            if needs_rpro {
+                visited.remove(name);
+                let _ = self.process_record_with_links(name, visited, depth + 1).await;
+            }
+        }
+
         Ok(())
     }
 
@@ -1110,9 +1178,7 @@ impl PvDatabase {
 
             let alarm_result = crate::server::recgbl::rec_gbl_reset_alarms(&mut instance.common);
 
-            if is_soft || instance.common.time == std::time::SystemTime::UNIX_EPOCH {
-                instance.common.time = crate::runtime::time::now_wall();
-            }
+            apply_timestamp(&mut instance.common, is_soft);
             if instance.record.clears_udf() {
                 instance.common.udf = false;
             }
@@ -1345,7 +1411,7 @@ impl PvDatabase {
                 if let Ok(siol_val) = self.get_pv(&pv_name).await {
                     let mut instance = rec.write().await;
                     let _ = instance.record.set_val(siol_val);
-                    instance.common.time = crate::runtime::time::now_wall();
+                    apply_timestamp(&mut instance.common, true);
                     instance.common.udf = false;
 
                     // Set simulation alarm
@@ -1379,7 +1445,7 @@ impl PvDatabase {
                 }
 
                 let mut instance = rec.write().await;
-                instance.common.time = crate::runtime::time::now_wall();
+                apply_timestamp(&mut instance.common, true);
                 instance.common.udf = false;
 
                 let sev = super::record::AlarmSeverity::from_u16(sims as u16);
@@ -1506,6 +1572,16 @@ impl PvDatabase {
                                     links_to_register.push((db.record.clone(), target_name.clone()));
                                 }
                             }
+                        }
+                    }
+                }
+                // Check TSEL in common fields
+                let tsel_str = &instance.common.tsel;
+                if !tsel_str.is_empty() {
+                    let parsed = super::record::parse_link_v2(tsel_str);
+                    if let super::record::ParsedLink::Db(ref db) = parsed {
+                        if db.policy == super::record::LinkProcessPolicy::ChannelProcess {
+                            links_to_register.push((db.record.clone(), target_name.clone()));
                         }
                     }
                 }
@@ -2768,5 +2844,192 @@ mod tests {
 
         let targets = db.get_cp_targets("DISABLE_SRC").await;
         assert_eq!(targets, vec!["GUARDED"]);
+    }
+
+    #[tokio::test]
+    async fn test_tse_minus1_preserves_device_timestamp() {
+        let db = PvDatabase::new();
+        db.add_record("REC", Box::new(AoRecord::new(0.0))).await;
+
+        // Set TSE=-1 and a device timestamp
+        let device_time = std::time::SystemTime::UNIX_EPOCH + std::time::Duration::from_secs(1234567);
+        if let Some(rec) = db.get_record("REC").await {
+            let mut inst = rec.write().await;
+            inst.common.tse = -1;
+            inst.common.time = device_time;
+        }
+
+        let mut visited = HashSet::new();
+        db.process_record_with_links("REC", &mut visited, 0).await.unwrap();
+
+        // TSE=-1: device timestamp should be preserved (not overwritten)
+        let rec = db.get_record("REC").await.unwrap();
+        let inst = rec.read().await;
+        assert_eq!(inst.common.time, device_time);
+    }
+
+    #[tokio::test]
+    async fn test_tse_minus2_keeps_time_unchanged() {
+        let db = PvDatabase::new();
+        db.add_record("REC", Box::new(AoRecord::new(0.0))).await;
+
+        let fixed_time = std::time::SystemTime::UNIX_EPOCH + std::time::Duration::from_secs(999);
+        if let Some(rec) = db.get_record("REC").await {
+            let mut inst = rec.write().await;
+            inst.common.tse = -2;
+            inst.common.time = fixed_time;
+        }
+
+        let mut visited = HashSet::new();
+        db.process_record_with_links("REC", &mut visited, 0).await.unwrap();
+
+        let rec = db.get_record("REC").await.unwrap();
+        let inst = rec.read().await;
+        assert_eq!(inst.common.time, fixed_time);
+    }
+
+    #[tokio::test]
+    async fn test_putf_read_only_from_ca() {
+        let db = PvDatabase::new();
+        db.add_record("REC", Box::new(AoRecord::new(0.0))).await;
+
+        let result = db.put_record_field_from_ca("REC", "PUTF", EpicsValue::Char(1)).await;
+        assert!(result.is_err());
+    }
+
+    #[tokio::test]
+    async fn test_rpro_causes_reprocessing() {
+        let db = PvDatabase::new();
+        db.add_record("SRC", Box::new(AoRecord::new(10.0))).await;
+        db.add_record("DEST", Box::new(AiRecord::new(0.0))).await;
+
+        // DEST reads from SRC
+        if let Some(rec) = db.get_record("DEST").await {
+            let mut inst = rec.write().await;
+            inst.put_common_field("INP", EpicsValue::String("SRC".into())).unwrap();
+        }
+
+        // Process DEST, it reads SRC=10
+        let mut visited = HashSet::new();
+        db.process_record_with_links("DEST", &mut visited, 0).await.unwrap();
+        let val = db.get_pv("DEST").await.unwrap();
+        assert_eq!(val.to_f64().unwrap() as i64, 10);
+
+        // Now change SRC and set RPRO on DEST
+        db.put_pv_no_process("SRC", EpicsValue::Double(20.0)).await.unwrap();
+        if let Some(rec) = db.get_record("DEST").await {
+            let mut inst = rec.write().await;
+            inst.common.rpro = true;
+        }
+
+        let mut visited = HashSet::new();
+        db.process_record_with_links("DEST", &mut visited, 0).await.unwrap();
+
+        // After RPRO, DEST should have re-read SRC=20
+        let val = db.get_pv("DEST").await.unwrap();
+        assert_eq!(val.to_f64().unwrap() as i64, 20);
+
+        // RPRO should be cleared
+        let rec = db.get_record("DEST").await.unwrap();
+        let inst = rec.read().await;
+        assert!(!inst.common.rpro);
+    }
+
+    #[tokio::test]
+    async fn test_tsel_cp_link_registration() {
+        let db = PvDatabase::new();
+        db.add_record("TSE_SRC", Box::new(AoRecord::new(0.0))).await;
+        db.add_record("TARGET", Box::new(AiRecord::new(0.0))).await;
+
+        if let Some(rec_arc) = db.get_record("TARGET").await {
+            let mut inst = rec_arc.write().await;
+            inst.common.tsel = "TSE_SRC CP".to_string();
+            inst.parsed_tsel = crate::server::record::parse_link_v2(&inst.common.tsel);
+        }
+
+        db.setup_cp_links().await;
+
+        let targets = db.get_cp_targets("TSE_SRC").await;
+        assert_eq!(targets, vec!["TARGET"]);
+    }
+
+    #[tokio::test]
+    async fn test_new_common_fields_get_put() {
+        let db = PvDatabase::new();
+        db.add_record("REC", Box::new(AoRecord::new(0.0))).await;
+
+        let rec = db.get_record("REC").await.unwrap();
+
+        // UDFS default = Invalid (3)
+        {
+            let inst = rec.read().await;
+            assert_eq!(inst.get_common_field("UDFS"), Some(EpicsValue::Short(3)));
+        }
+        // Set UDFS = Minor (1)
+        {
+            let mut inst = rec.write().await;
+            inst.put_common_field("UDFS", EpicsValue::Short(1)).unwrap();
+        }
+        {
+            let inst = rec.read().await;
+            assert_eq!(inst.get_common_field("UDFS"), Some(EpicsValue::Short(1)));
+        }
+
+        // SSCN default = Passive (0)
+        {
+            let inst = rec.read().await;
+            assert_eq!(inst.get_common_field("SSCN"), Some(EpicsValue::Enum(0)));
+        }
+
+        // BKPT default = 0
+        {
+            let inst = rec.read().await;
+            assert_eq!(inst.get_common_field("BKPT"), Some(EpicsValue::Char(0)));
+        }
+        {
+            let mut inst = rec.write().await;
+            inst.put_common_field("BKPT", EpicsValue::Char(1)).unwrap();
+        }
+        {
+            let inst = rec.read().await;
+            assert_eq!(inst.get_common_field("BKPT"), Some(EpicsValue::Char(1)));
+        }
+
+        // TSE default = 0
+        {
+            let inst = rec.read().await;
+            assert_eq!(inst.get_common_field("TSE"), Some(EpicsValue::Short(0)));
+        }
+
+        // TSEL default = ""
+        {
+            let inst = rec.read().await;
+            assert_eq!(inst.get_common_field("TSEL"), Some(EpicsValue::String(String::new())));
+        }
+
+        // PUTF default = 0, read-only
+        {
+            let inst = rec.read().await;
+            assert_eq!(inst.get_common_field("PUTF"), Some(EpicsValue::Char(0)));
+        }
+        {
+            let mut inst = rec.write().await;
+            let result = inst.put_common_field("PUTF", EpicsValue::Char(1));
+            assert!(result.is_err());
+        }
+
+        // RPRO default = false
+        {
+            let inst = rec.read().await;
+            assert_eq!(inst.get_common_field("RPRO"), Some(EpicsValue::Char(0)));
+        }
+        {
+            let mut inst = rec.write().await;
+            inst.put_common_field("RPRO", EpicsValue::Char(1)).unwrap();
+        }
+        {
+            let inst = rec.read().await;
+            assert_eq!(inst.get_common_field("RPRO"), Some(EpicsValue::Char(1)));
+        }
     }
 }

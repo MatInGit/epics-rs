@@ -114,10 +114,10 @@ pub fn rec_gbl_reset_alarms(common: &mut CommonFields) -> AlarmResetResult {
     }
 }
 
-/// Check UDF alarm: if record is still undefined, raise UDF_ALARM.
+/// Check UDF alarm: if record is still undefined, raise UDF_ALARM with UDFS severity.
 pub fn rec_gbl_check_udf(common: &mut CommonFields) {
     if common.udf {
-        rec_gbl_set_sevr(common, alarm_status::UDF_ALARM, AlarmSeverity::Invalid);
+        rec_gbl_set_sevr(common, alarm_status::UDF_ALARM, common.udfs);
     }
 }
 
@@ -188,6 +188,22 @@ mod tests {
         rec_gbl_check_udf(&mut common);
         assert_eq!(common.nsev, AlarmSeverity::Invalid);
         assert_eq!(common.nsta, alarm_status::UDF_ALARM);
+    }
+
+    #[test]
+    fn test_check_udf_uses_udfs() {
+        let mut common = CommonFields::default();
+        assert!(common.udf);
+        common.udfs = AlarmSeverity::Minor;
+        rec_gbl_check_udf(&mut common);
+        assert_eq!(common.nsev, AlarmSeverity::Minor);
+        assert_eq!(common.nsta, alarm_status::UDF_ALARM);
+    }
+
+    #[test]
+    fn test_check_udf_default_udfs_is_invalid() {
+        let common = CommonFields::default();
+        assert_eq!(common.udfs, AlarmSeverity::Invalid);
     }
 
     #[test]

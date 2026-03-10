@@ -181,10 +181,13 @@ pub struct CommonFields {
     pub acks: AlarmSeverity,
     pub ackt: bool,
     pub udf: bool,
+    pub udfs: AlarmSeverity,
     // Scan
     pub scan: ScanType,
+    pub sscn: ScanType,
     pub pini: bool,
     pub tpro: bool,
+    pub bkpt: u8,
     // Links (raw strings)
     pub flnk: String,
     pub inp: String,
@@ -193,6 +196,8 @@ pub struct CommonFields {
     pub dtyp: String,
     // Timestamp
     pub time: SystemTime,
+    pub tse: i16,
+    pub tsel: String,
     // Analog alarm config (Some for analog record types)
     pub analog_alarm: Option<AnalogAlarmConfig>,
     // Access security group
@@ -214,6 +219,9 @@ pub struct CommonFields {
     pub lcnt: i16,
     // Disable putfield from CA (default false)
     pub disp: bool,
+    // Process control
+    pub putf: bool,
+    pub rpro: bool,
 }
 
 impl Default for CommonFields {
@@ -226,14 +234,19 @@ impl Default for CommonFields {
             acks: AlarmSeverity::NoAlarm,
             ackt: true,
             udf: true,
+            udfs: AlarmSeverity::Invalid,
             scan: ScanType::Passive,
+            sscn: ScanType::Passive,
             pini: false,
             tpro: false,
+            bkpt: 0,
             flnk: String::new(),
             inp: String::new(),
             out: String::new(),
             dtyp: String::new(),
             time: SystemTime::UNIX_EPOCH,
+            tse: 0,
+            tsel: String::new(),
             analog_alarm: None,
             asg: "DEFAULT".to_string(),
             desc: String::new(),
@@ -247,6 +260,8 @@ impl Default for CommonFields {
             hyst: 0.0,
             lcnt: 0,
             disp: false,
+            putf: false,
+            rpro: false,
         }
     }
 }
@@ -513,6 +528,7 @@ pub struct RecordInstance {
     pub parsed_out: ParsedLink,
     pub parsed_flnk: ParsedLink,
     pub parsed_sdis: ParsedLink,
+    pub parsed_tsel: ParsedLink,
     // Device support
     pub device: Option<Box<dyn super::device_support::DeviceSupport>>,
     // Subroutine (for sub records)
@@ -544,6 +560,7 @@ impl RecordInstance {
             parsed_out: ParsedLink::None,
             parsed_flnk: ParsedLink::None,
             parsed_sdis: ParsedLink::None,
+            parsed_tsel: ParsedLink::None,
             device: None,
             subroutine: None,
             processing: AtomicBool::new(false),
@@ -734,13 +751,18 @@ impl RecordInstance {
             "ACKS" => Some(EpicsValue::Short(self.common.acks as i16)),
             "ACKT" => Some(EpicsValue::Char(if self.common.ackt { 1 } else { 0 })),
             "UDF" => Some(EpicsValue::Char(if self.common.udf { 1 } else { 0 })),
+            "UDFS" => Some(EpicsValue::Short(self.common.udfs as i16)),
             "SCAN" => Some(EpicsValue::Enum(self.common.scan as u16)),
+            "SSCN" => Some(EpicsValue::Enum(self.common.sscn as u16)),
             "PINI" => Some(EpicsValue::Char(if self.common.pini { 1 } else { 0 })),
             "TPRO" => Some(EpicsValue::Char(if self.common.tpro { 1 } else { 0 })),
+            "BKPT" => Some(EpicsValue::Char(self.common.bkpt)),
             "FLNK" => Some(EpicsValue::String(self.common.flnk.clone())),
             "INP" => Some(EpicsValue::String(self.common.inp.clone())),
             "OUT" => Some(EpicsValue::String(self.common.out.clone())),
             "DTYP" => Some(EpicsValue::String(self.common.dtyp.clone())),
+            "TSE" => Some(EpicsValue::Short(self.common.tse)),
+            "TSEL" => Some(EpicsValue::String(self.common.tsel.clone())),
             "ASG" => Some(EpicsValue::String(self.common.asg.clone())),
             "DESC" => Some(EpicsValue::String(self.common.desc.clone())),
             "PHAS" => Some(EpicsValue::Short(self.common.phas)),
@@ -753,6 +775,8 @@ impl RecordInstance {
             "HYST" => Some(EpicsValue::Double(self.common.hyst)),
             "LCNT" => Some(EpicsValue::Short(self.common.lcnt)),
             "DISP" => Some(EpicsValue::Char(if self.common.disp { 1 } else { 0 })),
+            "PUTF" => Some(EpicsValue::Char(if self.common.putf { 1 } else { 0 })),
+            "RPRO" => Some(EpicsValue::Char(if self.common.rpro { 1 } else { 0 })),
             "PACT" => Some(EpicsValue::Char(
                 if self.processing.load(std::sync::atomic::Ordering::Acquire) { 1 } else { 0 }
             )),
@@ -811,6 +835,11 @@ impl RecordInstance {
                     self.common.udf = v != 0;
                 }
             }
+            "UDFS" => {
+                if let EpicsValue::Short(v) = value {
+                    self.common.udfs = AlarmSeverity::from_u16(v as u16);
+                }
+            }
             "SCAN" => {
                 let old_scan = self.common.scan;
                 let new_scan = match &value {
@@ -827,6 +856,15 @@ impl RecordInstance {
                     return Ok(CommonFieldPutResult::ScanChanged { old_scan, new_scan, phas });
                 }
             }
+            "SSCN" => {
+                let new_sscn = match &value {
+                    EpicsValue::Short(v) => ScanType::from_u16(*v as u16),
+                    EpicsValue::Enum(v) => ScanType::from_u16(*v),
+                    EpicsValue::String(s) => ScanType::from_str(s)?,
+                    _ => return Ok(CommonFieldPutResult::NoChange),
+                };
+                self.common.sscn = new_sscn;
+            }
             "PINI" => {
                 if let EpicsValue::Char(v) = value {
                     self.common.pini = v != 0;
@@ -837,6 +875,11 @@ impl RecordInstance {
             "TPRO" => {
                 if let EpicsValue::Char(v) = value {
                     self.common.tpro = v != 0;
+                }
+            }
+            "BKPT" => {
+                if let EpicsValue::Char(v) = value {
+                    self.common.bkpt = v;
                 }
             }
             "FLNK" => {
@@ -860,6 +903,17 @@ impl RecordInstance {
             "DTYP" => {
                 if let EpicsValue::String(s) = value {
                     self.common.dtyp = s;
+                }
+            }
+            "TSE" => {
+                if let EpicsValue::Short(v) = value {
+                    self.common.tse = v;
+                }
+            }
+            "TSEL" => {
+                if let EpicsValue::String(s) = value {
+                    self.common.tsel = s;
+                    self.parsed_tsel = parse_link_v2(&self.common.tsel);
                 }
             }
             "ASG" => {
@@ -928,6 +982,12 @@ impl RecordInstance {
                     EpicsValue::Char(v) => self.common.disp = v != 0,
                     EpicsValue::Short(v) => self.common.disp = v != 0,
                     _ => {}
+                }
+            }
+            "PUTF" => return Err(CaError::ReadOnlyField("PUTF".into())),
+            "RPRO" => {
+                if let EpicsValue::Char(v) = value {
+                    self.common.rpro = v != 0;
                 }
             }
             "PACT" => return Err(CaError::ReadOnlyField("PACT".into())),
