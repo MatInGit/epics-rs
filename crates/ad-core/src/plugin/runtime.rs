@@ -45,6 +45,7 @@ impl PluginPortDriver {
         port_name: &str,
         plugin_type_name: &str,
         queue_size: usize,
+        ndarray_port: &str,
         param_change_tx: tokio::sync::mpsc::Sender<usize>,
     ) -> AsynResult<Self> {
         let mut base = PortDriverBase::new(
@@ -59,14 +60,20 @@ impl PluginPortDriver {
         let ndarray_params = NDArrayDriverParams::create(&mut base)?;
         let plugin_params = PluginBaseParams::create(&mut base)?;
 
-        // Set defaults
-        base.set_int32_param(plugin_params.enable_callbacks, 0, 1)?;
+        // Set defaults (EnableCallbacks=0 matches C default: Disable)
+        base.set_int32_param(plugin_params.enable_callbacks, 0, 0)?;
         base.set_int32_param(plugin_params.blocking_callbacks, 0, 0)?;
         base.set_int32_param(plugin_params.queue_size, 0, queue_size as i32)?;
         base.set_int32_param(plugin_params.dropped_arrays, 0, 0)?;
         base.set_int32_param(plugin_params.queue_use, 0, 0)?;
         base.set_string_param(plugin_params.plugin_type, 0, plugin_type_name.into())?;
         base.set_int32_param(ndarray_params.array_callbacks, 0, 1)?;
+
+        // Set plugin identity params
+        base.set_string_param(ndarray_params.port_name_self, 0, port_name.into())?;
+        if !ndarray_port.is_empty() {
+            base.set_string_param(plugin_params.nd_array_port, 0, ndarray_port.into())?;
+        }
 
         Ok(Self {
             base,
@@ -138,12 +145,13 @@ pub fn create_plugin_runtime<P: NDPluginProcess>(
     processor: P,
     pool: Arc<NDArrayPool>,
     queue_size: usize,
+    ndarray_port: &str,
 ) -> (PluginRuntimeHandle, thread::JoinHandle<()>) {
     // Param change channel (control plane -> data plane)
     let (param_tx, param_rx) = tokio::sync::mpsc::channel::<usize>(64);
 
     // Create the port driver for control plane
-    let driver = PluginPortDriver::new(port_name, processor.plugin_type(), queue_size, param_tx)
+    let driver = PluginPortDriver::new(port_name, processor.plugin_type(), queue_size, ndarray_port, param_tx)
         .expect("failed to create plugin port driver");
 
     let enable_callbacks_reason = driver.plugin_params.enable_callbacks;
@@ -245,10 +253,11 @@ pub fn create_plugin_runtime_with_output<P: NDPluginProcess>(
     pool: Arc<NDArrayPool>,
     queue_size: usize,
     output: NDArrayOutput,
+    ndarray_port: &str,
 ) -> (PluginRuntimeHandle, thread::JoinHandle<()>) {
     let (param_tx, param_rx) = tokio::sync::mpsc::channel::<usize>(64);
 
-    let driver = PluginPortDriver::new(port_name, processor.plugin_type(), queue_size, param_tx)
+    let driver = PluginPortDriver::new(port_name, processor.plugin_type(), queue_size, ndarray_port, param_tx)
         .expect("failed to create plugin port driver");
 
     let enable_callbacks_reason = driver.plugin_params.enable_callbacks;
@@ -341,6 +350,7 @@ mod tests {
             pool,
             10,
             output,
+            "",
         );
 
         // Send an array
@@ -360,6 +370,7 @@ mod tests {
             SinkProcessor { count: 0 },
             pool,
             10,
+            "",
         );
 
         // Send arrays - they should be consumed silently
@@ -382,6 +393,7 @@ mod tests {
             PassthroughProcessor,
             pool,
             10,
+            "",
         );
 
         // Verify port name
@@ -398,6 +410,7 @@ mod tests {
             PassthroughProcessor,
             pool,
             10,
+            "",
         );
 
         // Drop the handle (closes sender channel, which should cause data thread to exit)
@@ -435,6 +448,7 @@ mod tests {
             SlowProcessor,
             pool,
             1,
+            "",
         );
 
         // Fill the queue and overflow

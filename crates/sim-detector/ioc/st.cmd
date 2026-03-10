@@ -2,8 +2,8 @@
 #============================================================
 # st.cmd — SimDetector IOC startup script
 #
-# This is an iocsh script executed by sim_ioc, matching the
-# C++ ADSimDetector IOC startup structure.
+# Matches C++ ADSimDetector IOC startup structure with
+# commonPlugins.cmd include for plugin configuration.
 #
 # Usage:
 #   cargo run --bin sim_ioc --features ioc -- ioc/st.cmd
@@ -12,35 +12,26 @@
 # Environment
 epicsEnvSet("PREFIX", "SIM1:")
 epicsEnvSet("CAM",    "cam1:")
+epicsEnvSet("PORT",   "SIM1")
+epicsEnvSet("QSIZE",  "20")
 epicsEnvSet("XSIZE",  "1024")
 epicsEnvSet("YSIZE",  "1024")
 epicsEnvSet("NCHANS", "2048")
+epicsEnvSet("CBUFFS", "500")
 epicsEnvSet("EPICS_DB_INCLUDE_PATH", "$(ADCORE)/db")
 
 # Create the SimDetector driver
-# simDetectorConfig(portName, sizeX, sizeY, maxMemory)
-simDetectorConfig("SIM1", 1024, 1024, 50000000)
+simDetectorConfig("$(PORT)", 1024, 1024, 50000000)
 
-# Load the detector database from .template (includes ADBase + NDArrayBase)
-dbLoadRecords("$(ADSIMDETECTOR)/db/simDetector.template", "P=$(PREFIX),R=$(CAM),PORT=SIM1,DTYP=asynSimDetector")
-
-# ===== Plugins =====
+# Load the detector database
+dbLoadRecords("$(ADSIMDETECTOR)/db/simDetector.template", "P=$(PREFIX),R=$(CAM),PORT=$(PORT),DTYP=asynSimDetector")
 
 # StdArrays plugin (image data for clients)
-NDStdArraysConfigure("IMAGE1", "asynStdArrays")
-dbLoadRecords("$(ADCORE)/db/NDStdArrays.template", "P=$(PREFIX),R=image1:,PORT=IMAGE1,DTYP=asynStdArrays,NDARRAY_PORT=SIM1,FTVL=UCHAR,NELEMENTS=65536")
+NDStdArraysConfigure("IMAGE1", $(QSIZE), 0, "$(PORT)", 0)
+dbLoadRecords("$(ADCORE)/db/NDStdArrays.template", "P=$(PREFIX),R=image1:,PORT=IMAGE1,DTYP=asynIMAGE1,NDARRAY_PORT=$(PORT),FTVL=UCHAR,NELEMENTS=65536")
 
-# Stats plugin (min/max/mean/sigma/centroid)
-NDStatsConfigure("STATS1", "asynStats1", 10)
-dbLoadRecords("$(ADCORE)/db/NDStats.template", "P=$(PREFIX),R=Stats1:,PORT=STATS1,DTYP=asynStats1,NCHANS=$(NCHANS),XSIZE=$(XSIZE),YSIZE=$(YSIZE),HIST_SIZE=256")
-
-# ROI plugin
-NDROIConfigure("ROI1", "asynROI1", 10)
-dbLoadRecords("$(ADCORE)/db/NDPluginBase.template", "P=$(PREFIX),R=ROI1:,DTYP=asynROI1,NDARRAY_PORT=SIM1")
-
-# Process plugin
-NDProcessConfigure("PROC1", "asynProc1", 10)
-dbLoadRecords("$(ADCORE)/db/NDPluginBase.template", "P=$(PREFIX),R=Proc1:,DTYP=asynProc1,NDARRAY_PORT=SIM1")
+# Load all common plugins
+< $(ADSIMDETECTOR)/ioc/commonPlugins.cmd
 
 # iocInit is called automatically by IocApplication after this script completes.
 #
@@ -50,6 +41,4 @@ dbLoadRecords("$(ADCORE)/db/NDPluginBase.template", "P=$(PREFIX),R=Proc1:,DTYP=a
 #   dbl                                # List all PVs
 #   dbpf SIM1:cam1:Acquire 1           # Start acquisition
 #   dbgf SIM1:cam1:ArrayCounter_RBV    # Read frame counter
-#   dbpf SIM1:cam1:SimMode 1           # Switch to Peaks mode
-#   dbpf SIM1:cam1:Acquire 0           # Stop acquisition
 #   simDetectorReport                  # Show detector status

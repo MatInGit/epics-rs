@@ -318,8 +318,28 @@ fn cmd_db_load_records() -> CommandDef {
                 max_include_depth: 32,
             };
 
-            let file_path = std::path::Path::new(path);
-            let mut defs = db_loader::parse_db_file(file_path, &macros, &config)
+            // Resolve the template file path: check if it exists directly,
+            // otherwise search EPICS_DB_INCLUDE_PATH (matching C dbLoadRecords behavior)
+            let file_path = {
+                let p = std::path::Path::new(path);
+                if p.exists() {
+                    p.to_path_buf()
+                } else if !p.is_absolute() {
+                    // Search include paths for relative filenames
+                    let mut resolved = None;
+                    for dir in &config.include_paths {
+                        let candidate = dir.join(p);
+                        if candidate.exists() {
+                            resolved = Some(candidate);
+                            break;
+                        }
+                    }
+                    resolved.unwrap_or_else(|| p.to_path_buf())
+                } else {
+                    p.to_path_buf()
+                }
+            };
+            let mut defs = db_loader::parse_db_file(&file_path, &macros, &config)
                 .map_err(|e| format!("parse error: {e}"))?;
 
             // DTYP override: if macros contain DTYP, override existing DTYP fields

@@ -35,6 +35,12 @@ impl IocShell {
             return Ok(CommandOutcome::Continue);
         }
 
+        // Handle `< filename` include syntax
+        if let Some(rest) = line.strip_prefix('<') {
+            let filename = registry::substitute_env_vars(rest.trim());
+            return self.execute_script(&filename).map(|_| CommandOutcome::Continue);
+        }
+
         let tokens = tokenize(line);
         if tokens.is_empty() {
             return Ok(CommandOutcome::Continue);
@@ -189,6 +195,14 @@ mod tests {
         let shell = make_shell();
         let result = shell.execute_line("help dbl");
         assert!(matches!(result, Ok(CommandOutcome::Continue)));
+    }
+
+    #[test]
+    fn test_execute_line_include_syntax() {
+        let shell = make_shell();
+        // A non-existent file should return an error
+        let result = shell.execute_line("< nonexistent_file.cmd");
+        assert!(result.is_err());
     }
 
     #[test]

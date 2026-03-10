@@ -14,3 +14,4 @@ pub mod scatter;
 pub mod file_tiff;
 pub mod file_jpeg;
 pub mod file_hdf5;
+pub mod passthrough;

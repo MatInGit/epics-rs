@@ -8,7 +8,7 @@ use ad_plugins::std_arrays::create_std_arrays_runtime;
 #[test]
 fn test_driver_to_stats_pipeline() {
     let pool = Arc::new(ad_core::ndarray_pool::NDArrayPool::new(10_000_000));
-    let (stats_handle, stats_data, _jh) = create_stats_runtime("STATS1", pool.clone(), 10);
+    let (stats_handle, stats_data, _jh) = create_stats_runtime("STATS1", pool.clone(), 10, "SIM1");
 
     let mut driver = ADDriverBase::new("SIM1", 64, 64, 10_000_000).unwrap();
     driver.connect_downstream(stats_handle.array_sender().clone());
@@ -36,7 +36,7 @@ fn test_driver_to_stats_pipeline() {
 #[test]
 fn test_driver_to_std_arrays_pipeline() {
     let pool = Arc::new(ad_core::ndarray_pool::NDArrayPool::new(10_000_000));
-    let (image_handle, image_data, _jh) = create_std_arrays_runtime("IMAGE1", pool.clone());
+    let (image_handle, image_data, _jh) = create_std_arrays_runtime("IMAGE1", pool.clone(), "SIM1");
 
     let mut driver = ADDriverBase::new("SIM1", 32, 32, 10_000_000).unwrap();
     driver.connect_downstream(image_handle.array_sender().clone());

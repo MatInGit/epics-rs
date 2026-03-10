@@ -1,14 +1,11 @@
 //! SimDetector IOC binary.
 //!
 //! Uses IocApplication for st.cmd-style startup matching the C++ EPICS pattern.
+//! Supports C-compatible plugin configure commands and `< commonPlugins.cmd` includes.
 //!
 //! Usage:
 //!   cargo run --bin sim_ioc --features ioc -- st.cmd
 //!   cargo run --bin sim_ioc --features ioc -- ioc/st.cmd
-//!
-//! The st.cmd script can use:
-//!   epicsEnvSet, dbLoadRecords, simDetectorConfig,
-//!   NDStdArraysConfigure, NDStatsConfigure, NDROIConfigure, NDProcessConfigure
 
 use std::sync::Arc;
 
@@ -19,11 +16,9 @@ use epics_base_rs::server::ioc_app::IocApplication;
 use epics_base_rs::server::iocsh::registry::*;
 
 use ad_core::plugin::channel::NDArrayOutput;
-use ad_core::plugin::runtime::PluginRuntimeHandle;
+use ad_core::plugin::runtime::{PluginRuntimeHandle, create_plugin_runtime};
 use ad_plugins::std_arrays::create_std_arrays_runtime;
 use ad_plugins::stats::create_stats_runtime;
-use ad_plugins::roi::{ROIConfig, ROIProcessor};
-use ad_plugins::process::{ProcessConfig, ProcessProcessor};
 use sim_detector::driver::{create_sim_detector, SimDetectorRuntime};
 use sim_detector::ioc_support::{build_param_registry_from_params, ParamRegistry, SimDeviceSupport};
 use sim_detector::plugin_support::{build_plugin_base_registry, ArrayDataHandle, PluginDeviceSupport};
@@ -33,7 +28,6 @@ struct PluginInfo {
     dtyp_name: String,
     port_handle: PortHandle,
     registry: Arc<ParamRegistry>,
-    /// Handle to latest NDArray data (only for StdArrays plugins).
     array_data: Option<ArrayDataHandle>,
 }
 
@@ -41,13 +35,9 @@ struct PluginInfo {
 struct DriverHolder {
     port_handle: std::sync::Mutex<Option<PortHandle>>,
     registry: std::sync::Mutex<Option<Arc<ParamRegistry>>>,
-    /// Shared trace manager for all ports in this IOC
     trace: Arc<TraceManager>,
-    /// Keep runtime alive to prevent shutdown
     _runtime: std::sync::Mutex<Option<SimDetectorRuntime>>,
-    /// Plugin info for device support registration
     plugins: std::sync::Mutex<Vec<PluginInfo>>,
-    /// Keep plugin runtime handles alive
     _plugin_handles: std::sync::Mutex<Vec<PluginRuntimeHandle>>,
 }
 
@@ -74,9 +64,49 @@ impl DriverHolder {
             array_data,
         });
         self._plugin_handles.lock().unwrap().push(handle.clone());
-        // Register plugin port for asynRecord access
         asyn_rs::asyn_record::register_port(&port_name, port_handle, self.trace.clone());
     }
+}
+
+// ===== Helpers =====
+
+/// Extract port_name, queue_size, and ndarray_port from C-compatible plugin args.
+/// C format: (portName, queueSize, blockingCallbacks, NDArrayPort, NDArrayAddr, ...)
+fn extract_plugin_args(args: &[ArgValue]) -> Result<(String, usize, String), String> {
+    let port_name = match &args[0] {
+        ArgValue::String(s) => s.clone(),
+        _ => return Err("portName required".into()),
+    };
+    let queue_size = match args.get(1) {
+        Some(ArgValue::Int(n)) => *n as usize,
+        _ => 20,
+    };
+    let ndarray_port = match args.get(3) {
+        Some(ArgValue::String(s)) => s.clone(),
+        _ => String::new(),
+    };
+    Ok((port_name, queue_size, ndarray_port))
+}
+
+/// Auto-derive DTYP from port name: "ROI1" → "asynROI1"
+fn dtyp_from_port(port_name: &str) -> String {
+    format!("asyn{port_name}")
+}
+
+/// Standard C-compatible arg descriptors for plugin configure commands.
+fn plugin_args() -> Vec<ArgDesc> {
+    vec![
+        ArgDesc { name: "portName", arg_type: ArgType::String, optional: false },
+        ArgDesc { name: "queueSize", arg_type: ArgType::Int, optional: true },
+        ArgDesc { name: "blockingCallbacks", arg_type: ArgType::Int, optional: true },
+        ArgDesc { name: "NDArrayPort", arg_type: ArgType::String, optional: true },
+        ArgDesc { name: "NDArrayAddr", arg_type: ArgType::Int, optional: true },
+        ArgDesc { name: "maxBuffers", arg_type: ArgType::Int, optional: true },
+        ArgDesc { name: "maxMemory", arg_type: ArgType::Int, optional: true },
+        ArgDesc { name: "priority", arg_type: ArgType::Int, optional: true },
+        ArgDesc { name: "stackSize", arg_type: ArgType::Int, optional: true },
+        ArgDesc { name: "maxThreads", arg_type: ArgType::Int, optional: true },
+    ]
 }
 
 // ===== simDetectorConfig =====
@@ -113,7 +143,6 @@ impl CommandHandler for SimDetectorConfigHandler {
         let registry = Arc::new(build_param_registry_from_params(&runtime.ad_params, &runtime.sim_params));
         let port_handle = runtime.port_handle().clone();
 
-        // Register port for asynRecord access
         asyn_rs::asyn_record::register_port(&port_name, port_handle.clone(), self.holder.trace.clone());
 
         *self.holder.port_handle.lock().unwrap() = Some(port_handle);
@@ -124,148 +153,566 @@ impl CommandHandler for SimDetectorConfigHandler {
     }
 }
 
-// ===== NDStdArraysConfigure =====
-
-struct NDStdArraysConfigHandler {
-    holder: Arc<DriverHolder>,
-}
-
-impl CommandHandler for NDStdArraysConfigHandler {
-    fn call(&self, args: &[ArgValue], _ctx: &CommandContext) -> CommandResult {
-        let port_name = match &args[0] {
-            ArgValue::String(s) => s.clone(),
-            _ => return Err("portName required".into()),
-        };
-        let dtyp = match &args[1] {
-            ArgValue::String(s) => s.clone(),
-            _ => return Err("DTYP name required".into()),
-        };
-
-        let runtime = self.holder._runtime.lock().unwrap();
-        let runtime = runtime.as_ref().ok_or("simDetectorConfig must be called first")?;
-        let pool = runtime.pool().clone();
-
-        let (handle, data, _jh) = create_std_arrays_runtime(&port_name, pool);
-
-        // Wire to detector
-        runtime.connect_downstream(handle.array_sender().clone());
-
-        println!("NDStdArraysConfigure: port={port_name}, dtyp={dtyp}");
-        self.holder.add_plugin(&dtyp, &handle, Some(data));
-
-        Ok(CommandOutcome::Continue)
+/// Register all plugin configure commands on the IocApplication.
+fn register_all_plugins(mut app: IocApplication, holder: &Arc<DriverHolder>) -> IocApplication {
+    // --- NDStdArraysConfigure ---
+    // C: NDStdArraysConfigure(portName, queueSize, blockingCallbacks, NDArrayPort, NDArrayAddr, maxBuffers, maxMemory)
+    {
+        let h = holder.clone();
+        app = app.register_startup_command(CommandDef::new(
+            "NDStdArraysConfigure",
+            plugin_args(),
+            "NDStdArraysConfigure portName [queueSize] ...",
+            move |args: &[ArgValue], _ctx: &CommandContext| {
+                let (port_name, _queue_size, ndarray_port) = extract_plugin_args(args)?;
+                let dtyp = dtyp_from_port(&port_name);
+                let rt = h._runtime.lock().unwrap();
+                let rt = rt.as_ref().ok_or("simDetectorConfig must be called first")?;
+                let pool = rt.pool().clone();
+                let (handle, data, _jh) = create_std_arrays_runtime(&port_name, pool, &ndarray_port);
+                rt.connect_downstream(handle.array_sender().clone());
+                println!("NDStdArraysConfigure: port={port_name}");
+                h.add_plugin(&dtyp, &handle, Some(data));
+                Ok(CommandOutcome::Continue)
+            },
+        ));
     }
-}
 
-// ===== NDStatsConfigure =====
-
-struct NDStatsConfigHandler {
-    holder: Arc<DriverHolder>,
-}
-
-impl CommandHandler for NDStatsConfigHandler {
-    fn call(&self, args: &[ArgValue], _ctx: &CommandContext) -> CommandResult {
-        let port_name = match &args[0] {
-            ArgValue::String(s) => s.clone(),
-            _ => return Err("portName required".into()),
-        };
-        let dtyp = match &args[1] {
-            ArgValue::String(s) => s.clone(),
-            _ => return Err("DTYP name required".into()),
-        };
-        let queue_size = match args.get(2) {
-            Some(ArgValue::Int(n)) => *n as usize,
-            _ => 10,
-        };
-
-        let runtime = self.holder._runtime.lock().unwrap();
-        let runtime = runtime.as_ref().ok_or("simDetectorConfig must be called first")?;
-        let pool = runtime.pool().clone();
-
-        let (handle, _stats_data, _jh) = create_stats_runtime(&port_name, pool, queue_size);
-        runtime.connect_downstream(handle.array_sender().clone());
-
-        println!("NDStatsConfigure: port={port_name}, dtyp={dtyp}, queueSize={queue_size}");
-        self.holder.add_plugin(&dtyp, &handle, None);
-
-        Ok(CommandOutcome::Continue)
+    // --- NDStatsConfigure ---
+    {
+        let h = holder.clone();
+        app = app.register_startup_command(CommandDef::new(
+            "NDStatsConfigure",
+            plugin_args(),
+            "NDStatsConfigure portName [queueSize] ...",
+            move |args: &[ArgValue], _ctx: &CommandContext| {
+                let (port_name, queue_size, ndarray_port) = extract_plugin_args(args)?;
+                let dtyp = dtyp_from_port(&port_name);
+                let rt = h._runtime.lock().unwrap();
+                let rt = rt.as_ref().ok_or("simDetectorConfig must be called first")?;
+                let pool = rt.pool().clone();
+                let (handle, _stats, _jh) = create_stats_runtime(&port_name, pool, queue_size, &ndarray_port);
+                rt.connect_downstream(handle.array_sender().clone());
+                println!("NDStatsConfigure: port={port_name}");
+                h.add_plugin(&dtyp, &handle, None);
+                Ok(CommandOutcome::Continue)
+            },
+        ));
     }
-}
 
-// ===== NDROIConfigure =====
-
-struct NDROIConfigHandler {
-    holder: Arc<DriverHolder>,
-}
-
-impl CommandHandler for NDROIConfigHandler {
-    fn call(&self, args: &[ArgValue], _ctx: &CommandContext) -> CommandResult {
-        let port_name = match &args[0] {
-            ArgValue::String(s) => s.clone(),
-            _ => return Err("portName required".into()),
-        };
-        let dtyp = match &args[1] {
-            ArgValue::String(s) => s.clone(),
-            _ => return Err("DTYP name required".into()),
-        };
-        let queue_size = match args.get(2) {
-            Some(ArgValue::Int(n)) => *n as usize,
-            _ => 10,
-        };
-
-        let runtime = self.holder._runtime.lock().unwrap();
-        let runtime = runtime.as_ref().ok_or("simDetectorConfig must be called first")?;
-        let pool = runtime.pool().clone();
-
-        let processor = ROIProcessor::new(ROIConfig::default());
-        let (handle, _jh) = ad_core::plugin::runtime::create_plugin_runtime(
-            &port_name, processor, pool, queue_size,
-        );
-        runtime.connect_downstream(handle.array_sender().clone());
-
-        println!("NDROIConfigure: port={port_name}, dtyp={dtyp}");
-        self.holder.add_plugin(&dtyp, &handle, None);
-
-        Ok(CommandOutcome::Continue)
+    // --- NDROIConfigure ---
+    {
+        let h = holder.clone();
+        app = app.register_startup_command(CommandDef::new(
+            "NDROIConfigure",
+            plugin_args(),
+            "NDROIConfigure portName [queueSize] ...",
+            move |args: &[ArgValue], _ctx: &CommandContext| {
+                let (port_name, queue_size, ndarray_port) = extract_plugin_args(args)?;
+                let dtyp = dtyp_from_port(&port_name);
+                let rt = h._runtime.lock().unwrap();
+                let rt = rt.as_ref().ok_or("simDetectorConfig must be called first")?;
+                let pool = rt.pool().clone();
+                use ad_plugins::roi::{ROIConfig, ROIProcessor};
+                let (handle, _jh) = create_plugin_runtime(&port_name, ROIProcessor::new(ROIConfig::default()), pool, queue_size, &ndarray_port);
+                rt.connect_downstream(handle.array_sender().clone());
+                println!("NDROIConfigure: port={port_name}");
+                h.add_plugin(&dtyp, &handle, None);
+                Ok(CommandOutcome::Continue)
+            },
+        ));
     }
-}
 
-// ===== NDProcessConfigure =====
-
-struct NDProcessConfigHandler {
-    holder: Arc<DriverHolder>,
-}
-
-impl CommandHandler for NDProcessConfigHandler {
-    fn call(&self, args: &[ArgValue], _ctx: &CommandContext) -> CommandResult {
-        let port_name = match &args[0] {
-            ArgValue::String(s) => s.clone(),
-            _ => return Err("portName required".into()),
-        };
-        let dtyp = match &args[1] {
-            ArgValue::String(s) => s.clone(),
-            _ => return Err("DTYP name required".into()),
-        };
-        let queue_size = match args.get(2) {
-            Some(ArgValue::Int(n)) => *n as usize,
-            _ => 10,
-        };
-
-        let runtime = self.holder._runtime.lock().unwrap();
-        let runtime = runtime.as_ref().ok_or("simDetectorConfig must be called first")?;
-        let pool = runtime.pool().clone();
-
-        let processor = ProcessProcessor::new(ProcessConfig::default());
-        let (handle, _jh) = ad_core::plugin::runtime::create_plugin_runtime(
-            &port_name, processor, pool, queue_size,
-        );
-        runtime.connect_downstream(handle.array_sender().clone());
-
-        println!("NDProcessConfigure: port={port_name}, dtyp={dtyp}");
-        self.holder.add_plugin(&dtyp, &handle, None);
-
-        Ok(CommandOutcome::Continue)
+    // --- NDProcessConfigure ---
+    {
+        let h = holder.clone();
+        app = app.register_startup_command(CommandDef::new(
+            "NDProcessConfigure",
+            plugin_args(),
+            "NDProcessConfigure portName [queueSize] ...",
+            move |args: &[ArgValue], _ctx: &CommandContext| {
+                let (port_name, queue_size, ndarray_port) = extract_plugin_args(args)?;
+                let dtyp = dtyp_from_port(&port_name);
+                let rt = h._runtime.lock().unwrap();
+                let rt = rt.as_ref().ok_or("simDetectorConfig must be called first")?;
+                let pool = rt.pool().clone();
+                use ad_plugins::process::{ProcessConfig, ProcessProcessor};
+                let (handle, _jh) = create_plugin_runtime(&port_name, ProcessProcessor::new(ProcessConfig::default()), pool, queue_size, &ndarray_port);
+                rt.connect_downstream(handle.array_sender().clone());
+                println!("NDProcessConfigure: port={port_name}");
+                h.add_plugin(&dtyp, &handle, None);
+                Ok(CommandOutcome::Continue)
+            },
+        ));
     }
+
+    // --- NDTransformConfigure ---
+    {
+        let h = holder.clone();
+        app = app.register_startup_command(CommandDef::new(
+            "NDTransformConfigure",
+            plugin_args(),
+            "NDTransformConfigure portName [queueSize] ...",
+            move |args: &[ArgValue], _ctx: &CommandContext| {
+                let (port_name, queue_size, ndarray_port) = extract_plugin_args(args)?;
+                let dtyp = dtyp_from_port(&port_name);
+                let rt = h._runtime.lock().unwrap();
+                let rt = rt.as_ref().ok_or("simDetectorConfig must be called first")?;
+                let pool = rt.pool().clone();
+                use ad_plugins::transform::{TransformType, TransformProcessor};
+                let (handle, _jh) = create_plugin_runtime(&port_name, TransformProcessor::new(TransformType::None), pool, queue_size, &ndarray_port);
+                rt.connect_downstream(handle.array_sender().clone());
+                println!("NDTransformConfigure: port={port_name}");
+                h.add_plugin(&dtyp, &handle, None);
+                Ok(CommandOutcome::Continue)
+            },
+        ));
+    }
+
+    // --- NDColorConvertConfigure ---
+    {
+        let h = holder.clone();
+        app = app.register_startup_command(CommandDef::new(
+            "NDColorConvertConfigure",
+            plugin_args(),
+            "NDColorConvertConfigure portName [queueSize] ...",
+            move |args: &[ArgValue], _ctx: &CommandContext| {
+                let (port_name, queue_size, ndarray_port) = extract_plugin_args(args)?;
+                let dtyp = dtyp_from_port(&port_name);
+                let rt = h._runtime.lock().unwrap();
+                let rt = rt.as_ref().ok_or("simDetectorConfig must be called first")?;
+                let pool = rt.pool().clone();
+                use ad_plugins::color_convert::{ColorConvertConfig, ColorConvertProcessor};
+                use ad_core::color::{NDColorMode, NDBayerPattern};
+                let config = ColorConvertConfig { target_mode: NDColorMode::Mono, bayer_pattern: NDBayerPattern::RGGB };
+                let (handle, _jh) = create_plugin_runtime(&port_name, ColorConvertProcessor::new(config), pool, queue_size, &ndarray_port);
+                rt.connect_downstream(handle.array_sender().clone());
+                println!("NDColorConvertConfigure: port={port_name}");
+                h.add_plugin(&dtyp, &handle, None);
+                Ok(CommandOutcome::Continue)
+            },
+        ));
+    }
+
+    // --- NDOverlayConfigure ---
+    {
+        let h = holder.clone();
+        app = app.register_startup_command(CommandDef::new(
+            "NDOverlayConfigure",
+            plugin_args(),
+            "NDOverlayConfigure portName [queueSize] ...",
+            move |args: &[ArgValue], _ctx: &CommandContext| {
+                let (port_name, queue_size, ndarray_port) = extract_plugin_args(args)?;
+                let dtyp = dtyp_from_port(&port_name);
+                let rt = h._runtime.lock().unwrap();
+                let rt = rt.as_ref().ok_or("simDetectorConfig must be called first")?;
+                let pool = rt.pool().clone();
+                use ad_plugins::overlay::OverlayProcessor;
+                let (handle, _jh) = create_plugin_runtime(&port_name, OverlayProcessor::new(vec![]), pool, queue_size, &ndarray_port);
+                rt.connect_downstream(handle.array_sender().clone());
+                println!("NDOverlayConfigure: port={port_name}");
+                h.add_plugin(&dtyp, &handle, None);
+                Ok(CommandOutcome::Continue)
+            },
+        ));
+    }
+
+    // --- NDFFTConfigure ---
+    {
+        let h = holder.clone();
+        app = app.register_startup_command(CommandDef::new(
+            "NDFFTConfigure",
+            plugin_args(),
+            "NDFFTConfigure portName [queueSize] ...",
+            move |args: &[ArgValue], _ctx: &CommandContext| {
+                let (port_name, queue_size, ndarray_port) = extract_plugin_args(args)?;
+                let dtyp = dtyp_from_port(&port_name);
+                let rt = h._runtime.lock().unwrap();
+                let rt = rt.as_ref().ok_or("simDetectorConfig must be called first")?;
+                let pool = rt.pool().clone();
+                use ad_plugins::fft::{FFTMode, FFTProcessor};
+                let (handle, _jh) = create_plugin_runtime(&port_name, FFTProcessor::new(FFTMode::Rows1D), pool, queue_size, &ndarray_port);
+                rt.connect_downstream(handle.array_sender().clone());
+                println!("NDFFTConfigure: port={port_name}");
+                h.add_plugin(&dtyp, &handle, None);
+                Ok(CommandOutcome::Continue)
+            },
+        ));
+    }
+
+    // --- NDCircularBuffConfigure ---
+    {
+        let h = holder.clone();
+        app = app.register_startup_command(CommandDef::new(
+            "NDCircularBuffConfigure",
+            plugin_args(),
+            "NDCircularBuffConfigure portName [queueSize] ...",
+            move |args: &[ArgValue], _ctx: &CommandContext| {
+                let (port_name, queue_size, ndarray_port) = extract_plugin_args(args)?;
+                let dtyp = dtyp_from_port(&port_name);
+                let rt = h._runtime.lock().unwrap();
+                let rt = rt.as_ref().ok_or("simDetectorConfig must be called first")?;
+                let pool = rt.pool().clone();
+                use ad_plugins::circular_buff::{CircularBuffProcessor, TriggerCondition};
+                let (handle, _jh) = create_plugin_runtime(&port_name, CircularBuffProcessor::new(100, 100, TriggerCondition::External), pool, queue_size, &ndarray_port);
+                rt.connect_downstream(handle.array_sender().clone());
+                println!("NDCircularBuffConfigure: port={port_name}");
+                h.add_plugin(&dtyp, &handle, None);
+                Ok(CommandOutcome::Continue)
+            },
+        ));
+    }
+
+    // --- NDCodecConfigure ---
+    {
+        let h = holder.clone();
+        app = app.register_startup_command(CommandDef::new(
+            "NDCodecConfigure",
+            plugin_args(),
+            "NDCodecConfigure portName [queueSize] ...",
+            move |args: &[ArgValue], _ctx: &CommandContext| {
+                let (port_name, queue_size, ndarray_port) = extract_plugin_args(args)?;
+                let dtyp = dtyp_from_port(&port_name);
+                let rt = h._runtime.lock().unwrap();
+                let rt = rt.as_ref().ok_or("simDetectorConfig must be called first")?;
+                let pool = rt.pool().clone();
+                use ad_plugins::codec::{CodecMode, CodecProcessor};
+                let (handle, _jh) = create_plugin_runtime(&port_name, CodecProcessor::new(CodecMode::CompressLZ4), pool, queue_size, &ndarray_port);
+                rt.connect_downstream(handle.array_sender().clone());
+                println!("NDCodecConfigure: port={port_name}");
+                h.add_plugin(&dtyp, &handle, None);
+                Ok(CommandOutcome::Continue)
+            },
+        ));
+    }
+
+    // --- NDScatterConfigure ---
+    {
+        let h = holder.clone();
+        app = app.register_startup_command(CommandDef::new(
+            "NDScatterConfigure",
+            plugin_args(),
+            "NDScatterConfigure portName [queueSize] ...",
+            move |args: &[ArgValue], _ctx: &CommandContext| {
+                let (port_name, queue_size, ndarray_port) = extract_plugin_args(args)?;
+                let dtyp = dtyp_from_port(&port_name);
+                let rt = h._runtime.lock().unwrap();
+                let rt = rt.as_ref().ok_or("simDetectorConfig must be called first")?;
+                let pool = rt.pool().clone();
+                use ad_plugins::scatter::ScatterProcessor;
+                let (handle, _jh) = create_plugin_runtime(&port_name, ScatterProcessor::new(), pool, queue_size, &ndarray_port);
+                rt.connect_downstream(handle.array_sender().clone());
+                println!("NDScatterConfigure: port={port_name}");
+                h.add_plugin(&dtyp, &handle, None);
+                Ok(CommandOutcome::Continue)
+            },
+        ));
+    }
+
+    // --- NDGatherConfigure ---
+    {
+        let h = holder.clone();
+        app = app.register_startup_command(CommandDef::new(
+            "NDGatherConfigure",
+            plugin_args(),
+            "NDGatherConfigure portName [queueSize] ...",
+            move |args: &[ArgValue], _ctx: &CommandContext| {
+                let (port_name, queue_size, ndarray_port) = extract_plugin_args(args)?;
+                let dtyp = dtyp_from_port(&port_name);
+                let rt = h._runtime.lock().unwrap();
+                let rt = rt.as_ref().ok_or("simDetectorConfig must be called first")?;
+                let pool = rt.pool().clone();
+                use ad_plugins::gather::GatherProcessor;
+                let (handle, _jh) = create_plugin_runtime(&port_name, GatherProcessor::new(), pool, queue_size, &ndarray_port);
+                rt.connect_downstream(handle.array_sender().clone());
+                println!("NDGatherConfigure: port={port_name}");
+                h.add_plugin(&dtyp, &handle, None);
+                Ok(CommandOutcome::Continue)
+            },
+        ));
+    }
+
+    // --- NDFileTIFFConfigure ---
+    {
+        let h = holder.clone();
+        app = app.register_startup_command(CommandDef::new(
+            "NDFileTIFFConfigure",
+            plugin_args(),
+            "NDFileTIFFConfigure portName [queueSize] ...",
+            move |args: &[ArgValue], _ctx: &CommandContext| {
+                let (port_name, queue_size, ndarray_port) = extract_plugin_args(args)?;
+                let dtyp = dtyp_from_port(&port_name);
+                let rt = h._runtime.lock().unwrap();
+                let rt = rt.as_ref().ok_or("simDetectorConfig must be called first")?;
+                let pool = rt.pool().clone();
+                use ad_plugins::file_tiff::TiffFileProcessor;
+                let (handle, _jh) = create_plugin_runtime(&port_name, TiffFileProcessor::new(), pool, queue_size, &ndarray_port);
+                rt.connect_downstream(handle.array_sender().clone());
+                println!("NDFileTIFFConfigure: port={port_name}");
+                h.add_plugin(&dtyp, &handle, None);
+                Ok(CommandOutcome::Continue)
+            },
+        ));
+    }
+
+    // --- NDFileJPEGConfigure ---
+    {
+        let h = holder.clone();
+        app = app.register_startup_command(CommandDef::new(
+            "NDFileJPEGConfigure",
+            plugin_args(),
+            "NDFileJPEGConfigure portName [queueSize] ...",
+            move |args: &[ArgValue], _ctx: &CommandContext| {
+                let (port_name, queue_size, ndarray_port) = extract_plugin_args(args)?;
+                let dtyp = dtyp_from_port(&port_name);
+                let rt = h._runtime.lock().unwrap();
+                let rt = rt.as_ref().ok_or("simDetectorConfig must be called first")?;
+                let pool = rt.pool().clone();
+                use ad_plugins::file_jpeg::JpegFileProcessor;
+                let (handle, _jh) = create_plugin_runtime(&port_name, JpegFileProcessor::new(90), pool, queue_size, &ndarray_port);
+                rt.connect_downstream(handle.array_sender().clone());
+                println!("NDFileJPEGConfigure: port={port_name}");
+                h.add_plugin(&dtyp, &handle, None);
+                Ok(CommandOutcome::Continue)
+            },
+        ));
+    }
+
+    // --- NDFileHDF5Configure ---
+    {
+        let h = holder.clone();
+        app = app.register_startup_command(CommandDef::new(
+            "NDFileHDF5Configure",
+            plugin_args(),
+            "NDFileHDF5Configure portName [queueSize] ...",
+            move |args: &[ArgValue], _ctx: &CommandContext| {
+                let (port_name, queue_size, ndarray_port) = extract_plugin_args(args)?;
+                let dtyp = dtyp_from_port(&port_name);
+                let rt = h._runtime.lock().unwrap();
+                let rt = rt.as_ref().ok_or("simDetectorConfig must be called first")?;
+                let pool = rt.pool().clone();
+                use ad_plugins::file_hdf5::Hdf5FileProcessor;
+                let (handle, _jh) = create_plugin_runtime(&port_name, Hdf5FileProcessor::new(), pool, queue_size, &ndarray_port);
+                rt.connect_downstream(handle.array_sender().clone());
+                println!("NDFileHDF5Configure: port={port_name}");
+                h.add_plugin(&dtyp, &handle, None);
+                Ok(CommandOutcome::Continue)
+            },
+        ));
+    }
+
+    // --- Stub plugins (not yet fully implemented, use PassthroughProcessor) ---
+
+    // NDROIStatConfigure
+    {
+        let h = holder.clone();
+        app = app.register_startup_command(CommandDef::new(
+            "NDROIStatConfigure",
+            plugin_args(),
+            "NDROIStatConfigure portName [queueSize] ...",
+            move |args: &[ArgValue], _ctx: &CommandContext| {
+                let (port_name, queue_size, ndarray_port) = extract_plugin_args(args)?;
+                let dtyp = dtyp_from_port(&port_name);
+                let rt = h._runtime.lock().unwrap();
+                let rt = rt.as_ref().ok_or("simDetectorConfig must be called first")?;
+                let pool = rt.pool().clone();
+                use ad_plugins::passthrough::PassthroughProcessor;
+                let (handle, _jh) = create_plugin_runtime(&port_name, PassthroughProcessor::new("NDPluginROIStat"), pool, queue_size, &ndarray_port);
+                rt.connect_downstream(handle.array_sender().clone());
+                println!("NDROIStatConfigure: port={port_name} (stub)");
+                h.add_plugin(&dtyp, &handle, None);
+                Ok(CommandOutcome::Continue)
+            },
+        ));
+    }
+
+    // NDAttrConfigure
+    {
+        let h = holder.clone();
+        app = app.register_startup_command(CommandDef::new(
+            "NDAttrConfigure",
+            plugin_args(),
+            "NDAttrConfigure portName [queueSize] ...",
+            move |args: &[ArgValue], _ctx: &CommandContext| {
+                let (port_name, queue_size, ndarray_port) = extract_plugin_args(args)?;
+                let dtyp = dtyp_from_port(&port_name);
+                let rt = h._runtime.lock().unwrap();
+                let rt = rt.as_ref().ok_or("simDetectorConfig must be called first")?;
+                let pool = rt.pool().clone();
+                use ad_plugins::passthrough::PassthroughProcessor;
+                let (handle, _jh) = create_plugin_runtime(&port_name, PassthroughProcessor::new("NDPluginAttribute"), pool, queue_size, &ndarray_port);
+                rt.connect_downstream(handle.array_sender().clone());
+                println!("NDAttrConfigure: port={port_name} (stub)");
+                h.add_plugin(&dtyp, &handle, None);
+                Ok(CommandOutcome::Continue)
+            },
+        ));
+    }
+
+    // NDBadPixelConfigure
+    {
+        let h = holder.clone();
+        app = app.register_startup_command(CommandDef::new(
+            "NDBadPixelConfigure",
+            plugin_args(),
+            "NDBadPixelConfigure portName [queueSize] ...",
+            move |args: &[ArgValue], _ctx: &CommandContext| {
+                let (port_name, queue_size, ndarray_port) = extract_plugin_args(args)?;
+                let dtyp = dtyp_from_port(&port_name);
+                let rt = h._runtime.lock().unwrap();
+                let rt = rt.as_ref().ok_or("simDetectorConfig must be called first")?;
+                let pool = rt.pool().clone();
+                use ad_plugins::passthrough::PassthroughProcessor;
+                let (handle, _jh) = create_plugin_runtime(&port_name, PassthroughProcessor::new("NDPluginBadPixel"), pool, queue_size, &ndarray_port);
+                rt.connect_downstream(handle.array_sender().clone());
+                println!("NDBadPixelConfigure: port={port_name} (stub)");
+                h.add_plugin(&dtyp, &handle, None);
+                Ok(CommandOutcome::Continue)
+            },
+        ));
+    }
+
+    // NDFileNetCDFConfigure
+    {
+        let h = holder.clone();
+        app = app.register_startup_command(CommandDef::new(
+            "NDFileNetCDFConfigure",
+            plugin_args(),
+            "NDFileNetCDFConfigure portName [queueSize] ...",
+            move |args: &[ArgValue], _ctx: &CommandContext| {
+                let (port_name, queue_size, ndarray_port) = extract_plugin_args(args)?;
+                let dtyp = dtyp_from_port(&port_name);
+                let rt = h._runtime.lock().unwrap();
+                let rt = rt.as_ref().ok_or("simDetectorConfig must be called first")?;
+                let pool = rt.pool().clone();
+                use ad_plugins::passthrough::PassthroughProcessor;
+                let (handle, _jh) = create_plugin_runtime(&port_name, PassthroughProcessor::new("NDFileNetCDF"), pool, queue_size, &ndarray_port);
+                rt.connect_downstream(handle.array_sender().clone());
+                println!("NDFileNetCDFConfigure: port={port_name} (stub)");
+                h.add_plugin(&dtyp, &handle, None);
+                Ok(CommandOutcome::Continue)
+            },
+        ));
+    }
+
+    // NDFileNexusConfigure
+    {
+        let h = holder.clone();
+        app = app.register_startup_command(CommandDef::new(
+            "NDFileNexusConfigure",
+            plugin_args(),
+            "NDFileNexusConfigure portName [queueSize] ...",
+            move |args: &[ArgValue], _ctx: &CommandContext| {
+                let (port_name, queue_size, ndarray_port) = extract_plugin_args(args)?;
+                let dtyp = dtyp_from_port(&port_name);
+                let rt = h._runtime.lock().unwrap();
+                let rt = rt.as_ref().ok_or("simDetectorConfig must be called first")?;
+                let pool = rt.pool().clone();
+                use ad_plugins::passthrough::PassthroughProcessor;
+                let (handle, _jh) = create_plugin_runtime(&port_name, PassthroughProcessor::new("NDFileNexus"), pool, queue_size, &ndarray_port);
+                rt.connect_downstream(handle.array_sender().clone());
+                println!("NDFileNexusConfigure: port={port_name} (stub)");
+                h.add_plugin(&dtyp, &handle, None);
+                Ok(CommandOutcome::Continue)
+            },
+        ));
+    }
+
+    // NDFileMagickConfigure
+    {
+        let h = holder.clone();
+        app = app.register_startup_command(CommandDef::new(
+            "NDFileMagickConfigure",
+            plugin_args(),
+            "NDFileMagickConfigure portName [queueSize] ...",
+            move |args: &[ArgValue], _ctx: &CommandContext| {
+                let (port_name, queue_size, ndarray_port) = extract_plugin_args(args)?;
+                let dtyp = dtyp_from_port(&port_name);
+                let rt = h._runtime.lock().unwrap();
+                let rt = rt.as_ref().ok_or("simDetectorConfig must be called first")?;
+                let pool = rt.pool().clone();
+                use ad_plugins::passthrough::PassthroughProcessor;
+                let (handle, _jh) = create_plugin_runtime(&port_name, PassthroughProcessor::new("NDFileMagick"), pool, queue_size, &ndarray_port);
+                rt.connect_downstream(handle.array_sender().clone());
+                println!("NDFileMagickConfigure: port={port_name} (stub)");
+                h.add_plugin(&dtyp, &handle, None);
+                Ok(CommandOutcome::Continue)
+            },
+        ));
+    }
+
+    // NDTimeSeriesConfigure (stub - time series is a helper, not a standalone plugin in C)
+    {
+        let h = holder.clone();
+        app = app.register_startup_command(CommandDef::new(
+            "NDTimeSeriesConfigure",
+            plugin_args(),
+            "NDTimeSeriesConfigure portName [queueSize] ...",
+            move |args: &[ArgValue], _ctx: &CommandContext| {
+                let (port_name, queue_size, ndarray_port) = extract_plugin_args(args)?;
+                let dtyp = dtyp_from_port(&port_name);
+                let rt = h._runtime.lock().unwrap();
+                let rt = rt.as_ref().ok_or("simDetectorConfig must be called first")?;
+                let pool = rt.pool().clone();
+                use ad_plugins::passthrough::PassthroughProcessor;
+                let (handle, _jh) = create_plugin_runtime(&port_name, PassthroughProcessor::new("NDPluginTimeSeries"), pool, queue_size, &ndarray_port);
+                rt.connect_downstream(handle.array_sender().clone());
+                println!("NDTimeSeriesConfigure: port={port_name} (stub)");
+                h.add_plugin(&dtyp, &handle, None);
+                Ok(CommandOutcome::Continue)
+            },
+        ));
+    }
+
+    // NDPvaConfigure (stub)
+    {
+        let h = holder.clone();
+        app = app.register_startup_command(CommandDef::new(
+            "NDPvaConfigure",
+            plugin_args(),
+            "NDPvaConfigure portName [queueSize] ...",
+            move |args: &[ArgValue], _ctx: &CommandContext| {
+                let (port_name, queue_size, ndarray_port) = extract_plugin_args(args)?;
+                let dtyp = dtyp_from_port(&port_name);
+                let rt = h._runtime.lock().unwrap();
+                let rt = rt.as_ref().ok_or("simDetectorConfig must be called first")?;
+                let pool = rt.pool().clone();
+                use ad_plugins::passthrough::PassthroughProcessor;
+                let (handle, _jh) = create_plugin_runtime(&port_name, PassthroughProcessor::new("NDPluginPva"), pool, queue_size, &ndarray_port);
+                rt.connect_downstream(handle.array_sender().clone());
+                println!("NDPvaConfigure: port={port_name} (stub)");
+                h.add_plugin(&dtyp, &handle, None);
+                Ok(CommandOutcome::Continue)
+            },
+        ));
+    }
+
+    // --- No-op commands used in C commonPlugins.cmd ---
+    for cmd in &[
+        "set_requestfile_path",
+        "set_savefile_path",
+        "set_pass0_restoreFile",
+        "set_pass1_restoreFile",
+        "save_restoreSet_status_prefix",
+        "startPVAServer",
+        "callbackSetQueueSize",
+    ] {
+        let name = *cmd;
+        app = app.register_startup_command(CommandDef::new(
+            name,
+            vec![
+                ArgDesc { name: "arg1", arg_type: ArgType::String, optional: true },
+                ArgDesc { name: "arg2", arg_type: ArgType::String, optional: true },
+            ],
+            &format!("{name} [args...] - no-op (not implemented)"),
+            move |_args: &[ArgValue], _ctx: &CommandContext| {
+                // silently ignored
+                Ok(CommandOutcome::Continue)
+            },
+        ));
+    }
+
+    app
 }
 
 // ===== simDetectorReport =====
@@ -286,7 +733,7 @@ impl CommandHandler for ReportHandler {
         println!("SimDetector Report");
         println!("  Plugins: {}", plugins.len());
         for p in plugins.iter() {
-            println!("    - {} (DTYP: {})", "port", p.dtyp_name);
+            println!("    - {} (DTYP: {})", p.port_handle.port_name(), p.dtyp_name);
         }
         Ok(CommandOutcome::Continue)
     }
@@ -297,8 +744,6 @@ async fn main() -> CaResult<()> {
     let args: Vec<String> = std::env::args().collect();
 
     // Set C source tree paths for template include resolution
-    // Computed from CARGO_MANIFEST_DIR at compile time so they work regardless of CWD
-    // External env vars take priority; only set defaults for development
     if std::env::var_os("ADCORE").is_none() {
         unsafe { std::env::set_var("ADCORE", concat!(env!("CARGO_MANIFEST_DIR"), "/../ad-core")) };
     }
@@ -325,10 +770,6 @@ async fn main() -> CaResult<()> {
     let holder_for_config = holder.clone();
     let holder_for_factory = holder.clone();
     let holder_for_report = holder.clone();
-    let holder_for_image = holder.clone();
-    let holder_for_stats = holder.clone();
-    let holder_for_roi = holder.clone();
-    let holder_for_process = holder.clone();
     let holder_for_plugins = holder.clone();
 
     let mut app = IocApplication::new();
@@ -352,48 +793,8 @@ async fn main() -> CaResult<()> {
         SimDetectorConfigHandler { holder: holder_for_config },
     ));
 
-    app = app.register_startup_command(CommandDef::new(
-        "NDStdArraysConfigure",
-        vec![
-            ArgDesc { name: "portName", arg_type: ArgType::String, optional: false },
-            ArgDesc { name: "DTYP", arg_type: ArgType::String, optional: false },
-        ],
-        "NDStdArraysConfigure portName DTYP",
-        NDStdArraysConfigHandler { holder: holder_for_image },
-    ));
-
-    app = app.register_startup_command(CommandDef::new(
-        "NDStatsConfigure",
-        vec![
-            ArgDesc { name: "portName", arg_type: ArgType::String, optional: false },
-            ArgDesc { name: "DTYP", arg_type: ArgType::String, optional: false },
-            ArgDesc { name: "queueSize", arg_type: ArgType::Int, optional: true },
-        ],
-        "NDStatsConfigure portName DTYP [queueSize]",
-        NDStatsConfigHandler { holder: holder_for_stats },
-    ));
-
-    app = app.register_startup_command(CommandDef::new(
-        "NDROIConfigure",
-        vec![
-            ArgDesc { name: "portName", arg_type: ArgType::String, optional: false },
-            ArgDesc { name: "DTYP", arg_type: ArgType::String, optional: false },
-            ArgDesc { name: "queueSize", arg_type: ArgType::Int, optional: true },
-        ],
-        "NDROIConfigure portName DTYP [queueSize]",
-        NDROIConfigHandler { holder: holder_for_roi },
-    ));
-
-    app = app.register_startup_command(CommandDef::new(
-        "NDProcessConfigure",
-        vec![
-            ArgDesc { name: "portName", arg_type: ArgType::String, optional: false },
-            ArgDesc { name: "DTYP", arg_type: ArgType::String, optional: false },
-            ArgDesc { name: "queueSize", arg_type: ArgType::Int, optional: true },
-        ],
-        "NDProcessConfigure portName DTYP [queueSize]",
-        NDProcessConfigHandler { holder: holder_for_process },
-    ));
+    // Register all plugin configure commands
+    app = register_all_plugins(app, &holder);
 
     // Device support: detector
     app = app.register_device_support("asynSimDetector", move || {
@@ -408,7 +809,7 @@ async fn main() -> CaResult<()> {
         Box::new(SimDeviceSupport::from_handle(handle, registry))
     });
 
-    // Device support: plugins (register factories for each configured plugin)
+    // Device support: plugins (dynamic lookup by DTYP)
     app = app.register_dynamic_device_support(move |dtyp_name| {
         let plugins = holder_for_plugins.plugins.lock().unwrap();
         for p in plugins.iter() {

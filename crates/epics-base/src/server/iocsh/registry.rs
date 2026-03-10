@@ -346,11 +346,19 @@ pub(crate) fn substitute_env_vars(s: &str) -> String {
     while i < chars.len() {
         if i + 1 < chars.len() && chars[i] == '$' && chars[i + 1] == '(' {
             if let Some(end) = chars[i + 2..].iter().position(|&c| c == ')') {
-                let var_name: String = chars[i + 2..i + 2 + end].iter().collect();
-                if let Some(val) = crate::runtime::env::get(&var_name) {
-                    result.push_str(&val);
+                let var_expr: String = chars[i + 2..i + 2 + end].iter().collect();
+                // Support $(VAR=DEFAULT) syntax
+                let (var_name, default_val) = if let Some(eq_pos) = var_expr.find('=') {
+                    (&var_expr[..eq_pos], Some(&var_expr[eq_pos + 1..]))
                 } else {
-                    result.push_str(&format!("$({})", var_name));
+                    (var_expr.as_str(), None)
+                };
+                if let Some(val) = crate::runtime::env::get(var_name) {
+                    result.push_str(&val);
+                } else if let Some(def) = default_val {
+                    result.push_str(def);
+                } else {
+                    result.push_str(&format!("$({})", var_expr));
                 }
                 i += 2 + end + 1;
                 continue;

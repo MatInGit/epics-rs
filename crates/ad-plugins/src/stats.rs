@@ -170,6 +170,7 @@ pub fn create_stats_runtime(
     port_name: &str,
     pool: Arc<NDArrayPool>,
     queue_size: usize,
+    ndarray_port: &str,
 ) -> (PluginRuntimeHandle, Arc<Mutex<StatsResult>>, std::thread::JoinHandle<()>) {
     let processor = StatsProcessor::new();
     let stats_handle = processor.stats_handle();
@@ -179,6 +180,7 @@ pub fn create_stats_runtime(
         processor,
         pool,
         queue_size,
+        ndarray_port,
     );
 
     (plugin_handle, stats_handle, data_jh)
@@ -284,7 +286,7 @@ mod tests {
     #[test]
     fn test_stats_runtime_end_to_end() {
         let pool = Arc::new(NDArrayPool::new(1_000_000));
-        let (handle, stats, _jh) = create_stats_runtime("STATS_RT", pool, 10);
+        let (handle, stats, _jh) = create_stats_runtime("STATS_RT", pool, 10, "");
 
         let mut arr = NDArray::new(
             vec![NDDimension::new(4), NDDimension::new(4)],
