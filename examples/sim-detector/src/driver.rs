@@ -10,7 +10,7 @@ use asyn_rs::user::AsynUser;
 use ad_core::driver::{ADDriver, ADDriverBase, ImageMode};
 use ad_core::ndarray_pool::NDArrayPool;
 use ad_core::params::ADBaseParams;
-use ad_core::plugin::channel::{NDArrayOutput, NDArraySender};
+use ad_core::plugin::channel::{NDArrayOutput, NDArraySender, QueuedArrayCounter};
 
 use crate::params::SimDetectorParams;
 use crate::task::{AcqCommand, start_acquisition_task};
@@ -220,6 +220,7 @@ pub struct SimDetectorRuntime {
     pub sim_params: SimDetectorParams,
     pool: Arc<NDArrayPool>,
     array_output: Arc<parking_lot::Mutex<NDArrayOutput>>,
+    queued_counter: Arc<QueuedArrayCounter>,
     #[allow(dead_code)]
     task_handle: Option<std::thread::JoinHandle<()>>,
 }
@@ -239,7 +240,8 @@ impl SimDetectorRuntime {
     }
 
     /// Connect a downstream plugin's sender to this detector's output fan-out.
-    pub fn connect_downstream(&self, sender: NDArraySender) {
+    pub fn connect_downstream(&self, mut sender: NDArraySender) {
+        sender.set_queued_counter(self.queued_counter.clone());
         self.array_output.lock().add(sender);
     }
 }
@@ -270,6 +272,7 @@ pub fn create_sim_detector(
     let (runtime_handle, _actor_jh) = create_port_runtime(det, RuntimeConfig::default());
 
     let shared_output = Arc::new(parking_lot::Mutex::new(array_output));
+    let queued_counter = Arc::new(QueuedArrayCounter::new());
 
     let port_handle = runtime_handle.port_handle().clone();
     let task_handle = start_acquisition_task(
@@ -279,6 +282,7 @@ pub fn create_sim_detector(
         dirty,
         ad_params,
         sim_params,
+        queued_counter.clone(),
     );
 
     Ok(SimDetectorRuntime {
@@ -287,6 +291,7 @@ pub fn create_sim_detector(
         sim_params,
         pool,
         array_output: shared_output,
+        queued_counter,
         task_handle: Some(task_handle),
     })
 }

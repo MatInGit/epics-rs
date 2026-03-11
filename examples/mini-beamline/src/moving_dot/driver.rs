@@ -10,7 +10,7 @@ use asyn_rs::user::AsynUser;
 use ad_core::driver::{ADDriver, ADDriverBase, ImageMode};
 use ad_core::ndarray_pool::NDArrayPool;
 use ad_core::params::ADBaseParams;
-use ad_core::plugin::channel::{NDArrayOutput, NDArraySender};
+use ad_core::plugin::channel::{NDArrayOutput, NDArraySender, QueuedArrayCounter};
 
 use crate::physics::MovingDotImageConfig;
 
@@ -134,6 +134,7 @@ pub struct MovingDotRuntime {
     pub dot_params: MovingDotParams,
     pool: Arc<NDArrayPool>,
     array_output: Arc<parking_lot::Mutex<NDArrayOutput>>,
+    queued_counter: Arc<QueuedArrayCounter>,
     #[allow(dead_code)]
     task_handle: Option<std::thread::JoinHandle<()>>,
 }
@@ -152,7 +153,8 @@ impl MovingDotRuntime {
         &self.array_output
     }
 
-    pub fn connect_downstream(&self, sender: NDArraySender) {
+    pub fn connect_downstream(&self, mut sender: NDArraySender) {
+        sender.set_queued_counter(self.queued_counter.clone());
         self.array_output.lock().add(sender);
     }
 }
@@ -190,6 +192,7 @@ pub fn create_moving_dot_with_config(
     let (runtime_handle, _actor_jh) = create_port_runtime(det, RuntimeConfig::default());
 
     let shared_output = Arc::new(parking_lot::Mutex::new(array_output));
+    let queued_counter = Arc::new(QueuedArrayCounter::new());
 
     let port_handle = runtime_handle.port_handle().clone();
     let task_handle = start_acquisition_task(
@@ -200,6 +203,7 @@ pub fn create_moving_dot_with_config(
         ad_params,
         dot_params,
         image_config,
+        queued_counter.clone(),
     );
 
     Ok(MovingDotRuntime {
@@ -208,6 +212,7 @@ pub fn create_moving_dot_with_config(
         dot_params,
         pool,
         array_output: shared_output,
+        queued_counter,
         task_handle: Some(task_handle),
     })
 }

@@ -9,7 +9,7 @@ use asyn_rs::port_handle::PortHandle;
 use ad_core::driver::{ADStatus, ImageMode};
 use ad_core::ndarray::{NDArray, NDDataBuffer, NDDimension};
 use ad_core::params::ADBaseParams;
-use ad_core::plugin::channel::NDArrayOutput;
+use ad_core::plugin::channel::{NDArrayOutput, QueuedArrayCounter};
 
 use crate::physics::{self, MovingDotImageConfig};
 
@@ -60,11 +60,12 @@ pub fn start_acquisition_task(
     ad_params: ADBaseParams,
     dot_params: MovingDotParams,
     image_config: MovingDotImageConfig,
+    queued_counter: Arc<QueuedArrayCounter>,
 ) -> std::thread::JoinHandle<()> {
     std::thread::Builder::new()
         .name("MovingDotTask".into())
         .spawn(move || {
-            acquisition_loop(acq_rx, port_handle, array_output, dirty, ad_params, dot_params, image_config);
+            acquisition_loop(acq_rx, port_handle, array_output, dirty, ad_params, dot_params, image_config, queued_counter);
         })
         .expect("failed to spawn MovingDotTask thread")
 }
@@ -77,6 +78,7 @@ fn acquisition_loop(
     ad: ADBaseParams,
     dot: MovingDotParams,
     image_config: MovingDotImageConfig,
+    queued_counter: Arc<QueuedArrayCounter>,
 ) {
     let mut rng = StdRng::from_entropy();
 
@@ -149,6 +151,9 @@ fn acquisition_loop(
             let elapsed = start_time.elapsed().as_secs_f64();
             let delay = (config.acquire_time - elapsed).max(MIN_DELAY_SECS);
             if wait_for_stop(&acq_rx, Duration::from_secs_f64(delay)) {
+                if config.wait_for_plugins {
+                    queued_counter.wait_until_zero(Duration::from_secs(5));
+                }
                 let _ = port_handle.write_int32_blocking(ad.acquire_busy, 0, 0);
                 let _ = port_handle.write_int32_blocking(ad.status, 0, ADStatus::Idle as i32);
                 let _ = port_handle.write_int32_blocking(ad.acquire, 0, 0);
@@ -171,18 +176,16 @@ fn acquisition_loop(
             let _ = port_handle.call_param_callbacks_blocking(0);
 
             if config.array_callbacks {
-                let output = array_output.lock();
-                if config.wait_for_plugins {
-                    output.publish_and_wait(Arc::new(frame));
-                } else {
-                    output.publish(Arc::new(frame));
-                }
+                array_output.lock().publish(Arc::new(frame));
             }
 
             // Check stop conditions
             if config.image_mode == ImageMode::Single
                 || (config.image_mode == ImageMode::Multiple && num_counter >= config.num_images)
             {
+                if config.wait_for_plugins {
+                    queued_counter.wait_until_zero(Duration::from_secs(5));
+                }
                 let _ = port_handle.write_int32_blocking(ad.acquire_busy, 0, 0);
                 let _ = port_handle.write_int32_blocking(ad.status, 0, ADStatus::Idle as i32);
                 let _ = port_handle.write_int32_blocking(ad.acquire, 0, 0);
@@ -195,6 +198,9 @@ fn acquisition_loop(
             let period_delay = config.acquire_period - total_elapsed;
             if period_delay > 0.0 {
                 if wait_for_stop(&acq_rx, Duration::from_secs_f64(period_delay)) {
+                    if config.wait_for_plugins {
+                        queued_counter.wait_until_zero(Duration::from_secs(5));
+                    }
                     let _ = port_handle.write_int32_blocking(ad.acquire_busy, 0, 0);
                     let _ = port_handle.write_int32_blocking(ad.status, 0, ADStatus::Idle as i32);
                     let _ = port_handle.write_int32_blocking(ad.acquire, 0, 0);

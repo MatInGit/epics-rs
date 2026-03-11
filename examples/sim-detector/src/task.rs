@@ -12,6 +12,7 @@ use ad_core::params::ADBaseParams;
 use ad_core::plugin::channel::NDArrayOutput;
 
 use ad_core::color_layout::ColorLayout;
+use ad_core::plugin::channel::QueuedArrayCounter;
 use ad_core::roi::crop_roi;
 
 use crate::compute::{self, SineState};
@@ -146,11 +147,12 @@ pub fn start_acquisition_task(
     dirty: Arc<parking_lot::Mutex<DirtyFlags>>,
     ad_params: ADBaseParams,
     sim_params: SimDetectorParams,
+    queued_counter: Arc<QueuedArrayCounter>,
 ) -> std::thread::JoinHandle<()> {
     std::thread::Builder::new()
         .name("SimDetTask".into())
         .spawn(move || {
-            acquisition_loop(acq_rx, port_handle, array_output, dirty, ad_params, sim_params);
+            acquisition_loop(acq_rx, port_handle, array_output, dirty, ad_params, sim_params, queued_counter);
         })
         .expect("failed to spawn SimDetTask thread")
 }
@@ -162,6 +164,7 @@ fn acquisition_loop(
     dirty: Arc<parking_lot::Mutex<DirtyFlags>>,
     ad: ADBaseParams,
     sim: SimDetectorParams,
+    queued_counter: Arc<QueuedArrayCounter>,
 ) {
     let mut task_state = TaskState::new();
 
@@ -210,6 +213,9 @@ fn acquisition_loop(
             let delay = (config.acquire_time - elapsed).max(MIN_DELAY_SECS);
             if wait_for_stop(&acq_rx, Duration::from_secs_f64(delay)) {
                 // External stop received
+                if config.wait_for_plugins {
+                    queued_counter.wait_until_zero(Duration::from_secs(5));
+                }
                 let _ = port_handle.write_int32_blocking(ad.acquire_busy, 0, 0);
                 let _ = port_handle.write_int32_blocking(ad.status, 0, ADStatus::Idle as i32);
                 let _ = port_handle.write_int32_blocking(ad.acquire, 0, 0);
@@ -233,12 +239,7 @@ fn acquisition_loop(
             let _ = port_handle.call_param_callbacks_blocking(0);
 
             if config.array_callbacks {
-                let output = array_output.lock();
-                if config.wait_for_plugins {
-                    output.publish_and_wait(Arc::new(frame));
-                } else {
-                    output.publish(Arc::new(frame));
-                }
+                array_output.lock().publish(Arc::new(frame));
             }
 
             // Check stop conditions
@@ -247,6 +248,9 @@ fn acquisition_loop(
             if image_mode == ImageMode::Single
                 || (image_mode == ImageMode::Multiple && num_counter >= num_images)
             {
+                if config.wait_for_plugins {
+                    queued_counter.wait_until_zero(Duration::from_secs(5));
+                }
                 let _ = port_handle.write_int32_blocking(ad.acquire_busy, 0, 0);
                 let _ = port_handle.write_int32_blocking(ad.status, 0, ADStatus::Idle as i32);
                 let _ = port_handle.write_int32_blocking(ad.acquire, 0, 0);
@@ -259,6 +263,9 @@ fn acquisition_loop(
             let period_delay = config.acquire_period - total_elapsed;
             if period_delay > 0.0 {
                 if wait_for_stop(&acq_rx, Duration::from_secs_f64(period_delay)) {
+                    if config.wait_for_plugins {
+                        queued_counter.wait_until_zero(Duration::from_secs(5));
+                    }
                     let _ = port_handle.write_int32_blocking(ad.acquire_busy, 0, 0);
                     let _ = port_handle.write_int32_blocking(ad.status, 0, ADStatus::Idle as i32);
                     let _ = port_handle.write_int32_blocking(ad.acquire, 0, 0);

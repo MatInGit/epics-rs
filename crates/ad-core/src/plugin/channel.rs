@@ -9,64 +9,77 @@ pub(crate) trait BlockingProcessFn: Send + Sync {
     fn process_and_publish(&self, array: &NDArray);
 }
 
-/// Tracks completion of array processing across multiple non-blocking plugins.
-pub struct ArrayCompletion {
-    remaining: AtomicUsize,
-    done: std::sync::Mutex<bool>,
+/// Tracks the number of queued (in-flight) arrays across non-blocking plugins.
+/// Used by drivers to perform a bounded wait at end of acquisition.
+pub struct QueuedArrayCounter {
+    count: AtomicUsize,
+    mutex: std::sync::Mutex<()>,
     condvar: std::sync::Condvar,
 }
 
-impl ArrayCompletion {
-    /// Create a new tracker expecting `count` completions.
-    pub fn new(count: usize) -> Self {
+impl QueuedArrayCounter {
+    /// Create a new counter starting at zero.
+    pub fn new() -> Self {
         Self {
-            remaining: AtomicUsize::new(count),
-            done: std::sync::Mutex::new(count == 0),
+            count: AtomicUsize::new(0),
+            mutex: std::sync::Mutex::new(()),
             condvar: std::sync::Condvar::new(),
         }
     }
 
-    /// Signal that one plugin has finished processing (or the message was dropped).
-    pub fn signal_one(&self) {
-        let prev = self.remaining.fetch_sub(1, Ordering::AcqRel);
+    /// Increment the queued count (called before try_send).
+    pub fn increment(&self) {
+        self.count.fetch_add(1, Ordering::AcqRel);
+    }
+
+    /// Decrement the queued count. Notifies waiters when reaching zero.
+    pub fn decrement(&self) {
+        let prev = self.count.fetch_sub(1, Ordering::AcqRel);
         if prev == 1 {
-            let mut done = self.done.lock().unwrap();
-            *done = true;
+            let _guard = self.mutex.lock().unwrap();
             self.condvar.notify_all();
         }
     }
 
-    /// Block until all plugins have signaled completion, or timeout expires.
-    /// Returns `true` if all completed, `false` on timeout.
-    pub fn wait(&self, timeout: Duration) -> bool {
-        let done = self.done.lock().unwrap();
-        if *done {
-            return true;
-        }
-        let result = self.condvar.wait_timeout_while(done, timeout, |d| !*d).unwrap();
-        *result.0
+    /// Current queued count.
+    pub fn get(&self) -> usize {
+        self.count.load(Ordering::Acquire)
     }
 
-    /// Block until all plugins have signaled completion (no timeout).
-    pub fn wait_forever(&self) {
-        let mut done = self.done.lock().unwrap();
-        while !*done {
-            done = self.condvar.wait(done).unwrap();
+    /// Wait until count reaches zero, or timeout expires.
+    /// Returns `true` if count is zero, `false` on timeout.
+    pub fn wait_until_zero(&self, timeout: Duration) -> bool {
+        let guard = self.mutex.lock().unwrap();
+        if self.count.load(Ordering::Acquire) == 0 {
+            return true;
         }
+        let result = self
+            .condvar
+            .wait_timeout_while(guard, timeout, |_| {
+                self.count.load(Ordering::Acquire) != 0
+            })
+            .unwrap();
+        !result.1.timed_out()
     }
 }
 
-/// Array message with optional completion tracking.
-/// When dropped, signals the completion tracker (if present).
+impl Default for QueuedArrayCounter {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+/// Array message with optional queued-array counter.
+/// When dropped, decrements the counter (if present).
 pub struct ArrayMessage {
     pub array: Arc<NDArray>,
-    pub(crate) completion: Option<Arc<ArrayCompletion>>,
+    pub(crate) counter: Option<Arc<QueuedArrayCounter>>,
 }
 
 impl Drop for ArrayMessage {
     fn drop(&mut self) {
-        if let Some(c) = self.completion.take() {
-            c.signal_one();
+        if let Some(c) = self.counter.take() {
+            c.decrement();
         }
     }
 }
@@ -80,6 +93,7 @@ pub struct NDArraySender {
     enabled: Arc<AtomicBool>,
     blocking_mode: Arc<AtomicBool>,
     blocking_processor: Option<Arc<dyn BlockingProcessFn>>,
+    queued_counter: Option<Arc<QueuedArrayCounter>>,
 }
 
 impl NDArraySender {
@@ -97,27 +111,22 @@ impl NDArraySender {
                 return;
             }
         }
-        // Non-blocking path
-        let msg = ArrayMessage { array, completion: None };
-        match self.tx.try_send(msg) {
-            Ok(()) => {}
-            Err(tokio::sync::mpsc::error::TrySendError::Full(_)) => {
-                self.dropped_count.fetch_add(1, Ordering::Relaxed);
-            }
-            Err(tokio::sync::mpsc::error::TrySendError::Closed(_)) => {}
+        // Non-blocking path: increment counter before try_send
+        if let Some(ref c) = self.queued_counter {
+            c.increment();
         }
-    }
-
-    /// Send an array message with completion tracking. Used by `publish_and_wait`.
-    pub(crate) fn send_msg(&self, msg: ArrayMessage) {
+        let msg = ArrayMessage {
+            array,
+            counter: self.queued_counter.clone(),
+        };
         match self.tx.try_send(msg) {
             Ok(()) => {}
             Err(tokio::sync::mpsc::error::TrySendError::Full(_)) => {
-                // msg is dropped here → Drop fires → completion signaled
+                // msg dropped here → Drop fires → counter decremented (net 0)
                 self.dropped_count.fetch_add(1, Ordering::Relaxed);
             }
             Err(tokio::sync::mpsc::error::TrySendError::Closed(_)) => {
-                // msg is dropped here → Drop fires → completion signaled
+                // msg dropped here → Drop fires → counter decremented
             }
         }
     }
@@ -138,6 +147,11 @@ impl NDArraySender {
 
     pub fn dropped_count(&self) -> u64 {
         self.dropped_count.load(Ordering::Relaxed)
+    }
+
+    /// Set the queued-array counter for tracking in-flight arrays.
+    pub fn set_queued_counter(&mut self, counter: Arc<QueuedArrayCounter>) {
+        self.queued_counter = Some(counter);
     }
 
     /// Configure blocking callback support. Used by plugin runtime.
@@ -190,6 +204,7 @@ pub fn ndarray_channel(port_name: &str, queue_size: usize) -> (NDArraySender, ND
             enabled: Arc::new(AtomicBool::new(true)),
             blocking_mode: Arc::new(AtomicBool::new(false)),
             blocking_processor: None,
+            queued_counter: None,
         },
         NDArrayReceiver { rx },
     )
@@ -225,46 +240,6 @@ impl NDArrayOutput {
     pub fn publish(&self, array: Arc<NDArray>) {
         for sender in &self.senders {
             sender.send(array.clone());
-        }
-    }
-
-    /// Publish an array and wait for all non-blocking plugins to finish processing.
-    /// Blocking plugins are processed inline on the caller's thread.
-    /// Returns immediately if no non-blocking plugins are connected.
-    pub fn publish_and_wait(&self, array: Arc<NDArray>) {
-        // Count non-blocking, enabled senders
-        let nb_count = self.senders.iter()
-            .filter(|s| s.is_enabled() && !s.is_blocking())
-            .count();
-
-        let completion = if nb_count > 0 {
-            Some(Arc::new(ArrayCompletion::new(nb_count)))
-        } else {
-            None
-        };
-
-        for sender in &self.senders {
-            if !sender.is_enabled() {
-                continue;
-            }
-            if sender.is_blocking() {
-                // Process inline (no tracker needed)
-                if let Some(ref bp) = sender.blocking_processor {
-                    bp.process_and_publish(&array);
-                }
-            } else {
-                // Non-blocking: send with completion tracker
-                let msg = ArrayMessage {
-                    array: array.clone(),
-                    completion: completion.clone(),
-                };
-                sender.send_msg(msg);
-            }
-        }
-
-        // Wait for all non-blocking plugins to finish
-        if let Some(c) = completion {
-            c.wait_forever();
         }
     }
 
@@ -404,98 +379,78 @@ mod tests {
     }
 
     #[test]
-    fn test_publish_and_wait_basic() {
-        // Verify publish_and_wait returns after receivers consume the message
-        let (s1, mut r1) = ndarray_channel("P1", 10);
-        let (s2, mut r2) = ndarray_channel("P2", 10);
-
-        let mut output = NDArrayOutput::new();
-        output.add(s1);
-        output.add(s2);
-
-        // Spawn consumers that drain after a short delay
-        let h1 = std::thread::spawn(move || {
-            let arr = r1.blocking_recv().unwrap();
-            assert_eq!(arr.unique_id, 7);
-        });
-        let h2 = std::thread::spawn(move || {
-            let arr = r2.blocking_recv().unwrap();
-            assert_eq!(arr.unique_id, 7);
-        });
-
-        output.publish_and_wait(make_test_array(7));
-        // If we get here, both plugins have finished
-        h1.join().unwrap();
-        h2.join().unwrap();
+    fn test_queued_counter_basic() {
+        let counter = QueuedArrayCounter::new();
+        assert_eq!(counter.get(), 0);
+        counter.increment();
+        assert_eq!(counter.get(), 1);
+        counter.increment();
+        assert_eq!(counter.get(), 2);
+        counter.decrement();
+        assert_eq!(counter.get(), 1);
+        counter.decrement();
+        assert_eq!(counter.get(), 0);
     }
 
     #[test]
-    fn test_publish_and_wait_queue_full() {
-        // When queue is full, dropped message signals completion → no deadlock
-        let (s1, _r1) = ndarray_channel("P1", 1);
+    fn test_queued_counter_wait_until_zero() {
+        let counter = Arc::new(QueuedArrayCounter::new());
+        counter.increment();
+        counter.increment();
 
-        let mut output = NDArrayOutput::new();
-        output.add(s1);
-
-        // Fill the channel
-        output.publish(make_test_array(1));
-
-        // This should not deadlock: queue full → msg dropped → completion signaled
-        output.publish_and_wait(make_test_array(2));
-    }
-
-    #[test]
-    fn test_publish_and_wait_no_plugins() {
-        let output = NDArrayOutput::new();
-        // Should return immediately with no senders
-        output.publish_and_wait(make_test_array(1));
-    }
-
-    #[test]
-    fn test_publish_and_wait_disabled_plugin() {
-        let (s1, _r1) = ndarray_channel("P1", 10);
-
-        let mut output = NDArrayOutput::new();
-        output.add(s1);
-
-        // Disable the sender
-        output.senders[0].enabled.store(false, Ordering::Release);
-
-        // Should return immediately since the only plugin is disabled
-        output.publish_and_wait(make_test_array(1));
-    }
-
-    #[test]
-    fn test_array_completion_signal() {
-        let completion = Arc::new(ArrayCompletion::new(2));
-        let c1 = completion.clone();
-        let c2 = completion.clone();
-
+        let c = counter.clone();
         let h = std::thread::spawn(move || {
-            completion.wait(Duration::from_secs(5))
+            std::thread::sleep(Duration::from_millis(10));
+            c.decrement();
+            std::thread::sleep(Duration::from_millis(10));
+            c.decrement();
         });
 
-        c1.signal_one();
-        c2.signal_one();
-
-        assert!(h.join().unwrap());
+        assert!(counter.wait_until_zero(Duration::from_secs(5)));
+        h.join().unwrap();
     }
 
     #[test]
-    fn test_array_completion_zero_count() {
-        let completion = ArrayCompletion::new(0);
-        // Should return immediately
-        assert!(completion.wait(Duration::from_millis(1)));
+    fn test_queued_counter_wait_timeout() {
+        let counter = Arc::new(QueuedArrayCounter::new());
+        counter.increment();
+        assert!(!counter.wait_until_zero(Duration::from_millis(10)));
     }
 
     #[test]
-    fn test_array_message_drop_signals() {
-        let completion = Arc::new(ArrayCompletion::new(1));
+    fn test_send_increments_counter() {
+        let counter = Arc::new(QueuedArrayCounter::new());
+        let (mut sender, _receiver) = ndarray_channel("TEST", 10);
+        sender.set_queued_counter(counter.clone());
+
+        sender.send(make_test_array(1));
+        assert_eq!(counter.get(), 1);
+        sender.send(make_test_array(2));
+        assert_eq!(counter.get(), 2);
+    }
+
+    #[test]
+    fn test_send_queue_full_no_net_increment() {
+        let counter = Arc::new(QueuedArrayCounter::new());
+        let (mut sender, _receiver) = ndarray_channel("TEST", 1);
+        sender.set_queued_counter(counter.clone());
+
+        sender.send(make_test_array(1)); // fills queue
+        assert_eq!(counter.get(), 1);
+        sender.send(make_test_array(2)); // queue full → dropped → net 0 change
+        assert_eq!(counter.get(), 1);
+    }
+
+    #[test]
+    fn test_message_drop_decrements() {
+        let counter = Arc::new(QueuedArrayCounter::new());
+        counter.increment();
         let msg = ArrayMessage {
             array: make_test_array(1),
-            completion: Some(completion.clone()),
+            counter: Some(counter.clone()),
         };
+        assert_eq!(counter.get(), 1);
         drop(msg);
-        assert!(completion.wait(Duration::from_millis(1)));
+        assert_eq!(counter.get(), 0);
     }
 }

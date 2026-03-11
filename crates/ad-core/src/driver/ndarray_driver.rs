@@ -7,7 +7,7 @@ use asyn_rs::port::{PortDriverBase, PortFlags};
 use crate::ndarray::NDArray;
 use crate::ndarray_pool::NDArrayPool;
 use crate::params::ndarray_driver::NDArrayDriverParams;
-use crate::plugin::channel::{NDArrayOutput, NDArraySender};
+use crate::plugin::channel::{NDArrayOutput, NDArraySender, QueuedArrayCounter};
 
 /// Base state for asynNDArrayDriver (file handling, attribute mgmt, pool).
 pub struct NDArrayDriverBase {
@@ -15,6 +15,7 @@ pub struct NDArrayDriverBase {
     pub params: NDArrayDriverParams,
     pub pool: Arc<NDArrayPool>,
     pub array_output: NDArrayOutput,
+    pub queued_counter: Arc<QueuedArrayCounter>,
 }
 
 impl NDArrayDriverBase {
@@ -40,11 +41,13 @@ impl NDArrayDriverBase {
             params,
             pool,
             array_output: NDArrayOutput::new(),
+            queued_counter: Arc::new(QueuedArrayCounter::new()),
         })
     }
 
     /// Connect a downstream channel-based receiver.
-    pub fn connect_downstream(&mut self, sender: NDArraySender) {
+    pub fn connect_downstream(&mut self, mut sender: NDArraySender) {
+        sender.set_queued_counter(self.queued_counter.clone());
         self.array_output.add(sender);
     }
 
@@ -100,12 +103,7 @@ impl NDArrayDriverBase {
                 array.clone() as Arc<dyn std::any::Any + Send + Sync>,
             )?;
 
-            let wait = self.port_base.get_int32_param(self.params.wait_for_plugins, 0).unwrap_or(0) != 0;
-            if wait {
-                self.array_output.publish_and_wait(array);
-            } else {
-                self.array_output.publish(array);
-            }
+            self.array_output.publish(array);
         }
 
         self.port_base.call_param_callbacks(0)?;
