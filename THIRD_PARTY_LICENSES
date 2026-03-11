@@ -1,0 +1,511 @@
+Third-Party Notices and Licenses
+================================
+
+Repository license
+------------------
+
+Unless otherwise noted, the Rust source code authored for this repository is
+licensed under the MIT license in `LICENSE`.
+
+This repository also includes work that is inspired by, reimplements, or
+bundles material from third-party EPICS projects. This file preserves the
+applicable copyright notices, license texts, and modification notices for those
+projects.
+
+Modification notice
+-------------------
+
+epics-rs is a Rust reimplementation of EPICS-related software. Except where
+files are explicitly imported from upstream projects (for example bundled OPI
+assets), the repository does not contain verbatim copies of the original C/C++
+implementation. The Rust crates in this repository were independently written
+while following the public behavior, protocols, record semantics, database
+formats, and runtime architecture of the upstream projects listed below.
+
+Where an upstream license requires notice of changes to modified or derived
+copies, this file serves as that notice: specified portions were reimplemented,
+adapted, reorganized, and/or translated into Rust for use in this repository.
+
+Projects referenced by this repository
+--------------------------------------
+
+EPICS Open License family:
+
+- EPICS Base
+  Copyright (c) 1991-2011 UChicago Argonne LLC.
+  Copyright (c) 1991-2006 The Regents of the University of California.
+  Copyright (c) 2006-2011 Los Alamos National Security, LLC.
+  Additional disclaimer text for BESSY is included below with the EPICS Base
+  license text.
+
+- asynDriver
+  Copyright (c) 2002 University of Chicago, The Regents of the University of
+  California, and Berliner Elektronenspeicherring Gesellschaft fuer
+  Synchrotronstrahlung m.b.H. (BESSY) All rights reserved.
+  Copyright (c) 2004 by Danfysik and Cosylab.
+
+- MOTOR
+  Copyright (c) UChicago Argonne LLC. All rights reserved.
+
+- synApps modules used as reference material for `calc`, `autosave`, and
+  `busy`
+  Copyright (c) 2004 University of Chicago and the Regents of the University of
+  California. All rights reserved.
+
+- EPICS Sequencer
+  Copyright (c) 1989-1994 The Regents of the University of California and the
+  University of Chicago Board of Governors, Los Alamos National Laboratory.
+  Copyright (c) 2010-2015 Helmholtz-Zentrum Berlin f. Materialien und Energie
+  GmbH, Germany (HZB).
+
+MIT-licensed projects:
+
+- ADCore
+- ADSimDetector
+  Copyright (c) 2008-2016 Mark L. Rivers
+  Copyright (c) 2008-2016 The University of Chicago
+  Copyright (c) 2008-2016 UChicago Argonne LLC, as Operator of Argonne National
+  Laboratory.
+  Copyright (c) 2008-2016 Brookhaven Science Associates, as Operator of
+  Brookhaven National Laboratory
+  Copyright (c) 2008-2016 Diamond Light Source Limited (DLS), Didcot, United
+  Kingdom
+  Copyright (c) 2013-2016 UT-Battelle LLC
+
+EPICS Base license text
+-----------------------
+
+Copyright (c) 1991-2011 UChicago Argonne LLC.
+Copyright (c) 1991-2006 The Regents of the University of California.
+Copyright (c) 2006-2011. Los Alamos National Security, LLC. Some of this
+material was produced under U.S. Government contract DE-AC52-06NA25396
+for Los Alamos National Laboratory (LANL), which is operated by Los Alamos
+National Security, LLC for the U.S. Department of Energy.
+
+EPICS BASE is distributed subject to the following license conditions:
+
+ SOFTWARE LICENSE AGREEMENT
+ Software: EPICS BASE
+
+ 1. The "Software", below, refers to EPICS BASE (in either source code, or
+    binary form and accompanying documentation). Each licensee is
+    addressed as "you" or "Licensee."
+
+ 2. The copyright holders shown above and their third-party licensors
+    hereby grant Licensee a royalty-free nonexclusive license, subject to
+    the limitations stated herein and U.S. Government license rights.
+
+ 3. You may modify and make a copy or copies of the Software for use
+    within your organization, if you meet the following conditions:
+      a. Copies in source code must include the copyright notice and this
+         Software License Agreement.
+      b. Copies in binary form must include the copyright notice and this
+         Software License Agreement in the documentation and/or other
+         materials provided with the copy.
+
+ 4. You may modify a copy or copies of the Software or any portion of it,
+    thus forming a work based on the Software, and distribute copies of
+    such work outside your organization, if you meet all of the following
+    conditions:
+      a. Copies in source code must include the copyright notice and this
+         Software License Agreement;
+      b. Copies in binary form must include the copyright notice and this
+         Software License Agreement in the documentation and/or other
+         materials provided with the copy;
+      c. Modified copies and works based on the Software must carry
+         prominent notices stating that you changed specified portions of
+         the Software.
+
+ 5. Portions of the Software resulted from work developed under a U.S.
+    Government contract and are subject to the following license: the
+    Government is granted for itself and others acting on its behalf a
+    paid-up, nonexclusive, irrevocable worldwide license in this computer
+    software to reproduce, prepare derivative works, and perform publicly
+    and display publicly.
+
+ 6. WARRANTY DISCLAIMER. THE SOFTWARE IS SUPPLIED "AS IS" WITHOUT WARRANTY
+    OF ANY KIND. THE COPYRIGHT HOLDERS, THEIR THIRD PARTY LICENSORS, THE
+    UNITED STATES, THE UNITED STATES DEPARTMENT OF ENERGY, AND THEIR
+    EMPLOYEES: (1) DISCLAIM ANY WARRANTIES, EXPRESS OR IMPLIED, INCLUDING
+    BUT NOT LIMITED TO ANY IMPLIED WARRANTIES OF MERCHANTABILITY, FITNESS
+    FOR A PARTICULAR PURPOSE, TITLE OR NON-INFRINGEMENT, (2) DO NOT ASSUME
+    ANY LEGAL LIABILITY OR RESPONSIBILITY FOR THE ACCURACY, COMPLETENESS,
+    OR USEFULNESS OF THE SOFTWARE, (3) DO NOT REPRESENT THAT USE OF THE
+    SOFTWARE WOULD NOT INFRINGE PRIVATELY OWNED RIGHTS, (4) DO NOT WARRANT
+    THAT THE SOFTWARE WILL FUNCTION UNINTERRUPTED, THAT IT IS ERROR-FREE
+    OR THAT ANY ERRORS WILL BE CORRECTED.
+
+ 7. LIMITATION OF LIABILITY. IN NO EVENT WILL THE COPYRIGHT HOLDERS, THEIR
+    THIRD PARTY LICENSORS, THE UNITED STATES, THE UNITED STATES DEPARTMENT
+    OF ENERGY, OR THEIR EMPLOYEES: BE LIABLE FOR ANY INDIRECT, INCIDENTAL,
+    CONSEQUENTIAL, SPECIAL OR PUNITIVE DAMAGES OF ANY KIND OR NATURE,
+    INCLUDING BUT NOT LIMITED TO LOSS OF PROFITS OR LOSS OF DATA, FOR ANY
+    REASON WHATSOEVER, WHETHER SUCH LIABILITY IS ASSERTED ON THE BASIS OF
+    CONTRACT, TORT (INCLUDING NEGLIGENCE OR STRICT LIABILITY), OR
+    OTHERWISE, EVEN IF ANY OF SAID PARTIES HAS BEEN WARNED OF THE
+    POSSIBILITY OF SUCH LOSS OR DAMAGES.
+
+________________________________________________________________________
+
+This software is in part copyrighted by the BERLINER SPEICHERRING
+GESELLSCHAFT FUER SYNCHROTRONSTRAHLUNG M.B.H. (BESSY), BERLIN, GERMANY.
+
+In no event shall BESSY be liable to any party for direct, indirect,
+special, incidental, or consequential damages arising out of the use of
+this software, its documentation, or any derivatives thereof, even if
+BESSY has been advised of the possibility of such damage.
+
+BESSY specifically disclaims any warranties, including, but not limited
+to, the implied warranties of merchantability, fitness for a particular
+purpose, and non-infringement. This software is provided on an "as is"
+basis, and BESSY has no obligation to provide maintenance, support,
+updates, enhancements, or modifications.
+
+asynDriver license text
+-----------------------
+
+Copyright (c) 2002 University of Chicago, The Regents of the
+University of California, and Berliner Elektronenspeicherring
+Gesellschaft fuer Synchrotronstrahlung m.b.H. (BESSY) All rights
+reserved.
+
+Copyright (c) 2004 by Danfysik and Cosylab (Danfysik has funded the work
+performed by Cosylab).
+
+
+asynDriver is distributed subject to the following license conditions:
+
+ SOFTWARE LICENSE AGREEMENT
+ Software: asynDriver
+
+ 1. The "Software", below, refers to asynDriver (in either source code, or
+    binary form and accompanying documentation). Each licensee is
+    addressed as "you" or "Licensee."
+
+ 2. The copyright holders shown above and their third-party licensors
+    hereby grant Licensee a royalty-free nonexclusive license, subject to
+    the limitations stated herein and U.S. Government license rights.
+
+ 3. You may modify and make a copy or copies of the Software for use
+    within your organization, if you meet the following conditions:
+      a. Copies in source code must include the copyright notice and this
+         Software License Agreement.
+      b. Copies in binary form must include the copyright notice and this
+         Software License Agreement in the documentation and/or other
+         materials provided with the copy.
+
+ 4. You may modify a copy or copies of the Software or any portion of it,
+    thus forming a work based on the Software, and distribute copies of
+    such work outside your organization, if you meet all of the following
+    conditions:
+      a. Copies in source code must include the copyright notice and this
+         Software License Agreement;
+      b. Copies in binary form must include the copyright notice and this
+         Software License Agreement in the documentation and/or other
+         materials provided with the copy;
+      c. Modified copies and works based on the Software must carry
+         prominent notices stating that you changed specified portions of
+         the Software.
+
+ 5. Portions of the Software resulted from work developed under a U.S.
+    Government contract and are subject to the following license: the
+    Government is granted for itself and others acting on its behalf a
+    paid-up, nonexclusive, irrevocable worldwide license in this computer
+    software to reproduce, prepare derivative works, and perform publicly
+    and display publicly.
+
+ 6. WARRANTY DISCLAIMER. THE SOFTWARE IS SUPPLIED "AS IS" WITHOUT WARRANTY
+    OF ANY KIND. THE COPYRIGHT HOLDERS, THEIR THIRD PARTY LICENSORS, THE
+    UNITED STATES, THE UNITED STATES DEPARTMENT OF ENERGY, AND THEIR
+    EMPLOYEES: (1) DISCLAIM ANY WARRANTIES, EXPRESS OR IMPLIED, INCLUDING
+    BUT NOT LIMITED TO ANY IMPLIED WARRANTIES OF MERCHANTABILITY, FITNESS
+    FOR A PARTICULAR PURPOSE, TITLE OR NON-INFRINGEMENT, (2) DO NOT ASSUME
+    ANY LEGAL LIABILITY OR RESPONSIBILITY FOR THE ACCURACY, COMPLETENESS,
+    OR USEFULNESS OF THE SOFTWARE, (3) DO NOT REPRESENT THAT USE OF THE
+    SOFTWARE WOULD NOT INFRINGE PRIVATELY OWNED RIGHTS, (4) DO NOT WARRANT
+    THAT THE SOFTWARE WILL FUNCTION UNINTERRUPTED, THAT IT IS ERROR-FREE
+    OR THAT ANY ERRORS WILL BE CORRECTED.
+
+ 7. LIMITATION OF LIABILITY. IN NO EVENT WILL THE COPYRIGHT HOLDERS, THEIR
+    THIRD PARTY LICENSORS, THE UNITED STATES, THE UNITED STATES DEPARTMENT
+    OF ENERGY, OR THEIR EMPLOYEES: BE LIABLE FOR ANY INDIRECT, INCIDENTAL,
+    CONSEQUENTIAL, SPECIAL OR PUNITIVE DAMAGES OF ANY KIND OR NATURE,
+    INCLUDING BUT NOT LIMITED TO LOSS OF PROFITS OR LOSS OF DATA, FOR ANY
+    REASON WHATSOEVER, WHETHER SUCH LIABILITY IS ASSERTED ON THE BASIS OF
+    CONTRACT, TORT (INCLUDING NEGLIGENCE OR STRICT LIABILITY), OR
+    OTHERWISE, EVEN IF ANY OF SAID PARTIES HAS BEEN WARNED OF THE
+    POSSIBILITY OF SUCH LOSS OR DAMAGES.
+
+MOTOR license text
+------------------
+
+Copyright (c) UChicago Argonne LLC. All rights reserved.
+
+MOTOR is distributed subject to the following license conditions:
+
+ SOFTWARE LICENSE AGREEMENT
+ Software: MOTOR
+
+ 1. The "Software", below, refers to MOTOR (in either source code, or
+    binary form and accompanying documentation). Each licensee is
+    addressed as "you" or "Licensee."
+
+ 2. The copyright holders shown above and their third-party licensors
+    hereby grant Licensee a royalty-free nonexclusive license, subject to
+    the limitations stated herein and U.S. Government license rights.
+
+ 3. You may modify and make a copy or copies of the Software for use
+    within your organization, if you meet the following conditions:
+      a. Copies in source code must include the copyright notice and this
+         Software License Agreement.
+      b. Copies in binary form must include the copyright notice and this
+         Software License Agreement in the documentation and/or other
+         materials provided with the copy.
+
+ 4. You may modify a copy or copies of the Software or any portion of it,
+    thus forming a work based on the Software, and distribute copies of
+    such work outside your organization, if you meet all of the following
+    conditions:
+      a. Copies in source code must include the copyright notice and this
+         Software License Agreement;
+      b. Copies in binary form must include the copyright notice and this
+         Software License Agreement in the documentation and/or other
+         materials provided with the copy;
+      c. Modified copies and works based on the Software must carry
+         prominent notices stating that you changed specified portions of
+         the Software.
+
+ 5. Portions of the Software resulted from work developed under a U.S.
+    Government contract and are subject to the following license: the
+    Government is granted for itself and others acting on its behalf a
+    paid-up, nonexclusive, irrevocable worldwide license in this computer
+    software to reproduce, prepare derivative works, and perform publicly
+    and display publicly.
+
+ 6. WARRANTY DISCLAIMER. THE SOFTWARE IS SUPPLIED "AS IS" WITHOUT WARRANTY
+    OF ANY KIND. THE COPYRIGHT HOLDERS, THEIR THIRD PARTY LICENSORS, THE
+    UNITED STATES, THE UNITED STATES DEPARTMENT OF ENERGY, AND THEIR
+    EMPLOYEES: (1) DISCLAIM ANY WARRANTIES, EXPRESS OR IMPLIED, INCLUDING
+    BUT NOT LIMITED TO ANY IMPLIED WARRANTIES OF MERCHANTABILITY, FITNESS
+    FOR A PARTICULAR PURPOSE, TITLE OR NON-INFRINGEMENT, (2) DO NOT ASSUME
+    ANY LEGAL LIABILITY OR RESPONSIBILITY FOR THE ACCURACY, COMPLETENESS,
+    OR USEFULNESS OF THE SOFTWARE, (3) DO NOT REPRESENT THAT USE OF THE
+    SOFTWARE WOULD NOT INFRINGE PRIVATELY OWNED RIGHTS, (4) DO NOT WARRANT
+    THAT THE SOFTWARE WILL FUNCTION UNINTERRUPTED, THAT IT IS ERROR-FREE
+    OR THAT ANY ERRORS WILL BE CORRECTED.
+
+ 7. LIMITATION OF LIABILITY. IN NO EVENT WILL THE COPYRIGHT HOLDERS, THEIR
+    THIRD PARTY LICENSORS, THE UNITED STATES, THE UNITED STATES DEPARTMENT
+    OF ENERGY, OR THEIR EMPLOYEES: BE LIABLE FOR ANY INDIRECT, INCIDENTAL,
+    CONSEQUENTIAL, SPECIAL OR PUNITIVE DAMAGES OF ANY KIND OR NATURE,
+    INCLUDING BUT NOT LIMITED TO LOSS OF PROFITS OR LOSS OF DATA, FOR ANY
+    REASON WHATSOEVER, WHETHER SUCH LIABILITY IS ASSERTED ON THE BASIS OF
+    CONTRACT, TORT (INCLUDING NEGLIGENCE OR STRICT LIABILITY), OR
+    OTHERWISE, EVEN IF ANY OF SAID PARTIES HAS BEEN WARNED OF THE
+    POSSIBILITY OF SUCH LOSS OR DAMAGES.
+
+synApps license text
+--------------------
+
+Copyright (c) 2004 University of Chicago and the Regents of the University of
+California. All rights reserved.
+
+synApps is distributed subject to the following license conditions:
+SOFTWARE LICENSE AGREEMENT
+Software: synApps
+Versions: Release 4-5 and higher.
+
+   1. The "Software", below, refers to synApps (in either source code, or
+      binary form and accompanying documentation). Each licensee is addressed
+      as "you" or "Licensee."
+
+   2. The copyright holders shown above and their third-party licensors hereby
+      grant Licensee a royalty-free nonexclusive license, subject to the
+      limitations stated herein and U.S. Government license rights.
+
+   3. You may modify and make a copy or copies of the Software for use within
+      your organization, if you meet the following conditions:
+         1. Copies in source code must include the copyright notice and this
+            Software License Agreement.
+         2. Copies in binary form must include the copyright notice and this
+            Software License Agreement in the documentation and/or other
+            materials provided with the copy.
+
+   4. You may modify a copy or copies of the Software or any portion of it,
+      thus forming a work based on the Software, and distribute copies of such
+      work outside your organization, if you meet all of the following
+      conditions:
+         1. Copies in source code must include the copyright notice and this
+            Software License Agreement;
+         2. Copies in binary form must include the copyright notice and this
+            Software License Agreement in the documentation and/or other
+            materials provided with the copy;
+         3. Modified copies and works based on the Software must carry
+            prominent notices stating that you changed specified portions of
+            the Software.
+
+   5. Portions of the Software resulted from work developed under a
+      U.S. Government contract and are subject to the following license:
+      the Government is granted for itself and others acting on its behalf a
+      paid-up, nonexclusive, irrevocable worldwide license in this computer
+      software to reproduce, prepare derivative works, and perform publicly and
+      display publicly.
+
+   6. WARRANTY DISCLAIMER. THE SOFTWARE IS SUPPLIED "AS IS" WITHOUT WARRANTY OF
+      ANY KIND. THE COPYRIGHT HOLDERS, THEIR THIRD PARTY LICENSORS, THE UNITED
+      STATES, THE UNITED STATES DEPARTMENT OF ENERGY, AND THEIR EMPLOYEES: (1)
+      DISCLAIM ANY WARRANTIES, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO
+      ANY IMPLIED WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR
+      PURPOSE, TITLE OR NON-INFRINGEMENT, (2) DO NOT ASSUME ANY LEGAL LIABILITY
+      OR RESPONSIBILITY FOR THE ACCURACY, COMPLETENESS, OR USEFULNESS OF THE
+      SOFTWARE, (3) DO NOT REPRESENT THAT USE OF THE SOFTWARE WOULD NOT
+      INFRINGE PRIVATELY OWNED RIGHTS, (4) DO NOT WARRANT THAT THE SOFTWARE
+      WILL FUNCTION UNINTERRUPTED, THAT IT IS ERROR-FREE OR THAT ANY ERRORS
+      WILL BE CORRECTED.
+
+   7. LIMITATION OF LIABILITY. IN NO EVENT WILL THE COPYRIGHT HOLDERS, THEIR
+      THIRD PARTY LICENSORS, THE UNITED STATES, THE UNITED STATES DEPARTMENT OF
+      ENERGY, OR THEIR EMPLOYEES: BE LIABLE FOR ANY INDIRECT, INCIDENTAL,
+      CONSEQUENTIAL, SPECIAL OR PUNITIVE DAMAGES OF ANY KIND OR NATURE,
+      INCLUDING BUT NOT LIMITED TO LOSS OF PROFITS OR LOSS OF DATA, FOR ANY
+      REASON WHATSOEVER, WHETHER SUCH LIABILITY IS ASSERTED ON THE BASIS OF
+      CONTRACT, TORT (INCLUDING NEGLIGENCE OR STRICT LIABILITY), OR OTHERWISE,
+      EVEN IF ANY OF SAID PARTIES HAS BEEN WARNED OF THE POSSIBILITY OF SUCH
+      LOSS OR DAMAGES.
+
+EPICS Sequencer license text
+----------------------------
+
+Copyright (c) 1989-1994 The Regents of the University of California
+                        and the University of Chicago Board of Governors.
+                        Los Alamos National Laboratory
+Copyright (c) 2010-2015 Helmholtz-Zentrum Berlin f. Materialien
+                        und Energie GmbH, Germany (HZB)
+
+All rights reserved.
+
+The EPICS Sequencer is distributed subject to the following license conditions:
+
+ SOFTWARE LICENSE AGREEMENT
+ Software: EPICS Sequencer
+
+ 1. The "Software", below, refers to EPICS Sequencer (in either source code, or
+    binary form and accompanying documentation). Each licensee is
+    addressed as "you" or "Licensee."
+
+ 2. The copyright holders shown above and their third-party licensors
+    hereby grant Licensee a royalty-free nonexclusive license, subject to
+    the limitations stated herein and U.S. Government license rights.
+
+ 3. You may modify and make a copy or copies of the Software for use
+    within your organization, if you meet the following conditions:
+
+      a. Copies in source code must include the copyright notice and this
+         Software License Agreement.
+      b. Copies in binary form must include the copyright notice and this
+         Software License Agreement in the documentation and/or other
+         materials provided with the copy.
+
+ 4. You may modify a copy or copies of the Software or any portion of it,
+    thus forming a work based on the Software, and distribute copies of
+    such work outside your organization, if you meet all of the following
+    conditions:
+
+      a. Copies in source code must include the copyright notice and this
+         Software License Agreement;
+      b. Copies in binary form must include the copyright notice and this
+         Software License Agreement in the documentation and/or other
+         materials provided with the copy;
+      c. Modified copies and works based on the Software must carry
+         prominent notices stating that you changed specified portions of
+         the Software.
+
+ 5. Portions of the Software resulted from work developed under a U.S.
+    Government contract and are subject to the following license: the
+    Government is granted for itself and others acting on its behalf a
+    paid-up, nonexclusive, irrevocable worldwide license in this computer
+    software to reproduce, prepare derivative works, and perform publicly
+    and display publicly.
+
+ 6. WARRANTY DISCLAIMER. THE SOFTWARE IS SUPPLIED "AS IS" WITHOUT WARRANTY
+    OF ANY KIND. THE COPYRIGHT HOLDERS, THEIR THIRD PARTY LICENSORS, THE
+    UNITED STATES, THE UNITED STATES DEPARTMENT OF ENERGY, AND THEIR
+    EMPLOYEES: (1) DISCLAIM ANY WARRANTIES, EXPRESS OR IMPLIED, INCLUDING
+    BUT NOT LIMITED TO ANY IMPLIED WARRANTIES OF MERCHANTABILITY, FITNESS
+    FOR A PARTICULAR PURPOSE, TITLE OR NON-INFRINGEMENT, (2) DO NOT ASSUME
+    ANY LEGAL LIABILITY OR RESPONSIBILITY FOR THE ACCURACY, COMPLETENESS,
+    OR USEFULNESS OF THE SOFTWARE, (3) DO NOT REPRESENT THAT USE OF THE
+    SOFTWARE WOULD NOT INFRINGE PRIVATELY OWNED RIGHTS, (4) DO NOT WARRANT
+    THAT THE SOFTWARE WILL FUNCTION UNINTERRUPTED, THAT IT IS ERROR-FREE
+    OR THAT ANY ERRORS WILL BE CORRECTED.
+
+ 7. LIMITATION OF LIABILITY. IN NO EVENT WILL THE COPYRIGHT HOLDERS, THEIR
+    THIRD PARTY LICENSORS, THE UNITED STATES, THE UNITED STATES DEPARTMENT
+    OF ENERGY, OR THEIR EMPLOYEES: BE LIABLE FOR ANY INDIRECT, INCIDENTAL,
+    CONSEQUENTIAL, SPECIAL OR PUNITIVE DAMAGES OF ANY KIND OR NATURE,
+    INCLUDING BUT NOT LIMITED TO LOSS OF PROFITS OR LOSS OF DATA, FOR ANY
+    REASON WHATSOEVER, WHETHER SUCH LIABILITY IS ASSERTED ON THE BASIS OF
+    CONTRACT, TORT (INCLUDING NEGLIGENCE OR STRICT LIABILITY), OR
+    OTHERWISE, EVEN IF ANY OF SAID PARTIES HAS BEEN WARNED OF THE
+    POSSIBILITY OF SUCH LOSS OR DAMAGES.
+
+ADCore and ADSimDetector license text
+-------------------------------------
+
+Copyright and License Terms
+---------------------------
+
+Copyright (c) 2008-2016 Mark L. Rivers
+Copyright (c) 2008-2016 The University of Chicago
+Copyright (c) 2008-2016 UChicago Argonne LLC, as Operator of Argonne
+                        National Laboratory.
+Copyright (c) 2008-2016 Brookhaven Science Associates, as Operator
+                        of Brookhaven National Laboratory
+Copyright (c) 2008-2016 Diamond Light Source Limited,
+                        (DLS) Didcot, United Kingdom
+Copyright (c) 2013-2016 UT-Battelle LLC
+
+Permission is hereby granted, free of charge, to any person
+obtaining a copy of this software and associated documentation
+files (the "Software"), to deal in the Software without
+restriction, including without limitation the rights to use,
+copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the
+Software is furnished to do so, subject to the following
+conditions:
+
+The above copyright notice and this permission notice shall be
+included in all copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND,
+EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES
+OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND
+NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT
+HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY,
+WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
+FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR
+OTHER DEALINGS IN THE SOFTWARE.
+
+________________________________________________________________________
+
+Additional Disclaimers
+----------------------
+
+This software is copyright in part by these institutions:
+
+* The University of Chicago
+* UChicago Argonne LLC, as Operator of Argonne National Laboratory.
+* Brookhaven Science Associates, as Operator of Brookhaven National Laboratory
+* Diamond Light Source Limited, (DLS) Didcot, United Kingdom
+* UT-Battelle LLC
+
+In no event shall these institutions be liable to any party for direct,
+indirect, special, incidental, or consequential damages arising out of
+the use of this software, its documentation, or any derivatives thereof,
+even if advised of the possibility of such damage.
+
+These institutions specifically disclaim any warranties, including, but
+not limited to, the implied warranties of merchantability, fitness for a
+particular purpose, and non-infringement. This software is provided on
+an "as is" basis, and these institutions have no obligation to provide
+maintenance, support, updates, enhancements, or modifications.

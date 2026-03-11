@@ -135,4 +135,8 @@ areadetector-rs/
 
 ## License
 
-MIT
+The Rust code authored in this crate is licensed under MIT.
+
+This crate also bundles third-party OPI/UI assets from the areaDetector project
+family. See [`THIRD_PARTY_LICENSES`](THIRD_PARTY_LICENSES) for attribution and
+upstream license text.

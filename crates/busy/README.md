@@ -57,4 +57,8 @@ cargo test
 
 ## License
 
-MIT
+The Rust code authored in this crate is licensed under MIT.
+
+This crate also bundles third-party OPI/UI assets related to synApps busy. See
+[`THIRD_PARTY_LICENSES`](THIRD_PARTY_LICENSES) for attribution and upstream
+license text.

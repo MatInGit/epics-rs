@@ -3,6 +3,8 @@ name = "ad-core"
 version = "0.2.1"
 edition = "2021"
 description = "Core types and base classes for areaDetector-rs"
+license = "MIT"
+readme = "README.md"
 
 [dependencies]
 asyn-rs = { workspace = true }

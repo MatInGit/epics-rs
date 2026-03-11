@@ -436,4 +436,10 @@ cargo test --workspace --features calc-rs/epics,asyn-rs/epics
 
 ## License
 
-This project is for research and development purposes.
+The Rust code authored in this repository is licensed under MIT. See
+[`LICENSE`](LICENSE).
+
+This repository also reimplements and, in a few places, bundles material from
+EPICS-related upstream projects. See [`THIRD_PARTY_LICENSES`](THIRD_PARTY_LICENSES)
+for attribution notices, modification notices, and the applicable upstream
+license texts.

@@ -3,6 +3,8 @@ name = "motor-rs"
 version = "0.2.1"
 edition = "2021"
 description = "Rust port of EPICS motor record"
+license = "MIT"
+readme = "README.md"
 
 [dependencies]
 epics-base-rs = { workspace = true }
