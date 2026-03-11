@@ -7,6 +7,7 @@ use epics_base_rs::error::CaResult;
 use epics_base_rs::server::ioc_app::IocApplication;
 use epics_base_rs::server::iocsh::registry::*;
 
+use ad_core::ioc::{PluginManager, register_noop_commands};
 use ad_core::plugin::channel::NDArrayOutput;
 use ad_core::plugin::registry::ParamRegistry;
 
@@ -59,15 +60,31 @@ struct BeamlineHolder {
 }
 
 impl BeamlineHolder {
-    fn new() -> Arc<Self> {
+    fn new(trace: Arc<TraceManager>) -> Arc<Self> {
         Arc::new(Self {
             beam_value: Arc::new(BeamCurrentValue::new()),
             beam_rx: std::sync::Mutex::new(None),
             pd_runtimes: std::sync::Mutex::new(HashMap::new()),
             md_runtime: std::sync::Mutex::new(None),
             motors: std::sync::Mutex::new(HashMap::new()),
-            trace: Arc::new(TraceManager::new()),
+            trace,
         })
+    }
+}
+
+/// DriverContext implementation for MovingDot detector.
+struct MovingDotDriverContext {
+    pool: Arc<ad_core::ndarray_pool::NDArrayPool>,
+    output: Arc<parking_lot::Mutex<NDArrayOutput>>,
+}
+
+impl ad_core::ioc::DriverContext for MovingDotDriverContext {
+    fn pool(&self) -> Arc<ad_core::ndarray_pool::NDArrayPool> {
+        self.pool.clone()
+    }
+
+    fn connect_downstream(&self, sender: ad_core::plugin::channel::NDArraySender) {
+        self.output.lock().add(sender);
     }
 }
 
@@ -75,9 +92,8 @@ impl BeamlineHolder {
 async fn main() -> CaResult<()> {
     let args: Vec<String> = std::env::args().collect();
 
-    if std::env::var_os("MINI_BEAMLINE").is_none() {
-        unsafe { std::env::set_var("MINI_BEAMLINE", env!("CARGO_MANIFEST_DIR")) };
-    }
+    epics_base_rs::runtime::env::set_default("MINI_BEAMLINE", env!("CARGO_MANIFEST_DIR"));
+    epics_base_rs::runtime::env::set_default("ADCORE", concat!(env!("CARGO_MANIFEST_DIR"), "/../../crates/ad-core"));
 
     let script = if args.len() > 1 && !args[1].starts_with('-') {
         args[1].clone()
@@ -86,7 +102,12 @@ async fn main() -> CaResult<()> {
         std::process::exit(1);
     };
 
-    let holder = BeamlineHolder::new();
+    // Register the full asynRecord type
+    asyn_rs::asyn_record::register_asyn_record_type();
+
+    let trace = Arc::new(TraceManager::new());
+    let mgr = PluginManager::new(trace.clone());
+    let holder = BeamlineHolder::new(trace.clone());
 
     let mut app = IocApplication::new();
     app = app.port(
@@ -97,10 +118,9 @@ async fn main() -> CaResult<()> {
     );
 
     // ===== miniBeamlineConfig startup command =====
-    // Creates beam current, point detectors, and moving dot.
-    // Motors are created as inline records (below) since MotorRecord is special.
     {
         let h = holder.clone();
+        let mgr_c = mgr.clone();
         app = app.register_startup_command(CommandDef::new(
             "miniBeamlineConfig",
             vec![],
@@ -108,7 +128,7 @@ async fn main() -> CaResult<()> {
             move |_args: &[ArgValue], _ctx: &CommandContext| {
                 println!("miniBeamlineConfig: setting up beamline...");
 
-                // 1. Start beam current thread (configurable via env)
+                // 1. Start beam current thread
                 let beam_config = BeamCurrentConfig {
                     offset: env_f64("BEAM_OFFSET", 500.0),
                     amplitude: env_f64("BEAM_AMPLITUDE", 25.0),
@@ -140,7 +160,7 @@ async fn main() -> CaResult<()> {
                     println!("  PointDetector '{port}' created");
                 }
 
-                // 3. Create 1 MovingDot detector (configurable via env)
+                // 3. Create 1 MovingDot detector
                 let dot_size_x = env_i32("DOT_SIZE_X", 640);
                 let dot_size_y = env_i32("DOT_SIZE_Y", 480);
                 let dot_max_mem = env_u64("DOT_MAX_MEMORY", 50_000_000) as usize;
@@ -162,6 +182,13 @@ async fn main() -> CaResult<()> {
                 let dot_registry = Arc::new(build_md_registry(&dot_rt.ad_params, &dot_rt.dot_params));
                 let dot_handle = dot_rt.port_handle().clone();
                 asyn_rs::asyn_record::register_port("DOT", dot_handle, h.trace.clone());
+
+                // Set driver context for plugin commands
+                mgr_c.set_driver(Arc::new(MovingDotDriverContext {
+                    pool: dot_rt.pool().clone(),
+                    output: dot_rt.array_output().clone(),
+                }));
+
                 *h.md_runtime.lock().unwrap() = Some((dot_rt, dot_registry));
                 println!("  MovingDot detector created");
 
@@ -170,6 +197,12 @@ async fn main() -> CaResult<()> {
             },
         ));
     }
+
+    // Register all plugin configure commands (NDStdArraysConfigure, NDStatsConfigure, etc.)
+    app = ad_plugins::ioc::register_all_plugins(app, &mgr);
+
+    // Register no-op commands from commonPlugins.cmd
+    app = register_noop_commands(app);
 
     // ===== Device support: beam current =====
     {
@@ -225,6 +258,9 @@ async fn main() -> CaResult<()> {
         });
     }
 
+    // ===== Device support: plugins (dynamic lookup by DTYP) =====
+    app = mgr.register_device_support(app);
+
     // ===== Motor device support: dynamic dispatch =====
     {
         let h = holder.clone();
@@ -239,7 +275,7 @@ async fn main() -> CaResult<()> {
         });
     }
 
-    // ===== Create motors as inline records (configurable via env) =====
+    // ===== Create motors =====
     {
         let mtr_velo = env_f64("MOTOR_VELO", 1.0);
         let mtr_accl = env_f64("MOTOR_ACCL", 0.5);
@@ -286,17 +322,16 @@ async fn main() -> CaResult<()> {
         }
     }
 
-    // ===== No-op commands =====
-    for cmd in &["set_requestfile_path", "set_savefile_path", "startPVAServer"] {
-        let name = *cmd;
-        app = app.register_startup_command(CommandDef::new(
-            name,
-            vec![
-                ArgDesc { name: "arg1", arg_type: ArgType::String, optional: true },
-                ArgDesc { name: "arg2", arg_type: ArgType::String, optional: true },
-            ],
-            &format!("{name} [args...] - no-op"),
+    // ===== Shell: report =====
+    {
+        let mgr_r = mgr.clone();
+        app = app.register_shell_command(CommandDef::new(
+            "miniBeamlineReport",
+            vec![ArgDesc { name: "level", arg_type: ArgType::Int, optional: true }],
+            "miniBeamlineReport [level] - Report beamline status",
             move |_args: &[ArgValue], _ctx: &CommandContext| {
+                println!("Mini Beamline Report");
+                mgr_r.report();
                 Ok(CommandOutcome::Continue)
             },
         ));

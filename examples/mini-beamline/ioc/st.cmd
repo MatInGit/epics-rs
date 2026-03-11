@@ -36,3 +36,6 @@ dbLoadRecords("$(MINI_BEAMLINE)/db/point_detector.template", "P=$(PREFIX),R=slit
 
 # Load moving dot detector
 dbLoadRecords("$(MINI_BEAMLINE)/db/moving_dot.template", "P=$(PREFIX),R=dot:cam:,PORT=DOT,DTYP=asynMovingDot")
+
+# Load standard areaDetector plugins for MovingDot
+< $(ADCORE)/ioc/commonPlugins.cmd

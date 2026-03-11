@@ -1,12 +1,3 @@
-//! Plugin device support for the SimDetector IOC.
-//!
-//! Provides a generic `PluginDeviceSupport` that bridges EPICS records to
-//! any plugin's asyn port via PortHandle + ParamRegistry.
-//!
-//! The core types (`ParamInfo`, `ParamRegistry`, `build_plugin_base_registry`)
-//! live in `ad_core::plugin::registry`. This module re-exports them for
-//! convenience and provides the EPICS device support wrapper.
-
 use std::sync::Arc;
 
 use asyn_rs::adapter::AsynDeviceSupport;
@@ -16,29 +7,23 @@ use epics_base_rs::server::device_support::{DeviceSupport, WriteCompletion};
 use epics_base_rs::server::record::{Record, ScanType};
 use epics_base_rs::types::EpicsValue;
 
-use ad_core::ndarray::NDArray;
-use ad_core::plugin::registry::{ParamInfo, ParamRegistry, RegistryParamType};
-
-// Re-export so existing IOC code doesn't need to change import paths too much.
-pub use ad_core::plugin::registry::build_plugin_base_registry;
+use crate::ndarray::NDArray;
+use crate::plugin::registry::{ParamRegistry, RegistryParamType};
 
 /// Handle to the latest NDArray data from a StdArrays plugin.
 pub type ArrayDataHandle = Arc<parking_lot::Mutex<Option<Arc<NDArray>>>>;
 
 /// Device support for any areaDetector plugin.
-/// Wraps AsynDeviceSupport with a PortHandle and ParamRegistry.
+///
+/// Bridges EPICS records to a plugin's asyn port via PortHandle + ParamRegistry.
 /// Records whose suffix has no param mapping are treated as no-ops.
-/// For StdArrays plugins, the "ArrayData" suffix is handled specially
-/// by reading raw pixel data from the plugin's data handle.
+/// For StdArrays plugins, the "ArrayData" suffix reads raw pixel data.
 pub struct PluginDeviceSupport {
     inner: AsynDeviceSupport,
     registry: Arc<ParamRegistry>,
     dtyp_name: String,
-    /// True if this record's suffix was found in the param registry.
     mapped: bool,
-    /// Handle to latest NDArray data (only set for StdArrays plugins).
     array_data: Option<ArrayDataHandle>,
-    /// True if this record is the ArrayData waveform.
     is_array_data: bool,
 }
 
@@ -76,7 +61,6 @@ impl DeviceSupport for PluginDeviceSupport {
     fn set_record_info(&mut self, name: &str, scan: ScanType) {
         let suffix = name.rsplit(':').next().unwrap_or(name);
 
-        // ArrayData waveform: read pixel data directly from data handle
         if suffix == "ArrayData" && self.array_data.is_some() {
             self.is_array_data = true;
             return;
@@ -95,7 +79,6 @@ impl DeviceSupport for PluginDeviceSupport {
             self.mapped = true;
             self.inner.set_record_info(name, scan);
         }
-        // Unmapped suffixes are silently ignored — no asyn wiring, reads/writes are no-ops.
     }
 
     fn init(&mut self, record: &mut dyn Record) -> CaResult<()> {

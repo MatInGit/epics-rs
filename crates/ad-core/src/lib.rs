@@ -13,3 +13,6 @@ pub mod pixel_cast;
 pub mod color_layout;
 pub mod roi;
 
+#[cfg(feature = "ioc")]
+pub mod ioc;
+

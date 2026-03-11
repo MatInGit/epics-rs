@@ -147,6 +147,11 @@ impl MovingDotRuntime {
         &self.pool
     }
 
+    /// The shared array output (for building a DriverContext).
+    pub fn array_output(&self) -> &Arc<parking_lot::Mutex<NDArrayOutput>> {
+        &self.array_output
+    }
+
     pub fn connect_downstream(&self, sender: NDArraySender) {
         self.array_output.lock().add(sender);
     }

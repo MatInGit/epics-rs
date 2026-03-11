@@ -5,7 +5,7 @@ edition = "2021"
 description = "Mini beamline IOC: beam current, point detectors, and moving dot area detector"
 
 [features]
-ioc = ["dep:epics-base-rs", "dep:tokio", "dep:ad-plugins", "asyn-rs/epics", "dep:motor-rs"]
+ioc = ["dep:epics-base-rs", "dep:tokio", "dep:ad-plugins", "ad-plugins/ioc", "ad-core/ioc", "asyn-rs/epics", "dep:motor-rs"]
 
 [dependencies]
 ad-core = { workspace = true }

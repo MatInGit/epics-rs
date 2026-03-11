@@ -20,3 +20,6 @@ pub mod roi_stat;
 pub mod bad_pixel;
 pub mod attr_plot;
 pub mod pos_plugin;
+
+#[cfg(feature = "ioc")]
+pub mod ioc;

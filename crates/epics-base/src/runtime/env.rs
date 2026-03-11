@@ -20,6 +20,29 @@ pub fn get_bool(key: &str, default: bool) -> bool {
         .unwrap_or(default)
 }
 
+/// Set an environment variable only if it is not already set.
+///
+/// # Safety
+/// Uses `std::env::set_var` which is unsafe in multi-threaded programs.
+/// Call this early in main(), before spawning threads.
+pub fn set_default(name: &str, value: &str) {
+    if std::env::var_os(name).is_none() {
+        // SAFETY: called during IOC startup, before multi-threaded operation.
+        unsafe { std::env::set_var(name, value) };
+    }
+}
+
+/// Set an environment variable to a path relative to a crate's `CARGO_MANIFEST_DIR`.
+///
+/// Usage:
+/// ```ignore
+/// // In a binary crate, set ADCORE pointing to the ad-core crate:
+/// epics_base_rs::runtime::env::set_crate_path("ADCORE", env!("CARGO_MANIFEST_DIR"), "../../crates/ad-core");
+/// ```
+pub fn set_crate_path(name: &str, manifest_dir: &str, relative: &str) {
+    set_default(name, &format!("{manifest_dir}/{relative}"));
+}
+
 pub fn hostname() -> String {
     hostname::get()
         .ok()

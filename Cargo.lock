@@ -7,6 +7,7 @@ name = "ad-core"
 version = "0.2.1"
 dependencies = [
  "asyn-rs",
+ "epics-base-rs",
  "parking_lot 0.12.5",
  "thiserror",
  "tokio",
