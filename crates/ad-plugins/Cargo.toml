@@ -3,6 +3,9 @@ name = "ad-plugins"
 version.workspace = true
 edition = "2021"
 description = "NDPlugin implementations for areaDetector-rs"
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
 
 [dependencies]
 ad-core = { workspace = true }

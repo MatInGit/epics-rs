@@ -3,6 +3,7 @@ name = "sim-detector"
 version.workspace = true
 edition = "2021"
 description = "Simulated areaDetector driver for areadetector-rs"
+publish = false
 
 [features]
 ioc = ["dep:epics-base-rs", "dep:tokio", "dep:ad-plugins", "ad-plugins/ioc", "ad-core/ioc", "asyn-rs/epics"]

@@ -3,7 +3,9 @@ name = "ad-core"
 version.workspace = true
 edition = "2021"
 description = "Core types and base classes for areaDetector-rs"
-license = "MIT"
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
 readme = "README.md"
 
 [dependencies]

@@ -1,6 +1,6 @@
 #![cfg(feature = "string")]
 
-use calc_rs::{scalc, CalcError, StackValue, StringInputs};
+use epics_calc_rs::{scalc, CalcError, StackValue, StringInputs};
 
 fn eval_str(expr: &str) -> StackValue {
     let mut inputs = StringInputs::new();
@@ -247,12 +247,12 @@ fn test_sublast_no_match() {
 fn test_until_immediate_exit() {
     // UNTIL with true condition should exit immediately
     let mut inputs = StringInputs::new();
-    let compiled = calc_rs::scalc_compile("UNTIL 1; 42").unwrap();
+    let compiled = epics_calc_rs::scalc_compile("UNTIL 1; 42").unwrap();
     // Debug: print opcodes
     for (i, op) in compiled.code.iter().enumerate() {
         eprintln!("  [{}] {:?}", i, op);
     }
-    let result = calc_rs::scalc_eval(&compiled, &mut inputs).unwrap();
+    let result = epics_calc_rs::scalc_eval(&compiled, &mut inputs).unwrap();
     assert_eq!(result, StackValue::Double(42.0));
 }
 

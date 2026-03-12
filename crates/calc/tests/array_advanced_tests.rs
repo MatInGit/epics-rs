@@ -1,6 +1,6 @@
 #![cfg(feature = "array")]
 
-use calc_rs::{acalc, ArrayInputs, ArrayStackValue};
+use epics_calc_rs::{acalc, ArrayInputs, ArrayStackValue};
 
 fn eval_arr_with(expr: &str, inputs: &mut ArrayInputs) -> ArrayStackValue {
     acalc(expr, inputs).unwrap()

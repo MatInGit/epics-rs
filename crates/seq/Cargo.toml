@@ -1,8 +1,11 @@
 [package]
-name = "seq"
+name = "epics-seq"
 version.workspace = true
 edition = "2021"
 description = "Rust-native EPICS sequencer runtime"
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
 
 [dependencies]
 epics-base-rs = { workspace = true }

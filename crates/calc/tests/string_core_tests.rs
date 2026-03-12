@@ -1,6 +1,6 @@
 #![cfg(feature = "string")]
 
-use calc_rs::{scalc, scalc_compile, scalc_eval, CalcError, StackValue, StringInputs};
+use epics_calc_rs::{scalc, scalc_compile, scalc_eval, CalcError, StackValue, StringInputs};
 
 fn eval_str(expr: &str) -> StackValue {
     let mut inputs = StringInputs::new();

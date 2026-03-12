@@ -1,4 +1,4 @@
-use calc_rs::{compile, CalcError};
+use epics_calc_rs::{compile, CalcError};
 
 #[test]
 fn test_unmatched_close_paren() {

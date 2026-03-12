@@ -1,10 +1,11 @@
 [package]
-name = "demo"
+name = "seq-demo"
 version.workspace = true
 edition = "2021"
+publish = false
 
 [dependencies]
-seq = { workspace = true }
+epics-seq = { workspace = true }
 epics-base-rs = { workspace = true }
 tokio = { version = "1", features = ["full"] }
 tracing = "0.1"

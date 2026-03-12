@@ -1,4 +1,4 @@
-use calc_rs::{calc, compile, eval, NumericInputs};
+use epics_calc_rs::{calc, compile, eval, NumericInputs};
 
 fn make_inputs(vals: &[(u8, f64)]) -> NumericInputs {
     let mut inputs = NumericInputs::new();

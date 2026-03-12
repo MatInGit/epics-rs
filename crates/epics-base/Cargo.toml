@@ -3,6 +3,9 @@ name = "epics-base-rs"
 version.workspace = true
 edition = "2021"
 description = "Pure Rust EPICS Channel Access client"
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
 
 [dependencies]
 tokio = { version = "1", features = ["full"] }

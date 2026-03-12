@@ -3,7 +3,9 @@ name = "busy-rs"
 version.workspace = true
 edition = "2021"
 description = "Rust port of EPICS busy record"
-license = "MIT"
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
 readme = "README.md"
 
 [dependencies]

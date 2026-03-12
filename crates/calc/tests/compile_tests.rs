@@ -1,5 +1,5 @@
-use calc_rs::engine::opcodes::{CoreOp, Opcode};
-use calc_rs::compile;
+use epics_calc_rs::engine::opcodes::{CoreOp, Opcode};
+use epics_calc_rs::compile;
 
 fn opcodes_without_end(expr: &str) -> Vec<Opcode> {
     let compiled = compile(expr).unwrap();

@@ -1,9 +1,11 @@
 [package]
-name = "calc-rs"
+name = "epics-calc-rs"
 version.workspace = true
 edition = "2021"
 description = "EPICS calc expression engine in Rust — thin wrapper over epics-base-rs"
-license = "MIT"
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
 readme = "README.md"
 
 [features]

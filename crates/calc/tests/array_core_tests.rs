@@ -1,6 +1,6 @@
 #![cfg(feature = "array")]
 
-use calc_rs::{acalc, ArrayInputs, ArrayStackValue, CalcError};
+use epics_calc_rs::{acalc, ArrayInputs, ArrayStackValue, CalcError};
 
 fn eval_arr(expr: &str, array_size: usize) -> ArrayStackValue {
     let mut inputs = ArrayInputs::new(array_size);

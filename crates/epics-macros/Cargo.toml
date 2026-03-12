@@ -2,6 +2,10 @@
 name = "epics-macros"
 version.workspace = true
 edition = "2021"
+description = "Procedural macros for epics-base-rs"
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
 
 [lib]
 proc-macro = true

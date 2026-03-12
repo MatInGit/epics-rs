@@ -3,6 +3,9 @@ name = "snc"
 version.workspace = true
 edition = "2021"
 description = "SNL compiler CLI for sequencer-rs"
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
 
 [dependencies]
 snc-core = { workspace = true }

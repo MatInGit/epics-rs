@@ -3,6 +3,7 @@ name = "mini-beamline"
 version.workspace = true
 edition = "2021"
 description = "Mini beamline IOC: beam current, point detectors, and moving dot area detector"
+publish = false
 
 [features]
 ioc = ["dep:epics-base-rs", "dep:tokio", "dep:ad-plugins", "ad-plugins/ioc", "ad-core/ioc", "asyn-rs/epics", "dep:motor-rs"]

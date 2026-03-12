@@ -3,6 +3,9 @@ name = "snc-core"
 version.workspace = true
 edition = "2021"
 description = "SNL compiler library for sequencer-rs"
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
 
 [dependencies]
 thiserror = "2"

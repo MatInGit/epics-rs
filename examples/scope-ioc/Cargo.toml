@@ -3,6 +3,7 @@ name = "scope-ioc"
 version.workspace = true
 edition = "2021"
 description = "Scope simulator IOC — port of EPICS testAsynPortDriver"
+publish = false
 
 [features]
 ioc = ["dep:epics-base-rs", "asyn-rs/epics"]
