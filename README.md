@@ -6,6 +6,29 @@ No C dependencies. No `libca`. No `libCom`. Just `cargo build`.
 
 **100% wire-compatible** with C EPICS clients (`caget`, `camonitor`, CSS, etc.).
 
+## Motivation
+
+EPICS is the proven standard for large-scale control systems at accelerator facilities, synchrotron light sources, fusion experiments, and beyond. Its ecosystem of support modules — asyn, motor, areaDetector, calc, sequencer, autosave, and many more — represents decades of field-tested engineering.
+
+As a controls engineer working across many device types, I needed an environment where **every device could be simulated in software** — motors, detectors, beam diagnostics — all running together on a single laptop without any real hardware. EPICS already supports this through simulation drivers, but the path to get there involves building EPICS Base, then each support module in dependency order, configuring `RELEASE` paths between them, writing `.dbd` registrations, and wiring `Makefile` rules. For experienced EPICS developers this is routine work, but it adds up when the goal is simply to prototype a new driver or test a control sequence.
+
+epics-rs takes a different approach to this setup problem by leveraging Rust's Cargo package system. All support modules live in a single workspace, dependencies are declared in `Cargo.toml`, and the entire stack — from Channel Access protocol to areaDetector plugins — builds with one command:
+
+```bash
+cargo build --release --workspace
+```
+
+This makes it straightforward to spin up a new device simulator:
+
+```bash
+cargo new my-device-sim
+cd my-device-sim
+# Add epics-rs dependencies to Cargo.toml
+cargo run --release
+```
+
+The wire protocol is identical to C EPICS, so existing clients (`caget`, `camonitor`, CSS, PyDM, Phoebus) work without modification. The goal is not to replace C EPICS in production facilities, but to provide a **fast path from idea to running simulation** — where the focus stays on device logic rather than build infrastructure.
+
 ## Overview
 
 epics-rs reimplements the core components of C/C++ EPICS in Rust:
@@ -339,30 +362,214 @@ Macro substitution & include tool:
 - `$(KEY)`, `${KEY}`, `$(KEY=default)`, `$$` escape
 - C EPICS msi-compatible output
 
-## Examples
+## Running the Examples
+
+All examples are self-contained IOCs that simulate real hardware. Each one builds from source with no external dependencies beyond Rust and Cargo.
+
+> **Always use `--release` mode.** The IOC runtime, Channel Access protocol handling, and areaDetector image processing involve tight loops and real-time callbacks. In debug mode, these paths run roughly 10-30x slower, which can cause CA timeouts, dropped monitor updates, and laggy waveform/image delivery. All commands below include `--release`.
+
+### Prerequisites
+
+```bash
+# Build the entire workspace in release mode
+cargo build --release --workspace
+```
+
+To interact with the running IOCs, you can use the built-in Rust CA tools (`caget-rs`, `caput-rs`, `camonitor-rs`) built as part of the workspace, or standard C EPICS clients (`caget`, `camonitor`, `cainfo`) — the wire protocol is identical.
+
+---
 
 ### scope-ioc — Digital Oscilloscope Simulator
 
-1 kHz sine wave (1000 points), noise/gain/trigger settings. asyn PortDriver-based.
+A port of the EPICS [testAsynPortDriver](https://github.com/epics-modules/asyn/blob/master/testAsynPortDriverApp/src/testAsynPortDriver.cpp) example. Generates a 1 kHz sine waveform (1000 points) with configurable noise, vertical gain, time/volts per division, and trigger delay. All readbacks update via I/O Intr scanning.
+
+**Build and run:**
 
 ```bash
-cargo run --bin scope_ioc
+cargo run --release -p scope-ioc --features ioc --bin scope_ioc -- examples/scope-ioc/ioc/st.cmd
 ```
+
+The IOC starts an interactive iocsh shell. You can also run the standalone demo (no CA server, just the driver logic):
+
+```bash
+cargo run --release -p scope-ioc --example scope_sim
+```
+
+**Verify with CA tools:**
+
+```bash
+# Start waveform generation
+caput SCOPE:scopeSim:Run 1
+
+# Monitor statistics
+camonitor SCOPE:scopeSim:MinValue_RBV SCOPE:scopeSim:MaxValue_RBV SCOPE:scopeSim:MeanValue_RBV
+
+# Add noise and change gain
+caput SCOPE:scopeSim:NoiseAmplitude 0.2
+caput SCOPE:scopeSim:VertGainSelect 3    # x10
+
+# Read the waveform array
+caget -# SCOPE:scopeSim:Waveform_RBV
+
+# Stop
+caput SCOPE:scopeSim:Run 0
+```
+
+**Open the PyDM screen:**
+
+```bash
+pydm examples/scope-ioc/opi/pydm/testAsynPortDriverTop.ui
+```
+
+---
 
 ### mini-beamline — Beamline Simulator
 
-Beam current simulator, 3 point detectors, MovingDot 2D area detector, 5-axis motor records.
+Inspired by [caproto's mini_beamline](https://github.com/caproto/caproto/blob/master/caproto/ioc_examples/mini_beamline.py). Simulates a complete beamline with:
+
+- **Beam current** — sinusoidal oscillation (500 mA offset, 25 mA amplitude, 4 s period)
+- **3 point detectors** — PinHole (Gaussian), Edge (error function), Slit (double error function)
+- **5 motors** — SimMotor records with coordinate transforms and backlash compensation
+- **MovingDot** — 2D area detector producing Gaussian spot images with Poisson noise
+
+**Build and run:**
 
 ```bash
-cargo run --bin mini_ioc
+cargo run --release -p mini-beamline --features ioc --bin mini_ioc -- examples/mini-beamline/ioc/st.cmd
 ```
+
+**Verify with CA tools:**
+
+```bash
+# Monitor beam current
+camonitor mini:current
+
+# Move the pinhole motor and watch the detector respond
+caput mini:ph:mtr 0
+camonitor mini:ph:DetValue_RBV
+caput mini:ph:mtr 20    # move away from center — value decreases
+
+# Acquire a MovingDot image
+caput mini:dot:cam:ArrayCallbacks 1
+caput mini:dot:cam:ImageMode 0          # Single
+caput mini:dot:cam:AcquireTime 0.1
+caput mini:dot:cam:Acquire 1
+caget mini:dot:cam:ArrayCounter_RBV
+```
+
+**Open the PyDM screens:**
+
+```bash
+# Motor control
+pydm crates/motor/opi/pydm/motorx_all.ui -m "P=mini:,M=ph:mtr"
+
+# areaDetector top-level display
+pydm opi/pydm/ADTop.ui -m "P=mini:,R=dot:cam:"
+```
+
+---
 
 ### sim-detector — areaDetector Simulation
 
-Simulated areaDetector driver IOC.
+A full-featured simulated areaDetector driver matching the C++ [ADSimDetector](https://github.com/areaDetector/ADSimDetector). Supports four simulation modes (LinearRamp, Peaks, Sine, OffsetNoise) with configurable gains, peak positions, and noise. Includes the full plugin chain (Stats, ROI, FFT, file writers, etc.) via `commonPlugins.cmd`.
+
+**Build and run:**
 
 ```bash
-cargo run --bin sim_ioc --features sim-detector/ioc
+cargo run --release --bin sim_ioc --features sim-detector/ioc -- examples/sim-detector/ioc/st.cmd
+```
+
+Or run the standalone demo (PortHandle API, no IOC):
+
+```bash
+cargo run --release -p sim-detector --example demo
+```
+
+**Verify with CA tools:**
+
+```bash
+# Set simulation mode to Peaks
+caput SIM1:cam1:SimMode 1
+
+# Acquire a single image
+caput SIM1:cam1:ImageMode 0
+caput SIM1:cam1:Acquire 1
+
+# Monitor stats plugin
+camonitor SIM1:Stats1:MeanValue_RBV SIM1:Stats1:MaxValue_RBV
+```
+
+**Open the PyDM screens:**
+
+```bash
+# Detector top-level display
+pydm opi/pydm/ADTop.ui -m "P=SIM1:,R=cam1:"
+
+# Detector-specific controls
+pydm examples/sim-detector/opi/pydm/simDetector.ui -m "P=SIM1:,R=cam1:"
+
+# Stats plugin
+pydm opi/pydm/NDStats.ui -m "P=SIM1:,R=Stats1:"
+
+# Image viewer
+pydm opi/pydm/NDStdArrays.ui -m "P=SIM1:,R=image1:"
+```
+
+---
+
+### seq-demo — Sequencer Demo
+
+Demonstrates the SNL (State Notation Language) runtime with two concurrent state machines coordinating via event flags and PV monitoring.
+
+**Build and run:**
+
+```bash
+# First, start an IOC to serve the PVs
+softioc-rs --record ai:SEQ:counter --record bo:SEQ:light
+
+# In another terminal, run the sequencer
+cargo run --release -p seq-demo
+```
+
+---
+
+### Using PyDM with epics-rs
+
+[PyDM](https://slaclab.github.io/pydm/) (Python Display Manager) works out of the box with epics-rs because the Channel Access protocol is wire-compatible.
+
+**Install PyDM:**
+
+```bash
+pip install pydm
+# or
+conda install -c conda-forge pydm
+```
+
+**General usage:**
+
+```bash
+# Launch a screen with macro substitution
+pydm <path-to-ui-file> -m "P=<prefix>,R=<record>"
+```
+
+**Available PyDM screens** are distributed throughout the project:
+
+| Location | Screens | Description |
+|----------|---------|-------------|
+| `opi/pydm/` | areaDetector + plugins | ADTop, Stats, ROI, FFT, file writers, etc. |
+| `crates/motor/opi/pydm/` | Motor record | Motor control panels |
+| `crates/asyn/opi/pydm/` | asyn record | Port driver diagnostics |
+| `crates/calc/opi/pydm/` | Calc records | Transform, scalcout, sseq, userCalc |
+| `crates/autosave/opi/pydm/` | Autosave | Save/restore status |
+| `examples/scope-ioc/opi/pydm/` | Scope simulator | Waveform display |
+| `examples/sim-detector/opi/pydm/` | SimDetector | Detector-specific controls |
+
+When the IOC is on a different host, set the CA address list:
+
+```bash
+export EPICS_CA_ADDR_LIST="<ioc-host>"
+export EPICS_CA_AUTO_ADDR_LIST=NO
+pydm opi/pydm/ADTop.ui -m "P=SIM1:,R=cam1:"
 ```
 
 ## Binaries
