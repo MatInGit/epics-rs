@@ -126,10 +126,11 @@ impl PluginManager {
         app: IocApplication,
     ) -> IocApplication {
         let mgr = self.clone();
-        app.register_dynamic_device_support(move |dtyp_name| {
+        app.register_dynamic_device_support(move |ctx: &epics_base_rs::server::ioc_app::DeviceSupportContext| {
             let plugins = mgr.plugins.lock();
+            // Exact DTYP match (port-based: "asynIMAGE1", "asynSTATS1", etc.)
             for p in plugins.iter() {
-                if p.dtyp_name == dtyp_name {
+                if p.dtyp_name == ctx.dtyp {
                     let handle = p.port_handle.clone();
                     let registry = p.registry.clone();
                     let dtyp = p.dtyp_name.clone();
@@ -138,6 +139,42 @@ impl PluginManager {
                         Box::new(PluginDeviceSupport::new(handle, registry, &dtyp, array_data))
                             as Box<dyn epics_base_rs::server::device_support::DeviceSupport>,
                     );
+                }
+            }
+            // Generic asyn DTYP (asynInt32, asynFloat64, asynOctet, asynXxxArrayIn/Out, etc.)
+            // Parse INP/OUT link to extract port name, then match by port name.
+            // This handles NDTimeSeries, NDPluginBase, and NDStdArrays templates that use
+            // generic asyn DTYPs with @asyn(PORT,...) links.
+            if is_generic_asyn_dtyp(ctx.dtyp) {
+                let link_str = if !ctx.inp.is_empty() { ctx.inp } else { ctx.out };
+                if let Ok(link) = asyn_rs::adapter::parse_asyn_link(link_str) {
+                    for p in plugins.iter() {
+                        if p.port_handle.port_name() == link.port_name {
+                            let handle = p.port_handle.clone();
+                            let registry = p.registry.clone();
+                            let dtyp = ctx.dtyp.to_string();
+                            let array_data = p.array_data.clone();
+                            return Some(
+                                Box::new(PluginDeviceSupport::new(handle, registry, &dtyp, array_data))
+                                    as Box<dyn epics_base_rs::server::device_support::DeviceSupport>,
+                            );
+                        }
+                    }
+                }
+                // Fallback for array DTYPs: match first plugin with array_data
+                if is_asyn_array_dtyp(ctx.dtyp) {
+                    for p in plugins.iter() {
+                        if p.array_data.is_some() {
+                            let handle = p.port_handle.clone();
+                            let registry = p.registry.clone();
+                            let dtyp = ctx.dtyp.to_string();
+                            let array_data = p.array_data.clone();
+                            return Some(
+                                Box::new(PluginDeviceSupport::new(handle, registry, &dtyp, array_data))
+                                    as Box<dyn epics_base_rs::server::device_support::DeviceSupport>,
+                            );
+                        }
+                    }
                 }
             }
             None
@@ -152,4 +189,32 @@ impl PluginManager {
             println!("    - {} (DTYP: {})", p.port_handle.port_name(), p.dtyp_name);
         }
     }
+}
+
+/// Check if a DTYP is a generic asyn interface type.
+///
+/// Any DTYP starting with "asyn" that wasn't matched by the exact port-based
+/// lookup is a generic asyn DTYP (asynInt32, asynFloat64, asynOctetRead, etc.).
+/// Since exact match runs first, this safely catches all standard asyn DTYPs
+/// including those from NDPluginBase (asynOctetRead/Write) and NDTimeSeries.
+fn is_generic_asyn_dtyp(dtyp: &str) -> bool {
+    dtyp.starts_with("asyn")
+}
+
+/// Check if a DTYP name is a standard asyn array device support type.
+///
+/// These are DTYPs like "asynInt8ArrayIn", "asynFloat64ArrayOut", etc.
+/// used by NDStdArrays.template via `DTYP="asyn$(TYPE)ArrayIn"`.
+fn is_asyn_array_dtyp(dtyp: &str) -> bool {
+    const TYPES: &[&str] = &[
+        "Int8", "UInt8", "Int16", "UInt16", "Int32", "UInt32", "Float32", "Float64",
+    ];
+    for ty in TYPES {
+        let in_name = format!("asyn{ty}ArrayIn");
+        let out_name = format!("asyn{ty}ArrayOut");
+        if dtyp == in_name || dtyp == out_name {
+            return true;
+        }
+    }
+    false
 }

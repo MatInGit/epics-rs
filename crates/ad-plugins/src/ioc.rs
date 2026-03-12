@@ -163,10 +163,57 @@ pub fn register_all_plugins(
         create_plugin_runtime(port_name, NetcdfFileProcessor::new(), pool, queue_size, ndarray_port, wiring)
     });
 
+    // --- NDAttrConfigure (stub with TS port) ---
+    {
+        let m = mgr.clone();
+        app = app.register_startup_command(CommandDef::new(
+            "NDAttrConfigure",
+            plugin_arg_defs(),
+            "NDAttrConfigure portName [queueSize] ...",
+            move |args: &[ArgValue], _ctx: &CommandContext| {
+                let (port_name, queue_size, ndarray_port) = extract_plugin_args(args)?;
+                let dtyp = dtyp_from_port(&port_name);
+                let drv = m.driver()?;
+                let pool = drv.pool();
+                use crate::passthrough::PassthroughProcessor;
+                let (handle, _jh) = create_plugin_runtime(
+                    &port_name,
+                    PassthroughProcessor::new("NDAttrConfigure"),
+                    pool,
+                    queue_size,
+                    &ndarray_port,
+                    m.wiring().clone(),
+                );
+                m.add_plugin(&dtyp, &handle, None);
+                if let Err(e) = m.wiring().rewire(handle.array_sender(), "", &ndarray_port) {
+                    eprintln!("NDAttrConfigure: wiring failed: {e}");
+                }
+                println!("NDAttrConfigure: port={port_name}");
+
+                // Register TimeSeries as a separate asyn port (stub — no data flow)
+                let ts_port_name = format!("{port_name}_TS");
+                let ts_dtyp = dtyp_from_port(&ts_port_name);
+                let (_ts_tx, ts_rx) = tokio::sync::mpsc::channel(16);
+                let (ts_runtime, ts_params, _ts_actor_jh, _ts_data_jh) =
+                    crate::time_series::create_ts_port_runtime(
+                        &ts_port_name,
+                        &["TSArrayValue"],
+                        2048,
+                        ts_rx,
+                    );
+                let ts_registry = Arc::new(crate::time_series::build_ts_registry(&ts_params));
+                let ts_port_handle = ts_runtime.port_handle().clone();
+                m.add_port(&ts_dtyp, ts_port_handle, ts_registry);
+                println!("  TimeSeries port: {ts_port_name} (DTYP: {ts_dtyp})");
+
+                Ok(CommandOutcome::Continue)
+            },
+        ));
+    }
+
     // --- Stub plugins (not yet fully implemented, use PassthroughProcessor) ---
     for name in &[
         "NDROIStatConfigure",
-        "NDAttrConfigure",
         "NDBadPixelConfigure",
         "NDFileNexusConfigure",
         "NDFileMagickConfigure",
@@ -340,10 +387,10 @@ impl AdIoc {
         self.app = Some(app.register_device_support(dtyp, factory));
     }
 
-    /// Register a dynamic device support factory (dispatches by DTYP name).
+    /// Register a dynamic device support factory (dispatches by context).
     pub fn register_dynamic_device_support<F>(&mut self, factory: F)
     where
-        F: Fn(&str) -> Option<Box<dyn epics_base_rs::server::device_support::DeviceSupport>>
+        F: Fn(&epics_base_rs::server::ioc_app::DeviceSupportContext) -> Option<Box<dyn epics_base_rs::server::device_support::DeviceSupport>>
             + Send
             + Sync
             + 'static,

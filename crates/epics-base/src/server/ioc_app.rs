@@ -35,9 +35,16 @@ use super::iocsh::{self, registry::CommandDef};
 use super::record::{self, Record};
 use super::{autosave, access_security, CaServer, DeviceSupportFactory};
 
-/// Dynamic device support factory: given a DTYP name, returns device support if recognized.
+/// Context passed to dynamic device support factories during iocInit wiring.
+pub struct DeviceSupportContext<'a> {
+    pub dtyp: &'a str,
+    pub inp: &'a str,
+    pub out: &'a str,
+}
+
+/// Dynamic device support factory: given a context, returns device support if recognized.
 pub type DynamicDeviceSupportFactory =
-    Box<dyn Fn(&str) -> Option<Box<dyn DeviceSupport>> + Send + Sync>;
+    Box<dyn Fn(&DeviceSupportContext) -> Option<Box<dyn DeviceSupport>> + Send + Sync>;
 
 /// IOC Application with st.cmd-style startup support.
 pub struct IocApplication {
@@ -95,11 +102,11 @@ impl IocApplication {
     /// Multiple calls are chained: new factory is tried first, then existing.
     pub fn register_dynamic_device_support<F>(mut self, factory: F) -> Self
     where
-        F: Fn(&str) -> Option<Box<dyn DeviceSupport>> + Send + Sync + 'static,
+        F: Fn(&DeviceSupportContext) -> Option<Box<dyn DeviceSupport>> + Send + Sync + 'static,
     {
         if let Some(existing) = self.dynamic_device_factory.take() {
-            self.dynamic_device_factory = Some(Box::new(move |dtyp: &str| {
-                factory(dtyp).or_else(|| existing(dtyp))
+            self.dynamic_device_factory = Some(Box::new(move |ctx: &DeviceSupportContext| {
+                factory(ctx).or_else(|| existing(ctx))
             }));
         } else {
             self.dynamic_device_factory = Some(Box::new(factory));
@@ -263,10 +270,15 @@ async fn wire_device_support(
             let mut instance = rec_arc.write().await;
             let dtyp = instance.common.dtyp.clone();
             if !dtyp.is_empty() && dtyp != "Soft Channel" {
+                let ctx = DeviceSupportContext {
+                    dtyp: &dtyp,
+                    inp: &instance.common.inp,
+                    out: &instance.common.out,
+                };
                 let dev_opt = if let Some(factory) = factories.get(&dtyp) {
                     Some(factory())
                 } else if let Some(ref dyn_factory) = dynamic_factory {
-                    dyn_factory(&dtyp)
+                    dyn_factory(&ctx)
                 } else {
                     None
                 };
