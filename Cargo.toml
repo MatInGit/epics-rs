@@ -3,17 +3,17 @@ members = ["crates/*", "examples/*"]
 resolver = "2"
 
 [workspace.package]
-version = "0.3.0"
+version = "0.4.0"
 authors = ["Sang Woo Kim <sngwkim915@gmail.com>"]
 license = "MIT"
-repository = "https://github.com/physwkim/epics-rs"
+repository = "https://github.com/epics-rs/epics-rs"
 
 [workspace.dependencies]
-ad-core = { path = "crates/ad-core", version = "0.3.0" }
-ad-plugins = { path = "crates/ad-plugins", version = "0.3.0" }
-asyn-rs = { path = "crates/asyn", version = "0.3.0" }
-epics-base-rs = { path = "crates/epics-base", version = "0.3.0" }
-epics-macros = { path = "crates/epics-macros", version = "0.3.0" }
-snc-core = { path = "crates/snc-core", version = "0.3.0" }
-epics-seq = { path = "crates/seq", version = "0.3.0" }
-motor-rs = { path = "crates/motor", version = "0.3.0" }
+ad-core = { path = "crates/ad-core", version = "0.4.0" }
+ad-plugins = { path = "crates/ad-plugins", version = "0.4.0" }
+asyn-rs = { path = "crates/asyn", version = "0.4.0" }
+epics-base-rs = { path = "crates/epics-base", version = "0.4.0" }
+epics-macros = { path = "crates/epics-macros", version = "0.4.0" }
+snc-core = { path = "crates/snc-core", version = "0.4.0" }
+epics-seq = { path = "crates/seq", version = "0.4.0" }
+motor-rs = { path = "crates/motor", version = "0.4.0" }
