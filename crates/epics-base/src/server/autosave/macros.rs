@@ -102,6 +102,9 @@ impl MacroContext {
 
                 if let Some(val) = self.macros.get(key) {
                     result.push_str(val);
+                } else if let Some(val) = crate::runtime::env::get(key) {
+                    // Fall back to environment variable (matches C macEnvExpand)
+                    result.push_str(&val);
                 } else if let Some(def) = default {
                     result.push_str(def);
                 } else {

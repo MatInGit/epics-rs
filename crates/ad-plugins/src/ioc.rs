@@ -6,13 +6,14 @@
 //! - [`AdIoc`]: pre-configured IOC application that handles all common
 //!   areaDetector boilerplate (plugins, device support, asynRecord, etc.).
 
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 
 use ad_core::ioc::{dtyp_from_port, extract_plugin_args, plugin_arg_defs, PluginManager, register_noop_commands};
 use ad_core::plugin::runtime::create_plugin_runtime;
 use ad_core::plugin::wiring::WiringRegistry;
 use asyn_rs::trace::TraceManager;
 use epics_base_rs::error::CaResult;
+use epics_base_rs::server::autosave::AutosaveStartupConfig;
 use epics_base_rs::server::ioc_app::IocApplication;
 use epics_base_rs::server::iocsh::registry::*;
 
@@ -372,10 +373,22 @@ impl AdIoc {
                 .unwrap_or(5064),
         );
 
-        // Set ADCORE path for commonPlugins.cmd resolution
+        // Set crate paths for commonPlugins.cmd and .req file resolution
         epics_base_rs::runtime::env::set_default(
             "ADCORE",
             concat!(env!("CARGO_MANIFEST_DIR"), "/../ad-core"),
+        );
+        epics_base_rs::runtime::env::set_default(
+            "CALC",
+            concat!(env!("CARGO_MANIFEST_DIR"), "/../calc"),
+        );
+        epics_base_rs::runtime::env::set_default(
+            "BUSY",
+            concat!(env!("CARGO_MANIFEST_DIR"), "/../busy"),
+        );
+        epics_base_rs::runtime::env::set_default(
+            "AUTOSAVE",
+            concat!(env!("CARGO_MANIFEST_DIR"), "/../autosave"),
         );
 
         Self { app: Some(app), mgr, trace }
@@ -453,6 +466,10 @@ impl AdIoc {
         // Register all standard plugin configure commands
         app = register_all_plugins(app, &self.mgr);
         app = register_noop_commands(app);
+
+        // Enable autosave startup commands (C-compatible iocsh commands)
+        let autosave_config = Arc::new(Mutex::new(AutosaveStartupConfig::new()));
+        app = app.autosave_startup(autosave_config);
 
         // Plugin device support (dynamic DTYP dispatch)
         app = self.mgr.register_device_support(app);

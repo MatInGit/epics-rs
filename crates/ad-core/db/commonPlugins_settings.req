@@ -1,0 +1,77 @@
+# commonPlugins_settings.req — Autosave settings for all standard areaDetector plugins
+#
+# Matches C ADCore/iocBoot/EXAMPLE_commonPlugins_settings.req
+#
+# Required macros: P, R (detector prefix)
+
+# File saving plugins
+file NDFile_settings.req,      P=$(P), R=netCDF1:
+file NDFile_settings.req,      P=$(P), R=TIFF1:
+file NDFile_settings.req,      P=$(P), R=JPEG1:
+file NDFile_settings.req,      P=$(P), R=Nexus1:
+file NDFileHDF5_settings.req,  P=$(P), R=HDF1:
+file NDFile_settings.req,      P=$(P), R=Magick1:
+
+# ROI plugins
+file NDROI_settings.req,       P=$(P), R=ROI1:
+file NDROI_settings.req,       P=$(P), R=ROI2:
+file NDROI_settings.req,       P=$(P), R=ROI3:
+file NDROI_settings.req,       P=$(P), R=ROI4:
+
+# ROI statistics
+file NDROIStat_settings.req,   P=$(P), R=ROIStat1:
+file NDROIStatN_settings.req,  P=$(P), R=ROIStat1:1:
+file NDROIStatN_settings.req,  P=$(P), R=ROIStat1:2:
+file NDROIStatN_settings.req,  P=$(P), R=ROIStat1:3:
+file NDROIStatN_settings.req,  P=$(P), R=ROIStat1:4:
+file NDROIStatN_settings.req,  P=$(P), R=ROIStat1:5:
+file NDROIStatN_settings.req,  P=$(P), R=ROIStat1:6:
+file NDROIStatN_settings.req,  P=$(P), R=ROIStat1:7:
+file NDROIStatN_settings.req,  P=$(P), R=ROIStat1:8:
+
+# Processing
+file NDProcess_settings.req,   P=$(P), R=Proc1:
+
+# Statistics plugins
+file NDStats_settings.req,     P=$(P), R=Stats1:
+file NDStats_settings.req,     P=$(P), R=Stats2:
+file NDStats_settings.req,     P=$(P), R=Stats3:
+file NDStats_settings.req,     P=$(P), R=Stats4:
+file NDStats_settings.req,     P=$(P), R=Stats5:
+
+# Transform
+file NDTransform_settings.req, P=$(P), R=Trans1:
+
+# Overlays
+file NDOverlay_settings.req,   P=$(P), R=Over1:
+file NDOverlayN_settings.req,  P=$(P), R=Over1:1:
+file NDOverlayN_settings.req,  P=$(P), R=Over1:2:
+file NDOverlayN_settings.req,  P=$(P), R=Over1:3:
+file NDOverlayN_settings.req,  P=$(P), R=Over1:4:
+file NDOverlayN_settings.req,  P=$(P), R=Over1:5:
+file NDOverlayN_settings.req,  P=$(P), R=Over1:6:
+file NDOverlayN_settings.req,  P=$(P), R=Over1:7:
+file NDOverlayN_settings.req,  P=$(P), R=Over1:8:
+
+# Color conversion
+file NDColorConvert_settings.req, P=$(P), R=CC1:
+file NDColorConvert_settings.req, P=$(P), R=CC2:
+
+# Circular buffer
+file NDCircularBuff_settings.req, P=$(P), R=CB1:
+
+# Attributes
+file NDAttribute_settings.req, P=$(P), R=Attr1:
+
+# FFT
+file NDFFT_settings.req,       P=$(P), R=FFT1:
+
+# Codec
+file NDCodec_settings.req,     P=$(P), R=Codec1:
+file NDCodec_settings.req,     P=$(P), R=Codec2:
+
+# Bad pixel
+file NDBadPixel_settings.req,  P=$(P), R=BadPix1:
+
+# PVA
+file NDPva_settings.req,       P=$(P), R=Pva1:

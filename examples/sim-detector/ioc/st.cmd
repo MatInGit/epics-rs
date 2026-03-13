@@ -20,6 +20,17 @@ epicsEnvSet("NCHANS", "2048")
 epicsEnvSet("CBUFFS", "500")
 epicsEnvSet("EPICS_DB_INCLUDE_PATH", "$(ADCORE)/db")
 
+# Autosave configuration
+set_requestfile_path("$(ADSIMDETECTOR)/db")
+set_requestfile_path("$(ADCORE)/db")
+set_requestfile_path("$(CALC)/db")
+set_requestfile_path("$(BUSY)/db")
+set_requestfile_path("$(AUTOSAVE)/db")
+set_savefile_path("$(ADSIMDETECTOR)/ioc/autosave")
+save_restoreSet_status_prefix("$(PREFIX)")
+set_pass0_restoreFile("simDetector_settings.req", "P=$(PREFIX),R=$(CAM)")
+set_pass1_restoreFile("simDetector_settings.req", "P=$(PREFIX),R=$(CAM)")
+
 # Create the SimDetector driver
 simDetectorConfig("$(PORT)", 1024, 1024, 50000000)
 
@@ -32,6 +43,9 @@ dbLoadRecords("$(ADCORE)/db/NDStdArrays.template", "P=$(PREFIX),R=image1:,PORT=I
 
 # Load all common plugins
 < $(ADCORE)/ioc/commonPlugins.cmd
+
+# Autosave monitor sets (after all records are loaded)
+create_monitor_set("simDetector_settings.req", 5, "P=$(PREFIX),R=$(CAM)")
 
 # iocInit is called automatically by IocApplication after this script completes.
 #

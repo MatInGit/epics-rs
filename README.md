@@ -351,10 +351,14 @@ EPICS sequencer:
 
 PV automatic save/restore:
 
+- **C-compatible iocsh commands** — `set_requestfile_path`, `set_savefile_path`, `create_monitor_set`, `create_triggered_set`, `set_pass0_restoreFile`, `set_pass1_restoreFile`, `save_restoreSet_status_prefix`
+- **Pass0/Pass1 restore** — Pass0 before device support init, Pass1 after (matching C autosave behavior)
+- **Request file parsing** — `.req` files with `file` includes, macro expansion (`$(P)`, `${KEY}`, `$(KEY=default)`), environment variable fallback, search path resolution, cycle detection
 - Periodic/triggered/on-change/manual save strategies
 - Atomic file write (tmp -> fsync -> rename)
 - Backup rotation (`.savB`, sequence files, dated backups)
-- C autosave-compatible format
+- C autosave-compatible `.sav` file format
+- **Runtime iocsh commands** — `fdbrestore`, `fdbsave`, `fdblist`
 
 ### msi-rs
 

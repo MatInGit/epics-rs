@@ -48,6 +48,7 @@ async fn test_periodic_save_set() {
             request_pvs: vec!["TEMP".into(), "PRESS".into()],
             backup: quick_backup(),
             macros: HashMap::new(),
+            search_paths: Vec::new(),
         })
         .build()
         .await
@@ -82,6 +83,7 @@ async fn test_manual_save() {
             request_pvs: vec!["TEMP".into()],
             backup: quick_backup(),
             macros: HashMap::new(),
+            search_paths: Vec::new(),
         })
         .build()
         .await
@@ -106,6 +108,7 @@ async fn test_multiple_sets_independent() {
             request_pvs: vec!["TEMP".into()],
             backup: quick_backup(),
             macros: HashMap::new(),
+            search_paths: Vec::new(),
         })
         .add_set(SaveSetConfig {
             name: "set_b".into(),
@@ -115,6 +118,7 @@ async fn test_multiple_sets_independent() {
             request_pvs: vec!["PRESS".into()],
             backup: quick_backup(),
             macros: HashMap::new(),
+            search_paths: Vec::new(),
         })
         .build()
         .await
@@ -156,6 +160,7 @@ async fn test_restore_all() {
             request_pvs: vec!["TEMP".into()],
             backup: quick_backup(),
             macros: HashMap::new(),
+            search_paths: Vec::new(),
         })
         .build()
         .await
@@ -203,6 +208,7 @@ async fn test_one_set_failure_no_impact() {
             request_pvs: vec!["PRESS".into()],
             backup: quick_backup(),
             macros: HashMap::new(),
+            search_paths: Vec::new(),
         })
         .add_set(SaveSetConfig {
             name: "set_good".into(),
@@ -212,6 +218,7 @@ async fn test_one_set_failure_no_impact() {
             request_pvs: vec!["TEMP".into()],
             backup: quick_backup(),
             macros: HashMap::new(),
+            search_paths: Vec::new(),
         })
         .build()
         .await
@@ -240,6 +247,7 @@ async fn test_concurrent_manual_periodic_serialized() {
             request_pvs: vec!["TEMP".into()],
             backup: quick_backup(),
             macros: HashMap::new(),
+            search_paths: Vec::new(),
         })
         .build()
         .await
@@ -279,6 +287,7 @@ async fn test_shutdown_cleanup() {
             request_pvs: vec!["TEMP".into()],
             backup: quick_backup(),
             macros: HashMap::new(),
+            search_paths: Vec::new(),
         })
         .build()
         .await
@@ -312,6 +321,7 @@ async fn test_save_once_failure_updates_stats() {
             request_pvs: vec!["TEMP".into()],
             backup: quick_backup(),
             macros: HashMap::new(),
+            search_paths: Vec::new(),
         })
         .build()
         .await
@@ -339,6 +349,7 @@ async fn test_empty_pv_list_noop() {
             request_pvs: vec![],
             backup: quick_backup(),
             macros: HashMap::new(),
+            search_paths: Vec::new(),
         })
         .build()
         .await

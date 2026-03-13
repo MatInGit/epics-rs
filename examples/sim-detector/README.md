@@ -96,6 +96,58 @@ dbLoadRecords("$(SIM_DETECTOR)/db/simDetector.template", "P=$(PREFIX),R=$(CAM),P
 < $(ADCORE)/ioc/commonPlugins.cmd
 ```
 
+## Autosave
+
+The sim-detector IOC includes full autosave support, matching the C EPICS autosave workflow. PV values are automatically saved to disk and restored on IOC restart.
+
+### Configuration in st.cmd
+
+```bash
+# Search paths for .req files (detector, plugins, calc, busy, autosave)
+set_requestfile_path("$(ADSIMDETECTOR)/db")
+set_requestfile_path("$(ADCORE)/db")
+set_requestfile_path("$(CALC)/db")
+set_requestfile_path("$(BUSY)/db")
+set_requestfile_path("$(AUTOSAVE)/db")
+
+# Directory for .sav files
+set_savefile_path("$(ADSIMDETECTOR)/ioc/autosave")
+
+# Status PV prefix
+save_restoreSet_status_prefix("$(PREFIX)")
+
+# Restore saved values (pass0 = before device init, pass1 = after)
+set_pass0_restoreFile("simDetector_settings.req", "P=$(PREFIX),R=$(CAM)")
+set_pass1_restoreFile("simDetector_settings.req", "P=$(PREFIX),R=$(CAM)")
+
+# Periodic save every 5 seconds
+create_monitor_set("simDetector_settings.req", 5, "P=$(PREFIX),R=$(CAM)")
+```
+
+### Request File Structure
+
+`simDetector_settings.req` defines which PVs to save. It uses `file` includes to pull in settings from ADBase and all common plugins:
+
+```
+$(P)$(R)GainX
+$(P)$(R)SimMode
+...
+file "ADBase_settings.req", P=$(P), R=$(R)
+file "commonPlugins_settings.req", P=$(P)
+```
+
+`commonPlugins_settings.req` includes all standard areaDetector plugin settings (Stats, ROI, FFT, file writers, overlays, etc.), which in turn include their own nested `.req` files. Macros like `$(P)` are expanded through the include chain.
+
+### Runtime Commands
+
+Once the IOC is running, use these iocsh commands:
+
+```
+fdblist                    # List all save sets and their status
+fdbsave simDetector_settings.req   # Trigger immediate save
+fdbrestore simDetector_settings    # Restore from .sav file
+```
+
 ## Verify
 
 ```bash

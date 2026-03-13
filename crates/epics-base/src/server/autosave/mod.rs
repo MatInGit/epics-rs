@@ -7,12 +7,14 @@ pub mod manager;
 pub mod request;
 pub mod save_file;
 pub mod save_set;
+pub mod startup;
 pub mod verify;
 
 pub use backup::BackupConfig;
 pub use error::{AutosaveError, AutosaveResult};
 pub use manager::{AutosaveBuilder, AutosaveManager};
 pub use save_set::{RestoreResult, SaveSet, SaveSetConfig, SaveSetStatus, SaveStrategy, TriggerMode};
+pub use startup::AutosaveStartupConfig;
 
 // --- Legacy API (backward-compatible with the old single-file autosave.rs) ---
 
@@ -185,6 +187,7 @@ pub fn from_legacy_config(config: &AutosaveConfig) -> SaveSetConfig {
         request_pvs: config.request_pvs.clone(),
         backup: BackupConfig::default(),
         macros: std::collections::HashMap::new(),
+        search_paths: Vec::new(),
     }
 }
 

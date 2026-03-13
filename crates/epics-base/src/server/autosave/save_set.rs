@@ -47,6 +47,8 @@ pub struct SaveSetConfig {
     pub request_pvs: Vec<String>,
     pub backup: BackupConfig,
     pub macros: HashMap<String, String>,
+    /// Search paths for resolving `file` includes within .req files.
+    pub search_paths: Vec<PathBuf>,
 }
 
 /// Runtime status of a save set.
@@ -123,7 +125,11 @@ impl SaveSet {
         let mut entries = Vec::new();
 
         if let Some(ref req_file) = config.request_file {
-            let req_entries = request::load_request_file(req_file, &macros).await?;
+            let req_entries = request::load_request_file_with_search_paths(
+                &req_file.to_string_lossy(),
+                &config.search_paths,
+                &macros,
+            ).await?;
             entries.extend(req_entries);
         }
 

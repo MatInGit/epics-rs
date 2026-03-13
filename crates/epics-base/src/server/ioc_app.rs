@@ -23,7 +23,7 @@
 //! ```
 
 use std::collections::HashMap;
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 
 use crate::error::{CaError, CaResult};
 use crate::runtime::net::CA_SERVER_PORT;
@@ -34,6 +34,7 @@ use super::device_support::DeviceSupport;
 use super::iocsh::{self, registry::CommandDef};
 use super::record::{self, Record};
 use super::{autosave, access_security, CaServer, DeviceSupportFactory};
+use autosave::startup::AutosaveStartupConfig;
 
 /// Context passed to dynamic device support factories during iocInit wiring.
 pub struct DeviceSupportContext<'a> {
@@ -54,6 +55,7 @@ pub struct IocApplication {
     subroutine_registry: HashMap<String, Arc<SubroutineFn>>,
     acf: Option<access_security::AccessSecurityConfig>,
     autosave_config: Option<autosave::AutosaveConfig>,
+    autosave_startup: Option<Arc<Mutex<AutosaveStartupConfig>>>,
     startup_commands: Vec<CommandDef>,
     shell_commands: Vec<CommandDef>,
     startup_script: Option<String>,
@@ -70,6 +72,7 @@ impl IocApplication {
             subroutine_registry: HashMap::new(),
             acf: None,
             autosave_config: None,
+            autosave_startup: None,
             startup_commands: Vec::new(),
             shell_commands: Vec::new(),
             startup_script: None,
@@ -144,9 +147,20 @@ impl IocApplication {
         self
     }
 
-    /// Configure autosave.
+    /// Configure autosave (legacy single-file API).
     pub fn autosave(mut self, config: autosave::AutosaveConfig) -> Self {
         self.autosave_config = Some(config);
+        self
+    }
+
+    /// Configure autosave startup (C-compatible iocsh commands).
+    ///
+    /// When set, autosave iocsh commands (`set_requestfile_path`, `create_monitor_set`,
+    /// `set_pass0_restoreFile`, etc.) are registered as startup commands and populate
+    /// the config during st.cmd execution. After iocInit, the config is consumed to
+    /// build an `AutosaveManager`.
+    pub fn autosave_startup(mut self, config: Arc<Mutex<AutosaveStartupConfig>>) -> Self {
+        self.autosave_startup = Some(config);
         self
     }
 
@@ -190,11 +204,18 @@ impl IocApplication {
             subroutine_registry,
             acf,
             autosave_config,
-            startup_commands,
+            autosave_startup,
+            mut startup_commands,
             shell_commands,
             startup_script,
             inline_records,
         } = self;
+
+        // Register autosave startup commands if configured
+        if let Some(ref config) = autosave_startup {
+            let cmds = AutosaveStartupConfig::register_startup_commands(config.clone());
+            startup_commands.extend(cmds);
+        }
 
         // Add inline records (Phase 7 declarative builder)
         for (name, record) in inline_records {
@@ -227,13 +248,58 @@ impl IocApplication {
             result.map_err(|e| CaError::InvalidValue(e))?;
         }
 
-        // Phase 2: iocInit — wire device support to all records with DTYP
+        // Collect restore paths and builder from startup config (scoped mutex lock)
+        let (pass0_files, pass1_files, builder_opt) = if let Some(ref config) = autosave_startup {
+            let cfg = config.lock().unwrap();
+            let pass0: Vec<std::path::PathBuf> = cfg.pass0_restores.iter()
+                .map(|r| cfg.resolve_save_file(&r.filename))
+                .collect();
+            let pass1: Vec<std::path::PathBuf> = cfg.pass1_restores.iter()
+                .map(|r| cfg.resolve_save_file(&r.filename))
+                .collect();
+            let builder = if !cfg.monitor_sets.is_empty() || !cfg.triggered_sets.is_empty() {
+                Some(cfg.into_builder())
+            } else {
+                None
+            };
+            (pass0, pass1, builder)
+        } else {
+            (Vec::new(), Vec::new(), None)
+        };
+
+        // Phase 2a: Pass0 restore (before device support wiring)
+        for sav_path in &pass0_files {
+            match autosave::restore_from_file(&db, sav_path).await {
+                Ok(count) if count > 0 => {
+                    eprintln!("pass0 restore: {count} PVs from {}", sav_path.display());
+                }
+                Err(e) => {
+                    eprintln!("pass0 restore warning: {} - {e}", sav_path.display());
+                }
+                _ => {}
+            }
+        }
+
+        // Phase 2b: iocInit — wire device support to all records with DTYP
         let record_count = wire_device_support(&db, &device_factories, &dynamic_device_factory).await?;
         wire_subroutines(&db, &subroutine_registry).await;
         let io_intr_count = setup_io_intr(db.clone()).await;
         db.setup_cp_links().await;
 
-        // Restore autosave
+        // Phase 2c: Pass1 restore (after device support wiring)
+        for sav_path in &pass1_files {
+            match autosave::restore_from_file(&db, sav_path).await {
+                Ok(count) if count > 0 => {
+                    eprintln!("pass1 restore: {count} PVs from {}", sav_path.display());
+                }
+                Err(e) => {
+                    eprintln!("pass1 restore warning: {} - {e}", sav_path.display());
+                }
+                _ => {}
+            }
+        }
+
+        // Legacy autosave restore
         if let Some(ref cfg) = autosave_config {
             let count = autosave::restore_from_file(&db, &cfg.save_path).await?;
             if count > 0 {
@@ -241,11 +307,27 @@ impl IocApplication {
             }
         }
 
+        // Phase 2d: Build AutosaveManager from startup config
+        let autosave_manager = if let Some(builder) = builder_opt {
+            match builder.build().await {
+                Ok(mgr) => {
+                    eprintln!("autosave: {} save set(s) configured", mgr.set_names().len());
+                    Some(Arc::new(mgr))
+                }
+                Err(e) => {
+                    eprintln!("autosave: failed to build manager: {e}");
+                    None
+                }
+            }
+        } else {
+            None
+        };
+
         let total_records = db.all_record_names().await.len();
         eprintln!("iocInit: {total_records} records, {record_count} with device support, {io_intr_count} I/O Intr");
 
         // Phase 3: Build CaServer and run with interactive shell
-        let server = CaServer::from_parts(db, port, acf, autosave_config);
+        let server = CaServer::from_parts(db, port, acf, autosave_config, autosave_manager);
 
         server
             .run_with_shell(move |shell| {

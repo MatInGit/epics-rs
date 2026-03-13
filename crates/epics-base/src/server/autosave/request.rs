@@ -20,21 +20,83 @@ pub async fn load_request_file(
     path: &Path,
     macros: &MacroContext,
 ) -> AutosaveResult<Vec<RequestEntry>> {
-    let canonical = tokio::fs::canonicalize(path).await.map_err(|e| {
+    load_request_file_with_search_paths(
+        &path.to_string_lossy(),
+        &[],
+        macros,
+    ).await
+}
+
+/// Load a .req file by searching multiple directories.
+///
+/// Search order for the top-level file:
+/// 1. Absolute path (if the filename is absolute)
+/// 2. Each directory in `search_paths`
+/// 3. Current directory
+///
+/// For `file` includes within .req files, the search order is:
+/// 1. Directory of the including file
+/// 2. Each directory in `search_paths`
+pub async fn load_request_file_with_search_paths(
+    filename: &str,
+    search_paths: &[PathBuf],
+    macros: &MacroContext,
+) -> AutosaveResult<Vec<RequestEntry>> {
+    let path = PathBuf::from(filename);
+
+    // Resolve the file location
+    let resolved = if path.is_absolute() && path.exists() {
+        path
+    } else if path.is_absolute() {
+        return Err(AutosaveError::RequestFile {
+            path: filename.to_string(),
+            message: "file not found".to_string(),
+        });
+    } else {
+        resolve_in_search_paths(filename, search_paths)
+            .ok_or_else(|| AutosaveError::RequestFile {
+                path: filename.to_string(),
+                message: format!(
+                    "file not found in search paths: {}",
+                    search_paths
+                        .iter()
+                        .map(|p| p.display().to_string())
+                        .collect::<Vec<_>>()
+                        .join(", ")
+                ),
+            })?
+    };
+
+    let canonical = tokio::fs::canonicalize(&resolved).await.map_err(|e| {
         AutosaveError::RequestFile {
-            path: path.display().to_string(),
+            path: resolved.display().to_string(),
             message: format!("cannot resolve path: {e}"),
         }
     })?;
     let content = tokio::fs::read_to_string(&canonical).await.map_err(|e| {
         AutosaveError::RequestFile {
-            path: path.display().to_string(),
+            path: resolved.display().to_string(),
             message: e.to_string(),
         }
     })?;
     let base_dir = canonical.parent().unwrap_or(Path::new("."));
     let mut include_stack = vec![canonical.clone()];
-    parse_request_inner(&content, base_dir, macros, 0, &mut include_stack, &canonical)
+    parse_request_inner(&content, base_dir, macros, 0, &mut include_stack, &canonical, search_paths)
+}
+
+/// Resolve a filename by searching directories, then current directory.
+fn resolve_in_search_paths(filename: &str, search_paths: &[PathBuf]) -> Option<PathBuf> {
+    for dir in search_paths {
+        let candidate = dir.join(filename);
+        if candidate.exists() {
+            return Some(candidate);
+        }
+    }
+    let path = PathBuf::from(filename);
+    if path.exists() {
+        return Some(path);
+    }
+    None
 }
 
 /// Load a .req file from a string (for testing without filesystem).
@@ -84,6 +146,7 @@ fn parse_request_inner(
     depth: usize,
     include_stack: &mut Vec<PathBuf>,
     source_path: &Path,
+    search_paths: &[PathBuf],
 ) -> AutosaveResult<Vec<RequestEntry>> {
     if depth > MAX_INCLUDE_DEPTH {
         return Err(AutosaveError::IncludeDepthExceeded(MAX_INCLUDE_DEPTH));
@@ -107,19 +170,29 @@ fn parse_request_inner(
             // Expand macros in file path
             let expanded_path = macros.expand(&file_path, &source_str, line_no)?;
 
-            // Merge inline macros
+            // Merge inline macros — expand through parent context first so that
+            // `file "foo.req", P=$(P)` resolves $(P) to its current value.
             let child_macros = if inline_macros.is_empty() {
                 macros.clone()
             } else {
-                let overrides = MacroContext::parse_inline(&inline_macros);
+                let expanded_macros = macros.expand(&inline_macros, &source_str, line_no)?;
+                let overrides = MacroContext::parse_inline(&expanded_macros);
                 macros.with_overrides(&overrides)
             };
 
-            // Resolve relative to including file's directory
+            // Resolve: first try relative to including file's directory,
+            // then search paths (matching C autosave behavior)
             let include_path = if Path::new(&expanded_path).is_absolute() {
                 PathBuf::from(&expanded_path)
             } else {
-                base_dir.join(&expanded_path)
+                let relative = base_dir.join(&expanded_path);
+                if relative.exists() {
+                    relative
+                } else {
+                    // Fall back to search paths
+                    resolve_in_search_paths(&expanded_path, search_paths)
+                        .unwrap_or(relative) // use original for error message
+                }
             };
 
             let canonical = std::fs::canonicalize(&include_path).map_err(|e| {
@@ -154,6 +227,7 @@ fn parse_request_inner(
                 depth + 1,
                 include_stack,
                 &canonical,
+                search_paths,
             )?;
             entries.extend(sub_entries);
             include_stack.pop();
@@ -178,8 +252,10 @@ fn parse_request_inner(
     Ok(entries)
 }
 
-/// Parse a file directive: `file <path> [macros]`
-/// Path can be quoted or unquoted.
+/// Parse a file directive: `file <path>[,] [macros]`
+/// Path can be quoted or unquoted. Handles both:
+///   file "name.req", P=$(P)
+///   file name.req,   P=$(P)
 fn parse_file_directive(rest: &str) -> (String, String) {
     let rest = rest.trim();
     if rest.starts_with('"') {
@@ -187,21 +263,53 @@ fn parse_file_directive(rest: &str) -> (String, String) {
         if let Some(end_quote) = rest[1..].find('"') {
             let path = rest[1..end_quote + 1].to_string();
             let after = rest[end_quote + 2..].trim();
-            let macros = after.to_string();
+            // Strip leading comma between path and macros
+            let macros = after.strip_prefix(',').unwrap_or(after).trim().to_string();
             (path, macros)
         } else {
             (rest.to_string(), String::new())
         }
     } else {
-        // Unquoted: split at first whitespace
-        let parts: Vec<&str> = rest.splitn(2, char::is_whitespace).collect();
-        let path = parts[0].to_string();
-        let macros = if parts.len() > 1 {
-            parts[1].trim().to_string()
-        } else {
-            String::new()
-        };
+        // Unquoted: filename ends at first comma or whitespace
+        let end = rest.find(|c: char| c == ',' || c.is_whitespace()).unwrap_or(rest.len());
+        let path = rest[..end].to_string();
+        let after = rest[end..].trim();
+        // Strip leading comma between path and macros
+        let macros = after.strip_prefix(',').unwrap_or(after).trim().to_string();
         (path, macros)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_parse_file_directive_quoted_with_comma() {
+        let (path, macros) = parse_file_directive("\"ADBase_settings.req\", P=$(P), R=$(R)");
+        assert_eq!(path, "ADBase_settings.req");
+        assert_eq!(macros, "P=$(P), R=$(R)");
+    }
+
+    #[test]
+    fn test_parse_file_directive_unquoted_with_comma() {
+        let (path, macros) = parse_file_directive("NDFile_settings.req,      P=$(P), R=netCDF1:");
+        assert_eq!(path, "NDFile_settings.req");
+        assert_eq!(macros, "P=$(P), R=netCDF1:");
+    }
+
+    #[test]
+    fn test_parse_file_directive_quoted_no_macros() {
+        let (path, macros) = parse_file_directive("\"foo.req\"");
+        assert_eq!(path, "foo.req");
+        assert_eq!(macros, "");
+    }
+
+    #[test]
+    fn test_parse_file_directive_unquoted_space_separated() {
+        let (path, macros) = parse_file_directive("foo.req P=X");
+        assert_eq!(path, "foo.req");
+        assert_eq!(macros, "P=X");
     }
 }
 

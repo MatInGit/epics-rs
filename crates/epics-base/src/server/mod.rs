@@ -284,7 +284,7 @@ impl CaServerBuilder {
             }
         }
 
-        Ok(CaServer { db, port: self.port, acf, autosave_config: self.autosave_config })
+        Ok(CaServer { db, port: self.port, acf, autosave_config: self.autosave_config, autosave_manager: None })
     }
 }
 
@@ -294,6 +294,7 @@ pub struct CaServer {
     port: u16,
     acf: Arc<Option<access_security::AccessSecurityConfig>>,
     autosave_config: Option<autosave::AutosaveConfig>,
+    autosave_manager: Option<Arc<autosave::AutosaveManager>>,
 }
 
 impl CaServer {
@@ -309,12 +310,14 @@ impl CaServer {
         port: u16,
         acf: Option<access_security::AccessSecurityConfig>,
         autosave_config: Option<autosave::AutosaveConfig>,
+        autosave_manager: Option<Arc<autosave::AutosaveManager>>,
     ) -> Self {
         Self {
             db,
             port,
             acf: Arc::new(acf),
             autosave_config,
+            autosave_manager,
         }
     }
 
@@ -332,6 +335,11 @@ impl CaServer {
     {
         let db = self.db.clone();
         let handle = tokio::runtime::Handle::current();
+
+        // Prepare autosave iocsh commands before moving self into Arc
+        let autosave_cmds = self.autosave_manager.as_ref()
+            .map(|mgr| autosave::iocsh::autosave_commands(mgr.clone()));
+
         let server = Arc::new(self);
 
         let server_clone = server.clone();
@@ -346,6 +354,11 @@ impl CaServer {
         std::thread::spawn(move || {
             let shell = iocsh::IocShell::new(db, handle);
             register_fn(&shell);
+            if let Some(cmds) = autosave_cmds {
+                for cmd in cmds {
+                    shell.register(cmd);
+                }
+            }
             let result = shell.run_repl();
             let _ = tx.send(result);
         });
@@ -401,8 +414,12 @@ impl CaServer {
 
         let scanner = ScanScheduler::new(db_scan);
 
-        // Spawn autosave if configured
-        let autosave_handle = if let Some(ref cfg) = self.autosave_config {
+        // Spawn autosave: prefer manager (from startup config), fall back to legacy
+        let autosave_handle = if let Some(ref mgr) = self.autosave_manager {
+            let mgr = mgr.clone();
+            let db_save = self.db.clone();
+            Some(mgr.start(db_save))
+        } else if let Some(ref cfg) = self.autosave_config {
             let db_save = self.db.clone();
             let cfg = cfg.clone();
             Some(crate::runtime::task::spawn(async move {

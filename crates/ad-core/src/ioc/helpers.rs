@@ -47,13 +47,13 @@ pub fn dtyp_from_port(port_name: &str) -> String {
 ///
 /// These are silently ignored but must be registered so the iocsh parser
 /// doesn't error on them.
+///
+/// Note: autosave commands (`set_requestfile_path`, `set_savefile_path`,
+/// `set_pass0_restoreFile`, `set_pass1_restoreFile`, `save_restoreSet_status_prefix`,
+/// `create_monitor_set`, `create_triggered_set`) are no longer registered here.
+/// They are handled by `AutosaveStartupConfig::register_startup_commands()`.
 pub fn register_noop_commands(mut app: IocApplication) -> IocApplication {
     for cmd in &[
-        "set_requestfile_path",
-        "set_savefile_path",
-        "set_pass0_restoreFile",
-        "set_pass1_restoreFile",
-        "save_restoreSet_status_prefix",
         "startPVAServer",
         "callbackSetQueueSize",
     ] {
