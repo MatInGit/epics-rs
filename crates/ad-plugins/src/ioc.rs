@@ -336,8 +336,8 @@ where
 /// - Report shell command
 ///
 /// Detector libraries register their configure commands and device support
-/// via [`register_startup_command`] and [`register_device_support`], then
-/// call [`run_from_args`] to start the IOC.
+/// via `register_startup_command` and `register_device_support`, then
+/// call `run_from_args` to start the IOC.
 ///
 /// # Example
 ///

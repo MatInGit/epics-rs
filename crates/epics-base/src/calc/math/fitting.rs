@@ -22,7 +22,7 @@ pub fn lfit(x: &[f64], y: &[f64]) -> (f64, f64) {
 }
 
 /// Quadratic polynomial fit: returns (a0, a1, a2) where y ≈ a0 + a1*x + a2*x^2.
-/// Uses optional mask (if provided, only fits points where mask[i] != 0).
+/// Uses optional mask (if provided, only fits points where mask\[i\] != 0).
 pub fn fitpoly(x: &[f64], y: &[f64], mask: Option<&[f64]>) -> (f64, f64, f64) {
     let n = x.len();
     if n < 3 || x.len() != y.len() {

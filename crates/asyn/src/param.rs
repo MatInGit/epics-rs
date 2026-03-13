@@ -32,7 +32,7 @@ pub enum ParamType {
     GenericPointer,
 }
 
-/// Parameter value. Arrays use Arc<[T]> for cheap cloning during interrupt broadcast.
+/// Parameter value. Arrays use `Arc<[T]>` for cheap cloning during interrupt broadcast.
 /// Octet uses String (typically short; not intended for large binary data).
 #[derive(Clone)]
 pub enum ParamValue {

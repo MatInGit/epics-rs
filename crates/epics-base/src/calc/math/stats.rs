@@ -60,7 +60,7 @@ pub fn fwhm(data: &[f64]) -> f64 {
     right - left
 }
 
-/// 5-point smoothing filter [1,4,6,4,1]/16.
+/// 5-point smoothing filter \[1,4,6,4,1\]/16.
 /// Boundary points are set to 0.
 pub fn smooth(data: &[f64]) -> Vec<f64> {
     let n = data.len();

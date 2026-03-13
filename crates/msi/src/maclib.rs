@@ -99,7 +99,7 @@ impl MacHandle {
         self.trans(src, &[], 0, &mut stack)
     }
 
-    /// Parse a "A=val,B=val2" definitions string into (name, Option<value>) pairs.
+    /// Parse a "A=val,B=val2" definitions string into (name, `Option<value>`) pairs.
     /// Names without `=` produce None (deletion). Quotes and escapes in names are stripped.
     pub fn parse_defns(defns: &str) -> Vec<(String, Option<String>)> {
         parse_defns_inner(defns)

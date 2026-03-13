@@ -6,7 +6,7 @@
 //! # Architecture
 //!
 //! An [`OctetInterposeStack`] holds a chain of [`OctetInterpose`] layers.
-//! When I/O is dispatched, an [`InterposeChain`] cursor walks the stack
+//! When I/O is dispatched, an `InterposeChain` cursor walks the stack
 //! from outermost to innermost, finally reaching the base driver (which
 //! implements [`OctetNext`]).
 
@@ -43,7 +43,7 @@ pub struct OctetReadResult {
 }
 
 /// "Next layer" interface — implemented by both the base driver adapter
-/// and by [`InterposeChain`] to allow recursive dispatch.
+/// and by `InterposeChain` to allow recursive dispatch.
 pub trait OctetNext: Send + Sync {
     fn read(&mut self, user: &AsynUser, buf: &mut [u8]) -> AsynResult<OctetReadResult>;
     fn write(&mut self, user: &mut AsynUser, data: &[u8]) -> AsynResult<usize>;

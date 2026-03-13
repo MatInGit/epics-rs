@@ -2,7 +2,7 @@
 //!
 //! # I/O Model
 //!
-//! Ports are driven by a [`crate::port_actor::PortActor`] running on a dedicated thread.
+//! Ports are driven by a `PortActor` running on a dedicated thread.
 //! The actor exclusively owns the driver and processes requests from a channel.
 //!
 //! **Cache path** (default `read_*`/`write_*` methods):

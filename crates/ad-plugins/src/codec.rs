@@ -197,7 +197,7 @@ pub fn decompress_lz4(src: &NDArray) -> Option<NDArray> {
 ///
 /// Only supports UInt8 data. Handles:
 /// - 2D arrays (mono/grayscale)
-/// - 3D arrays with dims[0]=3 (RGB1 interleaved)
+/// - 3D arrays with dims\[0\]=3 (RGB1 interleaved)
 ///
 /// Returns `None` if the data type is not UInt8 or the layout is unsupported.
 pub fn compress_jpeg(src: &NDArray, quality: u8) -> Option<NDArray> {

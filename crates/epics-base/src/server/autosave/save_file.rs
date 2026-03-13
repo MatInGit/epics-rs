@@ -48,7 +48,7 @@ pub async fn write_save_file(path: &Path, entries: &[SaveEntry]) -> AutosaveResu
     Ok(())
 }
 
-/// Read a .sav file and validate <END> marker.
+/// Read a .sav file and validate `<END>` marker.
 /// Returns None for corrupt files (no END marker).
 pub async fn read_save_file(path: &Path) -> AutosaveResult<Option<Vec<SaveEntry>>> {
     let content = tokio::fs::read_to_string(path).await.map_err(|e| {
@@ -70,7 +70,7 @@ pub async fn read_save_file(path: &Path) -> AutosaveResult<Option<Vec<SaveEntry>
     Ok(Some(entries))
 }
 
-/// Quick check if a .sav file has a valid <END> marker.
+/// Quick check if a .sav file has a valid `<END>` marker.
 pub async fn validate_save_file(path: &Path) -> AutosaveResult<bool> {
     let content = tokio::fs::read_to_string(path).await?;
     Ok(has_end_marker(&content))

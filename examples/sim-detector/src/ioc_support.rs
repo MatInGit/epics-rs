@@ -384,7 +384,7 @@ impl DeviceSupport for SimDeviceSupport {
 // IOC registration
 // ============================================================================
 
-/// Register the SimDetector configure command and device support on an [`AdIoc`].
+/// Register the SimDetector configure command and device support on an `AdIoc`.
 ///
 /// After calling this, `simDetectorConfig(...)` can be used in st.cmd to
 /// create a SimDetector, and records with `DTYP=asynSimDetector` will be
