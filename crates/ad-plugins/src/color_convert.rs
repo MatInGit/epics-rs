@@ -216,17 +216,21 @@ fn false_color_mono_to_rgb1(src: &NDArray) -> Option<NDArray> {
     Some(arr)
 }
 
-/// Detect the color mode of an NDArray from its dimensionality.
+/// Detect the color mode of an NDArray.
 ///
-/// 2D arrays are always treated as Mono (Bayer cannot be distinguished from Mono
-/// by dimensions alone). For 3D arrays, the dimension with size 3 determines the
-/// RGB layout variant.
+/// Checks the `ColorMode` NDAttribute first (required for YUV422/YUV411 which are
+/// 2D arrays indistinguishable from Mono, and YUV444/Bayer which share dimensions
+/// with RGB1/Mono). Falls back to dimension-based detection.
 fn detect_color_mode(array: &NDArray) -> NDColorMode {
+    if let Some(attr) = array.attributes.get("ColorMode") {
+        if let Some(v) = attr.value.as_i64() {
+            return NDColorMode::from_i32(v as i32);
+        }
+    }
     match array.dims.len() {
         0 | 1 => NDColorMode::Mono,
-        2 => NDColorMode::Mono, // 2D is always mono (or bayer, but we can't tell)
+        2 => NDColorMode::Mono,
         3 => {
-            // Check color dimension
             if array.dims[0].size == 3 {
                 NDColorMode::RGB1
             } else if array.dims[1].size == 3 {
@@ -263,52 +267,51 @@ impl ColorConvertProcessor {
 impl NDPluginProcess for ColorConvertProcessor {
     fn process_array(&mut self, array: &NDArray, _pool: &NDArrayPool) -> ProcessResult {
         let src_mode = detect_color_mode(array);
-        let result = match (src_mode, self.config.target_mode) {
-            // Same mode - passthrough
-            (s, t) if s == t => Some(array.clone()),
+        let target = self.config.target_mode;
 
-            // To Mono
-            (NDColorMode::RGB1 | NDColorMode::RGB2 | NDColorMode::RGB3, NDColorMode::Mono) => {
-                // If not RGB1, convert to RGB1 first, then to mono
-                let rgb1 = if src_mode != NDColorMode::RGB1 {
-                    color::convert_rgb_layout(array, src_mode, NDColorMode::RGB1).ok()
+        // Same mode - passthrough
+        if src_mode == target {
+            return ProcessResult::arrays(vec![Arc::new(array.clone())]);
+        }
+
+        // Step 1: Convert source to RGB1 intermediate
+        let rgb1 = match src_mode {
+            NDColorMode::RGB1 => Some(array.clone()),
+            NDColorMode::Mono => {
+                if self.config.false_color {
+                    false_color_mono_to_rgb1(array)
+                        .or_else(|| color::mono_to_rgb1(array).ok())
                 } else {
-                    Some(array.clone())
-                };
-                rgb1.and_then(|a| color::rgb1_to_mono(&a).ok())
+                    color::mono_to_rgb1(array).ok()
+                }
             }
-
-            // Mono to RGB with false color
-            (NDColorMode::Mono, NDColorMode::RGB1) if self.config.false_color => {
-                false_color_mono_to_rgb1(array)
+            NDColorMode::Bayer => bayer_to_rgb1(array, self.config.bayer_pattern),
+            NDColorMode::RGB2 | NDColorMode::RGB3 => {
+                color::convert_rgb_layout(array, src_mode, NDColorMode::RGB1).ok()
             }
-
-            // Mono to any RGB
-            (NDColorMode::Mono, NDColorMode::RGB1) => color::mono_to_rgb1(array).ok(),
-            (NDColorMode::Mono, NDColorMode::RGB2 | NDColorMode::RGB3) => {
-                color::mono_to_rgb1(array).ok().and_then(|a| {
-                    color::convert_rgb_layout(&a, NDColorMode::RGB1, self.config.target_mode).ok()
-                })
-            }
-
-            // Bayer to any RGB
-            (NDColorMode::Bayer, NDColorMode::RGB1) => {
-                bayer_to_rgb1(array, self.config.bayer_pattern)
-            }
-            (NDColorMode::Bayer, NDColorMode::RGB2 | NDColorMode::RGB3) => {
-                bayer_to_rgb1(array, self.config.bayer_pattern).and_then(|a| {
-                    color::convert_rgb_layout(&a, NDColorMode::RGB1, self.config.target_mode).ok()
-                })
-            }
-
-            // RGB to RGB (layout conversion)
-            (
-                NDColorMode::RGB1 | NDColorMode::RGB2 | NDColorMode::RGB3,
-                NDColorMode::RGB1 | NDColorMode::RGB2 | NDColorMode::RGB3,
-            ) => color::convert_rgb_layout(array, src_mode, self.config.target_mode).ok(),
-
-            _ => None,
+            NDColorMode::YUV444 => color::yuv444_to_rgb1(array).ok(),
+            NDColorMode::YUV422 => color::yuv422_to_rgb1(array).ok(),
+            NDColorMode::YUV411 => color::yuv411_to_rgb1(array).ok(),
         };
+
+        let rgb1 = match rgb1 {
+            Some(r) => r,
+            None => return ProcessResult::empty(),
+        };
+
+        // Step 2: Convert RGB1 intermediate to target
+        let result = match target {
+            NDColorMode::RGB1 => Some(rgb1),
+            NDColorMode::Mono => color::rgb1_to_mono(&rgb1).ok(),
+            NDColorMode::Bayer => None,
+            NDColorMode::RGB2 | NDColorMode::RGB3 => {
+                color::convert_rgb_layout(&rgb1, NDColorMode::RGB1, target).ok()
+            }
+            NDColorMode::YUV444 => color::rgb1_to_yuv444(&rgb1).ok(),
+            NDColorMode::YUV422 => color::rgb1_to_yuv422(&rgb1).ok(),
+            NDColorMode::YUV411 => color::rgb1_to_yuv411(&rgb1).ok(),
+        };
+
         match result {
             Some(out) => ProcessResult::arrays(vec![Arc::new(out)]),
             None => ProcessResult::empty(),
@@ -530,6 +533,162 @@ mod tests {
         assert_eq!(result.output_arrays.len(), 1);
         assert_eq!(result.output_arrays[0].unique_id, 42);
         assert_eq!(result.output_arrays[0].dims.len(), 2);
+    }
+
+    fn set_color_mode_attr(arr: &mut NDArray, mode: NDColorMode) {
+        use ad_core::attributes::{NDAttrSource, NDAttrValue, NDAttribute};
+        arr.attributes.add(NDAttribute {
+            name: "ColorMode".to_string(),
+            description: String::new(),
+            source: NDAttrSource::Driver,
+            value: NDAttrValue::Int32(mode as i32),
+        });
+    }
+
+    #[test]
+    fn test_bayer_to_mono_via_rgb1() {
+        let config = ColorConvertConfig {
+            target_mode: NDColorMode::Mono,
+            bayer_pattern: NDBayerPattern::RGGB,
+            false_color: false,
+        };
+        let mut proc = ColorConvertProcessor::new(config);
+        let pool = NDArrayPool::new(1_000_000);
+
+        let mut arr = NDArray::new(
+            vec![NDDimension::new(4), NDDimension::new(4)],
+            NDDataType::UInt8,
+        );
+        set_color_mode_attr(&mut arr, NDColorMode::Bayer);
+        if let NDDataBuffer::U8(ref mut v) = arr.data {
+            for i in 0..16 { v[i] = 128; }
+        }
+
+        let result = proc.process_array(&arr, &pool);
+        assert_eq!(result.output_arrays.len(), 1);
+        assert_eq!(result.output_arrays[0].dims.len(), 2);
+    }
+
+    #[test]
+    fn test_rgb1_to_yuv444_conversion() {
+        let config = ColorConvertConfig {
+            target_mode: NDColorMode::YUV444,
+            bayer_pattern: NDBayerPattern::RGGB,
+            false_color: false,
+        };
+        let mut proc = ColorConvertProcessor::new(config);
+        let pool = NDArrayPool::new(1_000_000);
+
+        let mut arr = NDArray::new(
+            vec![NDDimension::new(3), NDDimension::new(4), NDDimension::new(4)],
+            NDDataType::UInt8,
+        );
+        if let NDDataBuffer::U8(ref mut v) = arr.data {
+            for i in 0..v.len() { v[i] = (i % 256) as u8; }
+        }
+
+        let result = proc.process_array(&arr, &pool);
+        assert_eq!(result.output_arrays.len(), 1);
+        let out = &result.output_arrays[0];
+        assert_eq!(out.dims.len(), 3);
+        assert_eq!(out.dims[0].size, 3);
+    }
+
+    #[test]
+    fn test_yuv422_to_rgb1_conversion() {
+        let config = ColorConvertConfig {
+            target_mode: NDColorMode::RGB1,
+            bayer_pattern: NDBayerPattern::RGGB,
+            false_color: false,
+        };
+        let mut proc = ColorConvertProcessor::new(config);
+        let pool = NDArrayPool::new(1_000_000);
+
+        // packed_x=8 means 4 pixels wide, 2 rows
+        let mut arr = NDArray::new(
+            vec![NDDimension::new(8), NDDimension::new(2)],
+            NDDataType::UInt8,
+        );
+        set_color_mode_attr(&mut arr, NDColorMode::YUV422);
+        if let NDDataBuffer::U8(ref mut v) = arr.data {
+            // UYVY pattern: U Y0 V Y1
+            let uyvy: [u8; 16] = [
+                128, 100, 128, 150,  128, 200, 128, 50,
+                128, 128, 128, 128,  128, 64, 128, 192,
+            ];
+            v[..16].copy_from_slice(&uyvy);
+        }
+
+        let result = proc.process_array(&arr, &pool);
+        assert_eq!(result.output_arrays.len(), 1);
+        let out = &result.output_arrays[0];
+        assert_eq!(out.dims[0].size, 3);
+        assert_eq!(out.dims[1].size, 4);
+        assert_eq!(out.dims[2].size, 2);
+    }
+
+    #[test]
+    fn test_mono_to_yuv422_conversion() {
+        let config = ColorConvertConfig {
+            target_mode: NDColorMode::YUV422,
+            bayer_pattern: NDBayerPattern::RGGB,
+            false_color: false,
+        };
+        let mut proc = ColorConvertProcessor::new(config);
+        let pool = NDArrayPool::new(1_000_000);
+
+        let mut arr = NDArray::new(
+            vec![NDDimension::new(4), NDDimension::new(2)],
+            NDDataType::UInt8,
+        );
+        if let NDDataBuffer::U8(ref mut v) = arr.data {
+            for i in 0..8 { v[i] = (i * 30) as u8; }
+        }
+
+        let result = proc.process_array(&arr, &pool);
+        assert_eq!(result.output_arrays.len(), 1);
+        let out = &result.output_arrays[0];
+        assert_eq!(out.dims.len(), 2);
+        assert_eq!(out.dims[0].size, 8); // packed_x = 4*2
+    }
+
+    #[test]
+    fn test_yuv444_to_mono_conversion() {
+        let config = ColorConvertConfig {
+            target_mode: NDColorMode::Mono,
+            bayer_pattern: NDBayerPattern::RGGB,
+            false_color: false,
+        };
+        let mut proc = ColorConvertProcessor::new(config);
+        let pool = NDArrayPool::new(1_000_000);
+
+        let mut arr = NDArray::new(
+            vec![NDDimension::new(3), NDDimension::new(4), NDDimension::new(4)],
+            NDDataType::UInt8,
+        );
+        set_color_mode_attr(&mut arr, NDColorMode::YUV444);
+        if let NDDataBuffer::U8(ref mut v) = arr.data {
+            for i in 0..v.len() { v[i] = 128; }
+        }
+
+        let result = proc.process_array(&arr, &pool);
+        assert_eq!(result.output_arrays.len(), 1);
+        let out = &result.output_arrays[0];
+        assert_eq!(out.dims.len(), 2);
+        assert_eq!(out.dims[0].size, 4);
+        assert_eq!(out.dims[1].size, 4);
+    }
+
+    #[test]
+    fn test_detect_color_mode_with_attribute() {
+        let mut arr = NDArray::new(
+            vec![NDDimension::new(8), NDDimension::new(2)],
+            NDDataType::UInt8,
+        );
+        assert_eq!(detect_color_mode(&arr), NDColorMode::Mono);
+
+        set_color_mode_attr(&mut arr, NDColorMode::YUV422);
+        assert_eq!(detect_color_mode(&arr), NDColorMode::YUV422);
     }
 
     #[test]
