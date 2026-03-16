@@ -648,6 +648,12 @@ Test coverage: protocol encoding, wire format golden packets, snapshot generatio
 
 The `hdf5` feature builds HDF5 2.0 from bundled source (via `hdf5-metno-src`), so no separate HDF5 installation is needed — only cmake is required. All other crates are pure Rust and require no system libraries.
 
+## Development Note
+
+AI-assisted tools were used in parts of this project.
+All changes are reviewed and tested by human maintainers.
+Final responsibility for correctness of the port remains with the maintainers.
+
 ## License
 
 The Rust code authored in this repository is licensed under MIT. See
