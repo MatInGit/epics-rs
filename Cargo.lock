@@ -4,7 +4,7 @@ version = 4
 
 [[package]]
 name = "ad-core"
-version = "0.4.2"
+version = "0.4.3"
 dependencies = [
  "asyn-rs",
  "epics-base-rs",
@@ -16,7 +16,7 @@ dependencies = [
 
 [[package]]
 name = "ad-plugins"
-version = "0.4.2"
+version = "0.4.3"
 dependencies = [
  "ad-core",
  "asyn-rs",
@@ -130,7 +130,7 @@ checksum = "d92bec98840b8f03a5ff5413de5293bfcd8bf96467cf5452609f939ec6f5de16"
 
 [[package]]
 name = "asyn-rs"
-version = "0.4.2"
+version = "0.4.3"
 dependencies = [
  "bitflags",
  "criterion",
@@ -153,7 +153,7 @@ checksum = "c08606f8c3cbf4ce6ec8e28fb0014a2c086708fe954eaa885384a6165172e7e8"
 
 [[package]]
 name = "autosave-rs"
-version = "0.4.2"
+version = "0.4.3"
 dependencies = [
  "epics-base-rs",
  "tempfile",
@@ -174,7 +174,7 @@ checksum = "5d20789868f4b01b2f2caec9f5c4e0213b41e3e5702a50157d699ae31ced2fcb"
 
 [[package]]
 name = "busy-rs"
-version = "0.4.2"
+version = "0.4.3"
 dependencies = [
  "epics-base-rs",
  "tokio",
@@ -420,7 +420,7 @@ checksum = "c34f04666d835ff5d62e058c3995147c06f42fe86ff053337632bca83e42702d"
 
 [[package]]
 name = "epics-base-rs"
-version = "0.4.2"
+version = "0.4.3"
 dependencies = [
  "bytes",
  "chrono",
@@ -436,14 +436,14 @@ dependencies = [
 
 [[package]]
 name = "epics-calc-rs"
-version = "0.4.2"
+version = "0.4.3"
 dependencies = [
  "epics-base-rs",
 ]
 
 [[package]]
 name = "epics-macros"
-version = "0.4.2"
+version = "0.4.3"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -452,7 +452,7 @@ dependencies = [
 
 [[package]]
 name = "epics-seq"
-version = "0.4.2"
+version = "0.4.3"
 dependencies = [
  "epics-base-rs",
  "thiserror",
@@ -826,9 +826,9 @@ checksum = "5e5032e24019045c762d3c0f28f5b6b8bbf38563a65908389bf7978758920897"
 
 [[package]]
 name = "lz4_flex"
-version = "0.11.5"
+version = "0.11.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "08ab2867e3eeeca90e844d1940eab391c9dc5228783db2ed999acbc0a9ed375a"
+checksum = "373f5eceeeab7925e0c1098212f2fbc4d416adec9d35051a6ab251e824c1854a"
 dependencies = [
  "twox-hash",
 ]
@@ -851,7 +851,7 @@ checksum = "f8ca58f447f06ed17d5fc4043ce1b10dd205e060fb3ce5b979b8ed8e59ff3f79"
 
 [[package]]
 name = "mini-beamline"
-version = "0.4.2"
+version = "0.4.3"
 dependencies = [
  "ad-core",
  "ad-plugins",
@@ -893,7 +893,7 @@ dependencies = [
 
 [[package]]
 name = "motor-rs"
-version = "0.4.2"
+version = "0.4.3"
 dependencies = [
  "asyn-rs",
  "bitflags",
@@ -905,7 +905,7 @@ dependencies = [
 
 [[package]]
 name = "msi-rs"
-version = "0.4.2"
+version = "0.4.3"
 dependencies = [
  "clap",
  "tempfile",
@@ -1213,7 +1213,7 @@ dependencies = [
 
 [[package]]
 name = "random-signals"
-version = "0.4.2"
+version = "0.4.3"
 dependencies = [
  "epics-base-rs",
  "rand",
@@ -1350,7 +1350,7 @@ dependencies = [
 
 [[package]]
 name = "scope-ioc"
-version = "0.4.2"
+version = "0.4.3"
 dependencies = [
  "asyn-rs",
  "epics-base-rs",
@@ -1372,7 +1372,7 @@ checksum = "d767eb0aabc880b29956c35734170f26ed551a859dbd361d140cdbeca61ab1e2"
 
 [[package]]
 name = "seq-demo"
-version = "0.4.2"
+version = "0.4.3"
 dependencies = [
  "epics-base-rs",
  "epics-seq",
@@ -1451,7 +1451,7 @@ dependencies = [
 
 [[package]]
 name = "sim-detector"
-version = "0.4.2"
+version = "0.4.3"
 dependencies = [
  "ad-core",
  "ad-plugins",
@@ -1476,7 +1476,7 @@ checksum = "67b1b7a3b5fe4f1376887184045fcf45c69e92af734b7aaddc05fb777b6fbd03"
 
 [[package]]
 name = "snc"
-version = "0.4.2"
+version = "0.4.3"
 dependencies = [
  "clap",
  "snc-core",
@@ -1484,7 +1484,7 @@ dependencies = [
 
 [[package]]
 name = "snc-core"
-version = "0.4.2"
+version = "0.4.3"
 dependencies = [
  "thiserror",
 ]
