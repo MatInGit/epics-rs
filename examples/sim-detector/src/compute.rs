@@ -91,7 +91,7 @@ pub fn fill_background(buf: &mut NDDataBuffer, offset: f64, noise: f64, rng: &mu
             }
         } else {
             for elem in v.iter_mut() {
-                let n: f64 = rng.gen::<f64>() * noise;
+                let n: f64 = rng.random::<f64>() * noise;
                 *elem = PixelCast::from_f64(n + offset);
             }
         }
@@ -108,7 +108,7 @@ pub fn apply_background(raw: &mut NDDataBuffer, background: &NDDataBuffer, rng: 
     if n == 0 {
         return;
     }
-    let start = (rng.gen::<f64>() * n as f64) as usize % n;
+    let start = (rng.random::<f64>() * n as f64) as usize % n;
     with_buffer_mut!(raw, |raw_v| {
         for (i, elem) in raw_v.iter_mut().enumerate() {
             let bg_idx = (start + i) % n;
@@ -260,7 +260,7 @@ pub fn accumulate_peaks(
         for i in 0..peak.num_y {
             for j in 0..peak.num_x {
                 let gain_variation = if peak.height_variation != 0.0 {
-                    1.0 + (peak.height_variation / 100.0) * (rng.gen::<f64>() - 0.5)
+                    1.0 + (peak.height_variation / 100.0) * (rng.random::<f64>() - 0.5)
                 } else {
                     1.0
                 };

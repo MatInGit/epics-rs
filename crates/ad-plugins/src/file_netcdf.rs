@@ -360,7 +360,7 @@ mod tests {
             vec![NDDimension::new(4), NDDimension::new(4)],
             NDDataType::UInt8,
         );
-        if let NDDataBuffer::U8(ref mut v) = arr.data {
+        if let NDDataBuffer::U8(v) = &mut arr.data {
             for i in 0..16 {
                 v[i] = i as u8;
             }
@@ -387,7 +387,7 @@ mod tests {
             vec![NDDimension::new(4), NDDimension::new(4)],
             NDDataType::UInt16,
         );
-        if let NDDataBuffer::U16(ref mut v) = arr.data {
+        if let NDDataBuffer::U16(v) = &mut arr.data {
             for i in 0..16 {
                 v[i] = (i * 1000) as u16;
             }
@@ -413,7 +413,7 @@ mod tests {
             vec![NDDimension::new(4), NDDimension::new(4)],
             NDDataType::UInt8,
         );
-        if let NDDataBuffer::U8(ref mut v) = arr.data {
+        if let NDDataBuffer::U8(v) = &mut arr.data {
             for i in 0..16 {
                 v[i] = (i * 10) as u8;
             }
@@ -425,7 +425,7 @@ mod tests {
 
         writer.current_path = Some(path.clone());
         let read_back = writer.read_file().unwrap();
-        if let (NDDataBuffer::U8(ref orig), NDDataBuffer::U8(ref read)) =
+        if let (NDDataBuffer::U8(orig), NDDataBuffer::U8(read)) =
             (&arr.data, &read_back.data)
         {
             assert_eq!(orig, read);
@@ -445,7 +445,7 @@ mod tests {
             vec![NDDimension::new(4), NDDimension::new(4)],
             NDDataType::Int16,
         );
-        if let NDDataBuffer::I16(ref mut v) = arr.data {
+        if let NDDataBuffer::I16(v) = &mut arr.data {
             for i in 0..16 {
                 v[i] = (i as i16) * 100 - 500;
             }
@@ -457,7 +457,7 @@ mod tests {
 
         writer.current_path = Some(path.clone());
         let read_back = writer.read_file().unwrap();
-        if let (NDDataBuffer::I16(ref orig), NDDataBuffer::I16(ref read)) =
+        if let (NDDataBuffer::I16(orig), NDDataBuffer::I16(read)) =
             (&arr.data, &read_back.data)
         {
             assert_eq!(orig, read);
@@ -477,7 +477,7 @@ mod tests {
             vec![NDDimension::new(4), NDDimension::new(4)],
             NDDataType::Float32,
         );
-        if let NDDataBuffer::F32(ref mut v) = arr.data {
+        if let NDDataBuffer::F32(v) = &mut arr.data {
             for i in 0..16 {
                 v[i] = i as f32 * 0.5;
             }
@@ -489,7 +489,7 @@ mod tests {
 
         writer.current_path = Some(path.clone());
         let read_back = writer.read_file().unwrap();
-        if let (NDDataBuffer::F32(ref orig), NDDataBuffer::F32(ref read)) =
+        if let (NDDataBuffer::F32(orig), NDDataBuffer::F32(read)) =
             (&arr.data, &read_back.data)
         {
             assert_eq!(orig, read);
@@ -509,7 +509,7 @@ mod tests {
             vec![NDDimension::new(4), NDDimension::new(4)],
             NDDataType::UInt8,
         );
-        if let NDDataBuffer::U8(ref mut v) = arr1.data {
+        if let NDDataBuffer::U8(v) = &mut arr1.data {
             for i in 0..16 {
                 v[i] = i as u8;
             }
@@ -519,7 +519,7 @@ mod tests {
             vec![NDDimension::new(4), NDDimension::new(4)],
             NDDataType::UInt8,
         );
-        if let NDDataBuffer::U8(ref mut v) = arr2.data {
+        if let NDDataBuffer::U8(v) = &mut arr2.data {
             for i in 0..16 {
                 v[i] = (i as u8).wrapping_add(100);
             }
@@ -529,7 +529,7 @@ mod tests {
             vec![NDDimension::new(4), NDDimension::new(4)],
             NDDataType::UInt8,
         );
-        if let NDDataBuffer::U8(ref mut v) = arr3.data {
+        if let NDDataBuffer::U8(v) = &mut arr3.data {
             for i in 0..16 {
                 v[i] = (i as u8).wrapping_add(200);
             }
@@ -544,7 +544,7 @@ mod tests {
         // Read back first frame
         writer.current_path = Some(path.clone());
         let read_back = writer.read_file().unwrap();
-        if let NDDataBuffer::U8(ref v) = read_back.data {
+        if let NDDataBuffer::U8(v) = &read_back.data {
             assert_eq!(v.len(), 16);
             for i in 0..16 {
                 assert_eq!(v[i], i as u8, "mismatch at index {}", i);

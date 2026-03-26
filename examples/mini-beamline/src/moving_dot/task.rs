@@ -85,7 +85,7 @@ pub(crate) fn start_acquisition_task(ctx: AcquisitionContext) -> std::thread::Jo
 }
 
 fn acquisition_loop(ctx: AcquisitionContext) {
-    let mut rng = StdRng::from_entropy();
+    let mut rng = StdRng::from_os_rng();
 
     loop {
         // Wait for Start command

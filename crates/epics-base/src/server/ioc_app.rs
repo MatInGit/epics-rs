@@ -359,7 +359,7 @@ async fn wire_device_support(
                 };
                 let dev_opt = if let Some(factory) = factories.get(&dtyp) {
                     Some(factory())
-                } else if let Some(ref dyn_factory) = dynamic_factory {
+                } else if let Some(dyn_factory) = dynamic_factory {
                     dyn_factory(&ctx)
                 } else {
                     None

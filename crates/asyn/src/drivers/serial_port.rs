@@ -469,7 +469,7 @@ impl PortDriver for DrvAsynSerialPort {
         asyn_trace!(Some(self.base.trace), &self.base.port_name, TraceMask::FLOW, "disconnect");
 
         // Restore original termios if available
-        if let (Some(fd), Some(ref saved)) = (self.io.fd, &self.saved_termios) {
+        if let (Some(fd), Some(saved)) = (self.io.fd, &self.saved_termios) {
             unsafe { libc::tcsetattr(fd, libc::TCSANOW, saved) };
         }
 

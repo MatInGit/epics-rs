@@ -378,7 +378,7 @@ pub fn eval(
                         return Err(CalcError::Underflow);
                     }
                     let first = pop1(&mut stack)?;
-                    match &first {
+                    match first {
                         StackValue::Double(mut result) => {
                             for _ in 1..n {
                                 let v = pop1_f64(&mut stack)?;
@@ -407,7 +407,7 @@ pub fn eval(
                         return Err(CalcError::Underflow);
                     }
                     let first = pop1(&mut stack)?;
-                    match &first {
+                    match first {
                         StackValue::Double(mut result) => {
                             for _ in 1..n {
                                 let v = pop1_f64(&mut stack)?;

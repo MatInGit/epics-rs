@@ -1,7 +1,7 @@
 [package]
 name = "ad-core"
 version.workspace = true
-edition = "2021"
+edition.workspace = true
 description = "Core types and base classes for areaDetector-rs"
 license.workspace = true
 authors.workspace = true

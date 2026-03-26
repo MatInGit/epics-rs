@@ -1,7 +1,7 @@
 [package]
 name = "asyn-rs"
 version.workspace = true
-edition = "2021"
+edition.workspace = true
 description = "Rust port of EPICS asyn - async device I/O framework"
 license.workspace = true
 authors.workspace = true

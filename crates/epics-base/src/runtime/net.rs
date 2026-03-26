@@ -38,33 +38,33 @@ mod tests {
     #[test]
     fn test_default_ca_server_port() {
         // Remove env var to ensure default
-        std::env::remove_var("EPICS_CA_SERVER_PORT");
+        unsafe { std::env::remove_var("EPICS_CA_SERVER_PORT") };
         assert_eq!(ca_server_port(), 5064);
     }
 
     #[test]
     fn test_default_ca_repeater_port() {
-        std::env::remove_var("EPICS_CA_REPEATER_PORT");
+        unsafe { std::env::remove_var("EPICS_CA_REPEATER_PORT") };
         assert_eq!(ca_repeater_port(), 5065);
     }
 
     #[test]
     fn test_default_pva_broadcast_port() {
-        std::env::remove_var("EPICS_PVA_BROADCAST_PORT");
+        unsafe { std::env::remove_var("EPICS_PVA_BROADCAST_PORT") };
         assert_eq!(pva_broadcast_port(), 5076);
     }
 
     #[test]
     fn test_default_pva_server_port() {
-        std::env::remove_var("EPICS_PVA_SERVER_PORT");
+        unsafe { std::env::remove_var("EPICS_PVA_SERVER_PORT") };
         assert_eq!(pva_server_port(), 5075);
     }
 
     #[test]
     fn test_ca_server_port_env_override() {
-        std::env::set_var("EPICS_CA_SERVER_PORT", "9064");
+        unsafe { std::env::set_var("EPICS_CA_SERVER_PORT", "9064") };
         assert_eq!(ca_server_port(), 9064);
-        std::env::remove_var("EPICS_CA_SERVER_PORT");
+        unsafe { std::env::remove_var("EPICS_CA_SERVER_PORT") };
     }
 
     #[test]

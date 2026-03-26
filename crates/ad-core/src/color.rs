@@ -805,7 +805,7 @@ mod tests {
 
         // RGB3 → RGB1 (roundtrip)
         let rgb1_back = convert_rgb_layout(&rgb3, NDColorMode::RGB3, NDColorMode::RGB1).unwrap();
-        if let (NDDataBuffer::U8(ref orig), NDDataBuffer::U8(ref back)) = (&arr.data, &rgb1_back.data) {
+        if let (NDDataBuffer::U8(orig), NDDataBuffer::U8(back)) = (&arr.data, &rgb1_back.data) {
             assert_eq!(orig, back);
         } else {
             panic!("wrong type");
@@ -877,7 +877,7 @@ mod tests {
         assert_eq!(yuv.dims[0].size, 3);
 
         let back = yuv444_to_rgb1(&yuv).unwrap();
-        if let (NDDataBuffer::U8(ref orig), NDDataBuffer::U8(ref result)) = (&arr.data, &back.data) {
+        if let (NDDataBuffer::U8(orig), NDDataBuffer::U8(result)) = (&arr.data, &back.data) {
             for i in 0..orig.len() {
                 assert!(
                     (orig[i] as i16 - result[i] as i16).unsigned_abs() <= 2,

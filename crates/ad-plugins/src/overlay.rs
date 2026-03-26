@@ -235,25 +235,25 @@ pub fn draw_overlays(src: &NDArray, overlays: &[OverlayDef]) -> NDArray {
     let h = arr.dims[1].size;
 
     match &mut arr.data {
-        NDDataBuffer::U8(ref mut data) => {
+        NDDataBuffer::U8(data) => {
             draw_on_typed_buffer!(data.as_mut_slice(), u8, overlays, w, h, xor);
         }
-        NDDataBuffer::U16(ref mut data) => {
+        NDDataBuffer::U16(data) => {
             draw_on_typed_buffer!(data.as_mut_slice(), u16, overlays, w, h, xor);
         }
-        NDDataBuffer::I16(ref mut data) => {
+        NDDataBuffer::I16(data) => {
             draw_on_typed_buffer!(data.as_mut_slice(), i16, overlays, w, h, xor);
         }
-        NDDataBuffer::I32(ref mut data) => {
+        NDDataBuffer::I32(data) => {
             draw_on_typed_buffer!(data.as_mut_slice(), i32, overlays, w, h, xor);
         }
-        NDDataBuffer::U32(ref mut data) => {
+        NDDataBuffer::U32(data) => {
             draw_on_typed_buffer!(data.as_mut_slice(), u32, overlays, w, h, xor);
         }
-        NDDataBuffer::F32(ref mut data) => {
+        NDDataBuffer::F32(data) => {
             draw_on_typed_buffer!(data.as_mut_slice(), f32, overlays, w, h, set_only);
         }
-        NDDataBuffer::F64(ref mut data) => {
+        NDDataBuffer::F64(data) => {
             draw_on_typed_buffer!(data.as_mut_slice(), f64, overlays, w, h, set_only);
         }
         _ => {} // I8, I64, U64 - less common, skip

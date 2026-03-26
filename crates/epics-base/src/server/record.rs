@@ -1000,42 +1000,42 @@ impl RecordInstance {
             "PROC" => { /* Trigger handled by put_record_field_from_ca; no-op here */ }
             // Analog alarm fields
             "HIHI" => {
-                if let (Some(ref mut a), EpicsValue::Double(v)) = (&mut self.common.analog_alarm, value) {
+                if let (Some(a), EpicsValue::Double(v)) = (&mut self.common.analog_alarm, value) {
                     a.hihi = v;
                 }
             }
             "HIGH" => {
-                if let (Some(ref mut a), EpicsValue::Double(v)) = (&mut self.common.analog_alarm, value) {
+                if let (Some(a), EpicsValue::Double(v)) = (&mut self.common.analog_alarm, value) {
                     a.high = v;
                 }
             }
             "LOW" => {
-                if let (Some(ref mut a), EpicsValue::Double(v)) = (&mut self.common.analog_alarm, value) {
+                if let (Some(a), EpicsValue::Double(v)) = (&mut self.common.analog_alarm, value) {
                     a.low = v;
                 }
             }
             "LOLO" => {
-                if let (Some(ref mut a), EpicsValue::Double(v)) = (&mut self.common.analog_alarm, value) {
+                if let (Some(a), EpicsValue::Double(v)) = (&mut self.common.analog_alarm, value) {
                     a.lolo = v;
                 }
             }
             "HHSV" => {
-                if let (Some(ref mut a), EpicsValue::Short(v)) = (&mut self.common.analog_alarm, value) {
+                if let (Some(a), EpicsValue::Short(v)) = (&mut self.common.analog_alarm, value) {
                     a.hhsv = AlarmSeverity::from_u16(v as u16);
                 }
             }
             "HSV" => {
-                if let (Some(ref mut a), EpicsValue::Short(v)) = (&mut self.common.analog_alarm, value) {
+                if let (Some(a), EpicsValue::Short(v)) = (&mut self.common.analog_alarm, value) {
                     a.hsv = AlarmSeverity::from_u16(v as u16);
                 }
             }
             "LSV" => {
-                if let (Some(ref mut a), EpicsValue::Short(v)) = (&mut self.common.analog_alarm, value) {
+                if let (Some(a), EpicsValue::Short(v)) = (&mut self.common.analog_alarm, value) {
                     a.lsv = AlarmSeverity::from_u16(v as u16);
                 }
             }
             "LLSV" => {
-                if let (Some(ref mut a), EpicsValue::Short(v)) = (&mut self.common.analog_alarm, value) {
+                if let (Some(a), EpicsValue::Short(v)) = (&mut self.common.analog_alarm, value) {
                     a.llsv = AlarmSeverity::from_u16(v as u16);
                 }
             }

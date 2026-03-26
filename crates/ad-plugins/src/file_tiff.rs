@@ -208,7 +208,7 @@ mod tests {
             vec![NDDimension::new(4), NDDimension::new(4)],
             NDDataType::UInt8,
         );
-        if let NDDataBuffer::U8(ref mut v) = arr.data {
+        if let NDDataBuffer::U8(v) = &mut arr.data {
             for i in 0..16 { v[i] = i as u8; }
         }
 
@@ -257,7 +257,7 @@ mod tests {
             vec![NDDimension::new(4), NDDimension::new(4)],
             NDDataType::UInt8,
         );
-        if let NDDataBuffer::U8(ref mut v) = arr.data {
+        if let NDDataBuffer::U8(v) = &mut arr.data {
             for i in 0..16 { v[i] = (i * 10) as u8; }
         }
 
@@ -266,7 +266,7 @@ mod tests {
 
         // Read it back
         let read_back = writer.read_file().unwrap();
-        if let (NDDataBuffer::U8(ref orig), NDDataBuffer::U8(ref read)) =
+        if let (NDDataBuffer::U8(orig), NDDataBuffer::U8(read)) =
             (&arr.data, &read_back.data)
         {
             assert_eq!(orig, read);
@@ -287,7 +287,7 @@ mod tests {
             vec![NDDimension::new(4), NDDimension::new(4)],
             NDDataType::UInt16,
         );
-        if let NDDataBuffer::U16(ref mut v) = arr.data {
+        if let NDDataBuffer::U16(v) = &mut arr.data {
             for i in 0..16 { v[i] = (i * 1000) as u16; }
         }
 
@@ -295,7 +295,7 @@ mod tests {
         writer.write_file(&arr).unwrap();
 
         let read_back = writer.read_file().unwrap();
-        if let (NDDataBuffer::U16(ref orig), NDDataBuffer::U16(ref read)) =
+        if let (NDDataBuffer::U16(orig), NDDataBuffer::U16(read)) =
             (&arr.data, &read_back.data)
         {
             assert_eq!(orig, read);

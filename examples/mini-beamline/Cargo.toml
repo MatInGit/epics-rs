@@ -1,7 +1,7 @@
 [package]
 name = "mini-beamline"
 version.workspace = true
-edition = "2021"
+edition.workspace = true
 description = "Mini beamline IOC: beam current, point detectors, and moving dot area detector"
 publish = false
 
@@ -13,7 +13,7 @@ ad-core = { workspace = true }
 ad-plugins = { workspace = true, optional = true }
 asyn-rs = { workspace = true }
 motor-rs = { workspace = true, optional = true }
-rand = "0.8"
+rand = "0.9"
 parking_lot = "0.12"
 libm = "0.2"
 epics-base-rs = { workspace = true, optional = true }

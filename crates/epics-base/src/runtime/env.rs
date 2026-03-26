@@ -56,9 +56,10 @@ mod tests {
 
     #[test]
     fn test_get_existing() {
-        std::env::set_var("_EPICS_RT_TEST_VAR", "hello");
+        // SAFETY: test runs single-threaded
+        unsafe { std::env::set_var("_EPICS_RT_TEST_VAR", "hello") };
         assert_eq!(get("_EPICS_RT_TEST_VAR"), Some("hello".to_string()));
-        std::env::remove_var("_EPICS_RT_TEST_VAR");
+        unsafe { std::env::remove_var("_EPICS_RT_TEST_VAR") };
     }
 
     #[test]
@@ -73,16 +74,16 @@ mod tests {
 
     #[test]
     fn test_get_u16_valid() {
-        std::env::set_var("_EPICS_RT_TEST_PORT", "8080");
+        unsafe { std::env::set_var("_EPICS_RT_TEST_PORT", "8080") };
         assert_eq!(get_u16("_EPICS_RT_TEST_PORT", 5064), 8080);
-        std::env::remove_var("_EPICS_RT_TEST_PORT");
+        unsafe { std::env::remove_var("_EPICS_RT_TEST_PORT") };
     }
 
     #[test]
     fn test_get_u16_invalid() {
-        std::env::set_var("_EPICS_RT_TEST_PORT_BAD", "not_a_number");
+        unsafe { std::env::set_var("_EPICS_RT_TEST_PORT_BAD", "not_a_number") };
         assert_eq!(get_u16("_EPICS_RT_TEST_PORT_BAD", 5064), 5064);
-        std::env::remove_var("_EPICS_RT_TEST_PORT_BAD");
+        unsafe { std::env::remove_var("_EPICS_RT_TEST_PORT_BAD") };
     }
 
     #[test]
@@ -93,17 +94,17 @@ mod tests {
     #[test]
     fn test_get_bool_true_values() {
         for val in &["1", "true", "TRUE", "yes", "YES"] {
-            std::env::set_var("_EPICS_RT_TEST_BOOL", val);
+            unsafe { std::env::set_var("_EPICS_RT_TEST_BOOL", val) };
             assert!(get_bool("_EPICS_RT_TEST_BOOL", false), "failed for value: {val}");
         }
-        std::env::remove_var("_EPICS_RT_TEST_BOOL");
+        unsafe { std::env::remove_var("_EPICS_RT_TEST_BOOL") };
     }
 
     #[test]
     fn test_get_bool_false_values() {
-        std::env::set_var("_EPICS_RT_TEST_BOOL_F", "no");
+        unsafe { std::env::set_var("_EPICS_RT_TEST_BOOL_F", "no") };
         assert!(!get_bool("_EPICS_RT_TEST_BOOL_F", true));
-        std::env::remove_var("_EPICS_RT_TEST_BOOL_F");
+        unsafe { std::env::remove_var("_EPICS_RT_TEST_BOOL_F") };
     }
 
     #[test]

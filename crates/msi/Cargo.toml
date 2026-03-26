@@ -1,7 +1,7 @@
 [package]
 name = "msi-rs"
 version.workspace = true
-edition = "2021"
+edition.workspace = true
 description = "EPICS macro substitution and include tool in Rust"
 license.workspace = true
 authors.workspace = true

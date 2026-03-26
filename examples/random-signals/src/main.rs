@@ -44,11 +44,11 @@ async fn main() -> CaResult<()> {
     // Spawn 10ms update task
     tokio::spawn(async move {
         let mut interval = tokio::time::interval(Duration::from_millis(10));
-        let mut rng = SmallRng::from_entropy();
+        let mut rng = SmallRng::from_os_rng();
         loop {
             interval.tick().await;
             for name in &PV_NAMES {
-                let val = rng.gen_range(-10.0..10.0);
+                let val = rng.random_range(-10.0..10.0);
                 let _ = db.put_pv(name, EpicsValue::Double(val)).await;
             }
         }

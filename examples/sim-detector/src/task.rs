@@ -63,7 +63,7 @@ struct TaskState {
 impl TaskState {
     fn new() -> Self {
         Self {
-            rng: StdRng::from_entropy(),
+            rng: StdRng::from_os_rng(),
             raw_buf: NDDataBuffer::zeros(ad_core::ndarray::NDDataType::UInt8, 0),
             background_buf: NDDataBuffer::zeros(ad_core::ndarray::NDDataType::UInt8, 0),
             ramp_buf: NDDataBuffer::zeros(ad_core::ndarray::NDDataType::UInt8, 0),

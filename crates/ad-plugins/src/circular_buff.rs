@@ -219,7 +219,7 @@ impl CalcExpression {
                 RT::VarA => output.push(CalcToken::VarA),
                 RT::VarB => output.push(CalcToken::VarB),
                 RT::Op(ref op) => {
-                    while let Some(RT::Op(ref top_op)) = op_stack.last() {
+                    while let Some(RT::Op(top_op)) = op_stack.last() {
                         let top_prec = Self::precedence(top_op);
                         let cur_prec = Self::precedence(op);
                         if (!Self::is_right_assoc(op) && cur_prec <= top_prec)

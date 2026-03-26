@@ -490,7 +490,7 @@ pub fn eval(
                     let ma = mask.as_array()?;
                     let (a0, a1, a2) = fitting::fitpoly(xa, ya, Some(ma));
                     let rss: f64 = xa.iter().zip(ya.iter()).zip(ma.iter())
-                        .filter(|((_, _), &m)| m != 0.0)
+                        .filter(|&((_, _), &m)| m != 0.0)
                         .map(|((&xi, &yi), _)| {
                             let pred = a0 + a1 * xi + a2 * xi * xi;
                             (yi - pred).powi(2)

@@ -112,17 +112,17 @@ pub fn poisson_sample(rng: &mut StdRng, lambda: f64) -> f64 {
         let mut p = 1.0;
         loop {
             k += 1;
-            p *= rng.gen::<f64>();
+            p *= rng.random::<f64>();
             if p <= l {
                 return (k - 1) as f64;
             }
         }
     } else {
         // Normal approximation for large lambda
-        let normal: f64 = rng.gen::<f64>() + rng.gen::<f64>() + rng.gen::<f64>()
-            + rng.gen::<f64>() + rng.gen::<f64>() + rng.gen::<f64>()
-            + rng.gen::<f64>() + rng.gen::<f64>() + rng.gen::<f64>()
-            + rng.gen::<f64>() + rng.gen::<f64>() + rng.gen::<f64>()
+        let normal: f64 = rng.random::<f64>() + rng.random::<f64>() + rng.random::<f64>()
+            + rng.random::<f64>() + rng.random::<f64>() + rng.random::<f64>()
+            + rng.random::<f64>() + rng.random::<f64>() + rng.random::<f64>()
+            + rng.random::<f64>() + rng.random::<f64>() + rng.random::<f64>()
             - 6.0;
         (lambda + lambda.sqrt() * normal).max(0.0)
     }
