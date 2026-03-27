@@ -57,4 +57,8 @@ pub(crate) struct ChannelInner {
 pub enum ConnectionEvent {
     Connected,
     Disconnected,
+    AccessRightsChanged {
+        read: bool,
+        write: bool,
+    },
 }

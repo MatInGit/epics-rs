@@ -74,7 +74,9 @@ impl MotorPollLoop {
 
     /// Run the poll loop. Call from a spawned task.
     pub async fn run(mut self) {
-        let mut active = false;
+        // Start active: initial poll triggers I/O Intr so the record
+        // picks up the first motor status (clears LVIO, sets MSTA, etc.)
+        let mut active = true;
 
         loop {
             if active {

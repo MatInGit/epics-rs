@@ -9,7 +9,7 @@ use crate::protocol::*;
 
 use super::types::{SearchRequest, SearchResponse};
 
-const MIN_RETRY: Duration = Duration::from_millis(100);
+const MIN_RETRY: Duration = Duration::from_millis(30);
 const MAX_RETRY: Duration = Duration::from_secs(30);
 
 #[allow(dead_code)]

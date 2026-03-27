@@ -40,8 +40,8 @@ dbLoadRecords("$(OPHYD_TEST_IOC)/db/sensor.template", "P=XF:31IDA-BI{Dev:6},R=E-
 # ===== AreaDetector (SimDetector) =====
 ophydTestAdConfig()
 
-# Load camera records
-dbLoadRecords("$(OPHYD_TEST_IOC)/db/ad_cam.template", "P=XF:31IDA-BI{Cam:Tbl}:,R=cam1:,PORT=SIM,DTYP=asynOphydTestAd")
+# Load camera records (MovingDot-based sim detector)
+dbLoadRecords("$(OPHYD_TEST_IOC)/db/sim_cam.template", "P=XF:31IDA-BI{Cam:Tbl}:,R=cam1:,PORT=SIM,DTYP=asynOphydTestAd")
 
 # Load standard areaDetector plugins
 epicsEnvSet("PREFIX", "XF:31IDA-BI{Cam:Tbl}:")

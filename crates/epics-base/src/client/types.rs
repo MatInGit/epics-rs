@@ -71,6 +71,10 @@ pub(crate) enum TransportEvent {
         count: u32,
         data: Vec<u8>,
     },
+    ReadError {
+        ioid: u32,
+        eca_status: u32,
+    },
     WriteResponse {
         ioid: u32,
         status: u32,

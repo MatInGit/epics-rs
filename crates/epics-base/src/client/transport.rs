@@ -298,13 +298,20 @@ async fn read_loop(
                     });
                 }
                 CA_PROTO_READ_NOTIFY => {
-                    let data = accumulated[data_start..data_start + actual_post].to_vec();
-                    let _ = event_tx.send(TransportEvent::ReadResponse {
-                        ioid: hdr.available,
-                        data_type: hdr.data_type,
-                        count: hdr.actual_count(),
-                        data,
-                    });
+                    if hdr.cid == ECA_NORMAL {
+                        let data = accumulated[data_start..data_start + actual_post].to_vec();
+                        let _ = event_tx.send(TransportEvent::ReadResponse {
+                            ioid: hdr.available,
+                            data_type: hdr.data_type,
+                            count: hdr.actual_count(),
+                            data,
+                        });
+                    } else {
+                        let _ = event_tx.send(TransportEvent::ReadError {
+                            ioid: hdr.available,
+                            eca_status: hdr.cid,
+                        });
+                    }
                 }
                 CA_PROTO_WRITE_NOTIFY => {
                     // Per spec: param1 (cid field) = ECA status, param2 (available field) = IOID

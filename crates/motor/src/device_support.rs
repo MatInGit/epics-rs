@@ -126,11 +126,13 @@ impl MotorDeviceSupport {
 impl DeviceSupport for MotorDeviceSupport {
     fn init(&mut self, record: &mut dyn Record) -> CaResult<()> {
         // Inject device_state into MotorRecord (for template-created records)
-        if let Some(motor_rec) = record.as_any_mut()
-            .and_then(|a| a.downcast_mut::<crate::record::MotorRecord>())
-        {
+        let motor_rec = record.as_any_mut()
+            .and_then(|a| a.downcast_mut::<crate::record::MotorRecord>());
+
+        if let Some(motor_rec) = motor_rec {
             motor_rec.set_device_state(self.device_state.clone());
         }
+
         let user = self.make_user();
         let status = {
             let mut motor = self.motor.lock().map_err(|e| {
@@ -144,8 +146,15 @@ impl DeviceSupport for MotorDeviceSupport {
         let mut ds = self.device_state.lock().map_err(|e| {
             epics_base_rs::error::CaError::InvalidValue(format!("device state lock: {e}"))
         })?;
-        ds.latest_status = Some(StampedStatus { seq: 1, status });
+        ds.latest_status = Some(StampedStatus { seq: 1, status: status.clone() });
         drop(ds);
+
+        // Apply initial status to record (sets RBV, clears LVIO, etc.)
+        if let Some(motor_rec) = record.as_any_mut()
+            .and_then(|a| a.downcast_mut::<crate::record::MotorRecord>())
+        {
+            motor_rec.process_motor_info(&status);
+        }
 
         self.initialized = true;
         Ok(())
@@ -163,7 +172,9 @@ impl DeviceSupport for MotorDeviceSupport {
             })?;
             ds.pending_actions.take()
         };
-        let Some(actions) = actions else { return Ok(()) };
+        let Some(actions) = actions else {
+            return Ok(());
+        };
 
         self.execute_actions(&actions);
         Ok(())

@@ -80,6 +80,7 @@ impl Channel {
                         ConnectionEvent::Disconnected => {
                             connected_watcher.store(false, Ordering::Release);
                         }
+                        ConnectionEvent::AccessRightsChanged { .. } => {}
                     }
                 }
             });

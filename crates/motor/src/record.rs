@@ -233,6 +233,11 @@ impl MotorRecord {
         // Limit switches
         self.limits.hls = status.high_limit;
         self.limits.lls = status.low_limit;
+
+        // Recompute LVIO from current position and soft limits
+        self.limits.lvio = coordinate::check_soft_limits(
+            self.pos.dval, self.limits.dhlm, self.limits.dllm,
+        );
     }
 
     /// Check if motion has completed and handle post-motion pipeline.
@@ -880,6 +885,18 @@ impl MotorRecord {
         let event = self.pending_event.take();
         let src = self.last_write.take();
 
+        // User write takes priority: if a field was put while a poll
+        // update arrived, handle the write first. The poll status was
+        // already applied in determine_event() for Idle phase.
+        if let Some(src) = src {
+            // If there was also a DeviceUpdate, apply it first so
+            // plan_motion sees the latest readback.
+            if let Some(MotorEvent::DeviceUpdate(status)) = &event {
+                self.process_motor_info(status);
+            }
+            return self.plan_motion(src);
+        }
+
         match event {
             Some(MotorEvent::Startup) => {
                 // Handled by device support init
@@ -898,12 +915,7 @@ impl MotorRecord {
                 effects
             }
             None => {
-                // Process from put_field trigger
-                if let Some(src) = src {
-                    self.plan_motion(src)
-                } else {
-                    ProcessEffects::default()
-                }
+                ProcessEffects::default()
             }
         }
     }

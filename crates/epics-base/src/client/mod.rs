@@ -90,7 +90,8 @@ struct ChannelSnapshot {
 
 impl CaClient {
     pub async fn new() -> CaResult<Self> {
-        repeater::ensure_repeater().await;
+        // Run repeater registration in background — don't block client startup.
+        crate::runtime::task::spawn(async { repeater::ensure_repeater().await });
 
         let addr_list = parse_addr_list()?;
 
@@ -634,6 +635,13 @@ async fn run_coordinator(
                             let _ = waiter.send(Ok((data_type, count, data)));
                         }
                     }
+                    TransportEvent::ReadError { ioid, eca_status } => {
+                        if let Some(waiter) = read_waiters.remove(&ioid) {
+                            let _ = waiter.send(Err(CaError::Protocol(
+                                format!("server returned ECA error {eca_status:#06x}")
+                            )));
+                        }
+                    }
                     TransportEvent::WriteResponse { ioid, status } => {
                         if let Some(waiter) = write_waiters.remove(&ioid) {
                             if status == 1 || status == ECA_NORMAL {
@@ -649,6 +657,10 @@ async fn run_coordinator(
                     TransportEvent::AccessRightsChanged { cid, access } => {
                         if let Some(ch) = channels.get_mut(&cid) {
                             ch.access_rights = access;
+                            let _ = ch.conn_tx.send(ConnectionEvent::AccessRightsChanged {
+                                read: access.read,
+                                write: access.write,
+                            });
                         }
                     }
                     TransportEvent::ChannelCreateFailed { cid } => {
@@ -723,20 +735,37 @@ fn handle_disconnect(
     subscriptions.mark_disconnected(&affected_cids);
 }
 
+fn resolve_host(host: &str, port: u16) -> CaResult<SocketAddr> {
+    // Try direct IP parse first (fast path)
+    if let Ok(ip) = host.parse::<Ipv4Addr>() {
+        return Ok(SocketAddr::V4(SocketAddrV4::new(ip, port)));
+    }
+    // DNS resolution
+    use std::net::ToSocketAddrs;
+    let addr_str = format!("{host}:{port}");
+    addr_str
+        .to_socket_addrs()
+        .map_err(|e| CaError::Protocol(format!("cannot resolve '{host}': {e}")))?
+        .next()
+        .ok_or_else(|| CaError::Protocol(format!("no addresses for '{host}'")))
+}
+
 fn parse_addr_list() -> CaResult<Vec<SocketAddr>> {
     let mut addrs = Vec::new();
 
     if let Some(list) = crate::runtime::env::get("EPICS_CA_ADDR_LIST") {
         for entry in list.split_whitespace() {
             let addr = if entry.contains(':') {
-                entry
-                    .parse::<SocketAddr>()
-                    .map_err(|e| CaError::Protocol(format!("bad address '{entry}': {e}")))?
+                // Try direct parse first, fall back to DNS resolution
+                entry.parse::<SocketAddr>().or_else(|_| {
+                    let (host, port_str) = entry.rsplit_once(':').unwrap();
+                    let port: u16 = port_str
+                        .parse()
+                        .map_err(|e| CaError::Protocol(format!("bad port in '{entry}': {e}")))?;
+                    resolve_host(host, port)
+                })?
             } else {
-                let ip: Ipv4Addr = entry
-                    .parse()
-                    .map_err(|e| CaError::Protocol(format!("bad IP '{entry}': {e}")))?;
-                SocketAddr::V4(SocketAddrV4::new(ip, CA_SERVER_PORT))
+                resolve_host(entry, CA_SERVER_PORT)?
             };
             addrs.push(addr);
         }

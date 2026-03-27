@@ -72,7 +72,7 @@ pub async fn ensure_repeater() {
     spawn_repeater();
 
     // Give it a moment to start, then register
-    crate::runtime::task::sleep(std::time::Duration::from_millis(100)).await;
+    crate::runtime::task::sleep(std::time::Duration::from_millis(50)).await;
     let _ = try_register().await;
 }
 
@@ -96,7 +96,7 @@ async fn try_register() -> Result<(), ()> {
 
     // Wait for confirm with short timeout
     let mut buf = [0u8; 64];
-    let result = tokio::time::timeout(std::time::Duration::from_millis(500), async {
+    let result = tokio::time::timeout(std::time::Duration::from_millis(200), async {
         loop {
             let (len, _) = socket.recv_from(&mut buf).await.map_err(|_| ())?;
             if len >= CaHeader::SIZE {

@@ -132,7 +132,19 @@ pub async fn run_tcp_listener(
         let acf = acf.clone();
         crate::runtime::task::spawn(async move {
             if let Err(e) = handle_client(stream, db, acf, actual_port).await {
-                eprintln!("client {peer} error: {e}");
+                // Suppress normal disconnection errors (client closed connection)
+                let is_disconnect = matches!(
+                    e,
+                    crate::error::CaError::Io(ref io) if matches!(
+                        io.kind(),
+                        std::io::ErrorKind::ConnectionReset
+                            | std::io::ErrorKind::BrokenPipe
+                            | std::io::ErrorKind::UnexpectedEof
+                    )
+                );
+                if !is_disconnect {
+                    eprintln!("client {peer} error: {e}");
+                }
             }
         });
     }
@@ -348,34 +360,36 @@ async fn dispatch_message(
             };
 
             let snapshot = get_full_snapshot(&entry.target).await;
-            if let Some(mut snapshot) = snapshot {
-                // Respect client's requested element count (e.g. caget -# 10)
-                if requested_count > 0 && requested_count < snapshot.value.count() {
-                    snapshot.value.truncate(requested_count as usize);
-                }
-                let data = match encode_dbr(requested_type, &snapshot) {
-                    Ok(d) => d,
-                    Err(_) => {
-                        send_cmd_error(writer, CA_PROTO_READ_NOTIFY, requested_type, ECA_BADTYPE, ioid).await?;
-                        return Ok(());
-                    }
-                };
-                let element_count = snapshot.value.count() as u32;
-                let mut padded = data;
-                padded.resize(align8(padded.len()), 0);
-
-                let mut resp = CaHeader::new(CA_PROTO_READ_NOTIFY);
-                // C client TCP parser requires 8-byte aligned postsize
-                resp.set_payload_size(padded.len(), element_count);
-                resp.data_type = requested_type;
-                resp.cid = ECA_NORMAL;
-                resp.available = ioid;
-
-                let mut w = writer.lock().await;
-                w.write_all(&resp.to_bytes_extended()).await?;
-                w.write_all(&padded).await?;
-                w.flush().await?;
+            let Some(mut snapshot) = snapshot else {
+                send_cmd_error(writer, CA_PROTO_READ_NOTIFY, requested_type, ECA_BADCHID, ioid).await?;
+                return Ok(());
+            };
+            // Respect client's requested element count (e.g. caget -# 10)
+            if requested_count > 0 && requested_count < snapshot.value.count() {
+                snapshot.value.truncate(requested_count as usize);
             }
+            let data = match encode_dbr(requested_type, &snapshot) {
+                Ok(d) => d,
+                Err(_) => {
+                    send_cmd_error(writer, CA_PROTO_READ_NOTIFY, requested_type, ECA_BADTYPE, ioid).await?;
+                    return Ok(());
+                }
+            };
+            let element_count = snapshot.value.count() as u32;
+            let mut padded = data;
+            padded.resize(align8(padded.len()), 0);
+
+            let mut resp = CaHeader::new(CA_PROTO_READ_NOTIFY);
+            // C client TCP parser requires 8-byte aligned postsize
+            resp.set_payload_size(padded.len(), element_count);
+            resp.data_type = requested_type;
+            resp.cid = ECA_NORMAL;
+            resp.available = ioid;
+
+            let mut w = writer.lock().await;
+            w.write_all(&resp.to_bytes_extended()).await?;
+            w.write_all(&padded).await?;
+            w.flush().await?;
         }
 
         CA_PROTO_WRITE | CA_PROTO_WRITE_NOTIFY => {

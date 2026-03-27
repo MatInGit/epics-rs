@@ -225,12 +225,21 @@ impl PvDatabase {
                     drop(instance);
                     self.update_scan_index(base, old_scan, new_scan, phas, phas).await;
                 }
-                CommonFieldPutResult::PhasChanged { scan, old_phas, new_phas } => {
+                CommonFieldPutResult::PhasChanged { scan: s, old_phas, new_phas } => {
                     drop(instance);
-                    self.update_scan_index(base, scan, scan, old_phas, new_phas).await;
+                    self.update_scan_index(base, s, s, old_phas, new_phas).await;
                 }
-                CommonFieldPutResult::NoChange => {}
+                CommonFieldPutResult::NoChange => {
+                    drop(instance);
+                }
             }
+
+            // Process the record after field put (mirrors put_record_field_from_ca behavior).
+            // For Passive records, this triggers normal processing.
+            // For I/O Intr and periodic records, the put_field already set last_write;
+            // we must process so the record can act on the new value (e.g., motor move).
+            let mut visited = std::collections::HashSet::new();
+            let _ = self.process_record_with_links(base, &mut visited, 0).await;
 
             return Ok(());
         }
@@ -290,7 +299,7 @@ impl PvDatabase {
         }
 
         // Normal field put (write lock)
-        let (common_result, scan) = {
+        let common_result = {
             let mut instance = rec.write().await;
             instance.common.putf = true;
 
@@ -333,8 +342,7 @@ impl PvDatabase {
                 instance.notify_field(&field, crate::server::recgbl::EventMask::VALUE | crate::server::recgbl::EventMask::LOG);
             }
 
-            let scan = instance.common.scan;
-            (common_result, scan)
+            common_result
         };
         // record lock released
 
@@ -349,8 +357,11 @@ impl PvDatabase {
             crate::server::record::CommonFieldPutResult::NoChange => {}
         }
 
-        // Process if Passive
-        if scan == ScanType::Passive {
+        // Process the record after field put.
+        // C EPICS processes on Passive scan or when the field has "process passive" (pp)
+        // attribute. For simplicity, always process — the record's do_process() will
+        // decide whether to act based on last_write and pending events.
+        {
             let mut visited = HashSet::new();
             let _ = self.process_record_with_links(record_name, &mut visited, 0).await;
         }
@@ -2232,9 +2243,9 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_non_passive_output_ca_put_no_immediate_write() {
-        // Non-Passive ao with mock device: CA put should NOT trigger device.write()
-        // (no process happens because SCAN != Passive)
+    async fn test_non_passive_output_ca_put_triggers_write() {
+        // Non-Passive ao with mock device: CA put SHOULD trigger process → device.write()
+        // (C EPICS processes on any CA put to VAL, regardless of SCAN type)
         let db = PvDatabase::new();
         db.add_record("AO_NP", Box::new(AoRecord::new(0.0))).await;
 
@@ -2251,7 +2262,7 @@ mod tests {
 
         db.put_record_field_from_ca("AO_NP", "VAL", EpicsValue::Double(42.0)).await.unwrap();
 
-        assert_eq!(write_count.load(Ordering::SeqCst), 0, "device.write() should NOT be called for non-Passive CA put");
+        assert_eq!(write_count.load(Ordering::SeqCst), 1, "device.write() should be called on CA put to output record");
     }
 
     #[tokio::test]
