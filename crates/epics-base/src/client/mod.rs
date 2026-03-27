@@ -16,7 +16,8 @@ use crate::channel::{alloc_cid, alloc_ioid, alloc_subid, AccessRights, ChannelIn
 use crate::error::{CaError, CaResult};
 use crate::protocol::*;
 use crate::repeater;
-use crate::types::{DbFieldType, EpicsValue};
+use crate::server::snapshot::{DbrClass, Snapshot};
+use crate::types::{DbFieldType, EpicsValue, decode_dbr};
 
 pub use state::{ChannelState, ConnectionEvent};
 
@@ -292,6 +293,56 @@ impl CaChannel {
         let dbr_type = DbFieldType::from_u16(data_type)?;
         let value = EpicsValue::from_bytes_array(dbr_type, &data, count as usize)?;
         Ok((dbr_type, value))
+    }
+
+    /// Get a PV value with metadata. Use `DbrClass::Time` for timestamp + alarm,
+    /// or `DbrClass::Ctrl` for full control metadata (units, limits, precision).
+    pub async fn get_with_metadata(&self, class: DbrClass) -> CaResult<Snapshot> {
+        let (info_tx, info_rx) = oneshot::channel();
+        let _ = self.coord_tx.send(CoordRequest::GetChannelInfo {
+            cid: self.cid,
+            reply: info_tx,
+        });
+        let snap = info_rx
+            .await
+            .map_err(|_| CaError::Shutdown)?
+            .ok_or(CaError::Disconnected)?;
+
+        if snap.state != ChannelState::Connected {
+            return Err(CaError::Disconnected);
+        }
+
+        let native = DbFieldType::from_u16(snap.native_type as u16)?;
+        let request_type = match class {
+            DbrClass::Time => native.time_dbr_type(),
+            DbrClass::Ctrl => native.ctrl_dbr_type(),
+            DbrClass::Sts => native as u16 + 7,
+            DbrClass::Gr => native as u16 + 21,
+            DbrClass::Plain => native as u16,
+        };
+
+        let ioid = alloc_ioid();
+        let (reply_tx, reply_rx) = oneshot::channel();
+        let _ = self.coord_tx.send(CoordRequest::ReadNotify {
+            cid: self.cid,
+            ioid,
+            reply: reply_tx,
+        });
+
+        let _ = self.transport_tx.send(TransportCommand::ReadNotify {
+            sid: snap.sid,
+            data_type: request_type,
+            count: snap.element_count,
+            ioid,
+            server_addr: snap.server_addr,
+        });
+
+        let (data_type, count, data) = tokio::time::timeout(Duration::from_secs(5), reply_rx)
+            .await
+            .map_err(|_| CaError::Timeout)?
+            .map_err(|_| CaError::Shutdown)??;
+
+        decode_dbr(data_type, &data, count as usize)
     }
 
     pub async fn put(&self, value: &EpicsValue) -> CaResult<()> {

@@ -68,6 +68,16 @@ impl DbFieldType {
             Self::Double => 8,
         }
     }
+
+    /// Return the DBR_TIME_xxx type code for this native type.
+    pub fn time_dbr_type(&self) -> u16 {
+        *self as u16 + 14
+    }
+
+    /// Return the DBR_CTRL_xxx type code for this native type.
+    pub fn ctrl_dbr_type(&self) -> u16 {
+        *self as u16 + 28
+    }
 }
 
 pub fn native_type_for_dbr(dbr_type: u16) -> CaResult<DbFieldType> {
@@ -462,6 +472,291 @@ fn encode_enum_metadata(
         buf.extend_from_slice(&0u16.to_be_bytes());
         buf.extend_from_slice(&[0u8; MAX_ENUM_STATES * MAX_ENUM_STRING_SIZE]);
     }
+}
+
+// ---------------------------------------------------------------------------
+// Decode (deserialize) DBR wire bytes → Snapshot
+// ---------------------------------------------------------------------------
+
+use crate::server::snapshot::*;
+
+fn read_u16(data: &[u8], off: usize) -> CaResult<u16> {
+    if off + 2 > data.len() {
+        return Err(CaError::Protocol("buffer too short for u16".into()));
+    }
+    Ok(u16::from_be_bytes([data[off], data[off + 1]]))
+}
+
+fn read_i16(data: &[u8], off: usize) -> CaResult<i16> {
+    if off + 2 > data.len() {
+        return Err(CaError::Protocol("buffer too short for i16".into()));
+    }
+    Ok(i16::from_be_bytes([data[off], data[off + 1]]))
+}
+
+fn read_u32(data: &[u8], off: usize) -> CaResult<u32> {
+    if off + 4 > data.len() {
+        return Err(CaError::Protocol("buffer too short for u32".into()));
+    }
+    Ok(u32::from_be_bytes([data[off], data[off + 1], data[off + 2], data[off + 3]]))
+}
+
+fn read_i32(data: &[u8], off: usize) -> CaResult<i32> {
+    if off + 4 > data.len() {
+        return Err(CaError::Protocol("buffer too short for i32".into()));
+    }
+    Ok(i32::from_be_bytes([data[off], data[off + 1], data[off + 2], data[off + 3]]))
+}
+
+fn read_f32(data: &[u8], off: usize) -> CaResult<f32> {
+    if off + 4 > data.len() {
+        return Err(CaError::Protocol("buffer too short for f32".into()));
+    }
+    Ok(f32::from_be_bytes([data[off], data[off + 1], data[off + 2], data[off + 3]]))
+}
+
+fn read_f64(data: &[u8], off: usize) -> CaResult<f64> {
+    if off + 8 > data.len() {
+        return Err(CaError::Protocol("buffer too short for f64".into()));
+    }
+    Ok(f64::from_be_bytes([
+        data[off], data[off + 1], data[off + 2], data[off + 3],
+        data[off + 4], data[off + 5], data[off + 6], data[off + 7],
+    ]))
+}
+
+fn read_string(data: &[u8], off: usize, max_len: usize) -> String {
+    let end = data.len().min(off + max_len);
+    if off >= end {
+        return String::new();
+    }
+    let slice = &data[off..end];
+    let nul = slice.iter().position(|&b| b == 0).unwrap_or(slice.len());
+    String::from_utf8_lossy(&slice[..nul]).into_owned()
+}
+
+fn epics_secs_to_system_time(secs: u32, nanos: u32) -> SystemTime {
+    let unix_secs = secs as u64 + EPICS_UNIX_EPOCH_OFFSET_SECS;
+    SystemTime::UNIX_EPOCH + Duration::from_secs(unix_secs) + Duration::from_nanos(nanos as u64)
+}
+
+/// Decode a DBR wire response into a Snapshot.
+///
+/// This is the inverse of `encode_dbr()`. It parses status/severity, timestamp,
+/// display/control metadata, and the value payload from the raw bytes.
+pub fn decode_dbr(dbr_type: u16, data: &[u8], count: usize) -> CaResult<Snapshot> {
+    let native = native_type_for_dbr(dbr_type)?;
+    match dbr_type {
+        0..=6 => {
+            let value = EpicsValue::from_bytes_array(native, data, count)?;
+            Ok(Snapshot::new(value, 0, 0, SystemTime::UNIX_EPOCH))
+        }
+        7..=13 => decode_sts(native, data, count),
+        14..=20 => decode_time(native, data, count),
+        21..=27 => decode_gr_ctrl(native, data, count, false),
+        28..=34 => decode_gr_ctrl(native, data, count, true),
+        _ => Err(CaError::UnsupportedType(dbr_type)),
+    }
+}
+
+fn decode_sts(native: DbFieldType, data: &[u8], count: usize) -> CaResult<Snapshot> {
+    let status = read_u16(data, 0)?;
+    let severity = read_u16(data, 2)?;
+    let pad_len = sts_pad(native).len();
+    let val_off = 4 + pad_len;
+    let value = EpicsValue::from_bytes_array(native, &data[val_off..], count)?;
+    Ok(Snapshot::new(value, status, severity, SystemTime::UNIX_EPOCH))
+}
+
+fn decode_time(native: DbFieldType, data: &[u8], count: usize) -> CaResult<Snapshot> {
+    let status = read_u16(data, 0)?;
+    let severity = read_u16(data, 2)?;
+    let secs = read_u32(data, 4)?;
+    let nanos = read_u32(data, 8)?;
+    let timestamp = epics_secs_to_system_time(secs, nanos);
+    let pad_len = time_pad(native).len();
+    let val_off = 12 + pad_len;
+    let value = EpicsValue::from_bytes_array(native, &data[val_off..], count)?;
+    Ok(Snapshot::new(value, status, severity, timestamp))
+}
+
+fn decode_gr_ctrl(native: DbFieldType, data: &[u8], count: usize, ctrl: bool) -> CaResult<Snapshot> {
+    let status = read_u16(data, 0)?;
+    let severity = read_u16(data, 2)?;
+    let mut off = 4;
+
+    let mut display = None;
+    let mut control = None;
+    let mut enums = None;
+
+    match native {
+        DbFieldType::String => {
+            off += sts_pad(native).len();
+        }
+        DbFieldType::Enum => {
+            let (ei, new_off) = decode_enum_metadata(data, off)?;
+            enums = Some(ei);
+            off = new_off;
+        }
+        DbFieldType::Float => {
+            let precision = read_i16(data, off)?;
+            off += 4; // precision(2) + pad(2)
+            let units = read_string(data, off, MAX_UNITS_SIZE);
+            off += MAX_UNITS_SIZE;
+            let n_limits = if ctrl { 8 } else { 6 };
+            let mut limits = [0.0f64; 8];
+            for i in 0..n_limits {
+                limits[i] = read_f32(data, off)? as f64;
+                off += 4;
+            }
+            display = Some(DisplayInfo {
+                units,
+                precision,
+                upper_disp_limit: limits[0],
+                lower_disp_limit: limits[1],
+                upper_alarm_limit: limits[2],
+                upper_warning_limit: limits[3],
+                lower_warning_limit: limits[4],
+                lower_alarm_limit: limits[5],
+            });
+            if ctrl {
+                control = Some(ControlInfo {
+                    upper_ctrl_limit: limits[6],
+                    lower_ctrl_limit: limits[7],
+                });
+            }
+        }
+        DbFieldType::Double => {
+            let precision = read_i16(data, off)?;
+            off += 4; // precision(2) + pad(2)
+            let units = read_string(data, off, MAX_UNITS_SIZE);
+            off += MAX_UNITS_SIZE;
+            let n_limits = if ctrl { 8 } else { 6 };
+            let mut limits = [0.0f64; 8];
+            for i in 0..n_limits {
+                limits[i] = read_f64(data, off)?;
+                off += 8;
+            }
+            display = Some(DisplayInfo {
+                units,
+                precision,
+                upper_disp_limit: limits[0],
+                lower_disp_limit: limits[1],
+                upper_alarm_limit: limits[2],
+                upper_warning_limit: limits[3],
+                lower_warning_limit: limits[4],
+                lower_alarm_limit: limits[5],
+            });
+            if ctrl {
+                control = Some(ControlInfo {
+                    upper_ctrl_limit: limits[6],
+                    lower_ctrl_limit: limits[7],
+                });
+            }
+        }
+        DbFieldType::Short => {
+            let units = read_string(data, off, MAX_UNITS_SIZE);
+            off += MAX_UNITS_SIZE;
+            let n_limits = if ctrl { 8 } else { 6 };
+            let mut limits = [0.0f64; 8];
+            for i in 0..n_limits {
+                limits[i] = read_i16(data, off)? as f64;
+                off += 2;
+            }
+            display = Some(DisplayInfo {
+                units,
+                precision: 0,
+                upper_disp_limit: limits[0],
+                lower_disp_limit: limits[1],
+                upper_alarm_limit: limits[2],
+                upper_warning_limit: limits[3],
+                lower_warning_limit: limits[4],
+                lower_alarm_limit: limits[5],
+            });
+            if ctrl {
+                control = Some(ControlInfo {
+                    upper_ctrl_limit: limits[6],
+                    lower_ctrl_limit: limits[7],
+                });
+            }
+        }
+        DbFieldType::Long => {
+            let units = read_string(data, off, MAX_UNITS_SIZE);
+            off += MAX_UNITS_SIZE;
+            let n_limits = if ctrl { 8 } else { 6 };
+            let mut limits = [0.0f64; 8];
+            for i in 0..n_limits {
+                limits[i] = read_i32(data, off)? as f64;
+                off += 4;
+            }
+            display = Some(DisplayInfo {
+                units,
+                precision: 0,
+                upper_disp_limit: limits[0],
+                lower_disp_limit: limits[1],
+                upper_alarm_limit: limits[2],
+                upper_warning_limit: limits[3],
+                lower_warning_limit: limits[4],
+                lower_alarm_limit: limits[5],
+            });
+            if ctrl {
+                control = Some(ControlInfo {
+                    upper_ctrl_limit: limits[6],
+                    lower_ctrl_limit: limits[7],
+                });
+            }
+        }
+        DbFieldType::Char => {
+            let units = read_string(data, off, MAX_UNITS_SIZE);
+            off += MAX_UNITS_SIZE;
+            let n_limits = if ctrl { 8 } else { 6 };
+            let mut limits = [0.0f64; 8];
+            for i in 0..n_limits {
+                if off < data.len() {
+                    limits[i] = data[off] as f64;
+                }
+                off += 1;
+            }
+            off += 1; // RISC_pad
+            display = Some(DisplayInfo {
+                units,
+                precision: 0,
+                upper_disp_limit: limits[0],
+                lower_disp_limit: limits[1],
+                upper_alarm_limit: limits[2],
+                upper_warning_limit: limits[3],
+                lower_warning_limit: limits[4],
+                lower_alarm_limit: limits[5],
+            });
+            if ctrl {
+                control = Some(ControlInfo {
+                    upper_ctrl_limit: limits[6],
+                    lower_ctrl_limit: limits[7],
+                });
+            }
+        }
+    }
+
+    let value = EpicsValue::from_bytes_array(native, &data[off..], count)?;
+    let mut snap = Snapshot::new(value, status, severity, SystemTime::UNIX_EPOCH);
+    snap.display = display;
+    snap.control = control;
+    snap.enums = enums;
+    Ok(snap)
+}
+
+fn decode_enum_metadata(data: &[u8], off: usize) -> CaResult<(EnumInfo, usize)> {
+    let no_str = read_u16(data, off)? as usize;
+    let mut pos = off + 2;
+    let mut strings = Vec::with_capacity(no_str.min(MAX_ENUM_STATES));
+    for i in 0..MAX_ENUM_STATES {
+        let s = read_string(data, pos, MAX_ENUM_STRING_SIZE);
+        if i < no_str {
+            strings.push(s);
+        }
+        pos += MAX_ENUM_STRING_SIZE;
+    }
+    Ok((EnumInfo { strings }, pos))
 }
 
 /// Runtime value from an EPICS PV
@@ -1221,8 +1516,6 @@ mod tests {
 
     // ---- PR4: encode_dbr tests ----
 
-    use crate::server::snapshot::*;
-
     /// Helper: create a bare snapshot (no metadata) for testing.
     fn bare_snapshot(value: EpicsValue) -> Snapshot {
         Snapshot::new(value, 0, 0, SystemTime::UNIX_EPOCH)
@@ -1501,5 +1794,197 @@ mod tests {
     fn test_parse_menu_string_unknown() {
         assert!(EpicsValue::parse(DbFieldType::Short, "UNKNOWN_MENU").is_err());
         assert!(EpicsValue::parse(DbFieldType::Enum, "UNKNOWN_MENU").is_err());
+    }
+
+    // ---- decode_dbr roundtrip tests ----
+
+    #[test]
+    fn test_decode_plain_double() {
+        let data = 42.0f64.to_be_bytes();
+        let snap = decode_dbr(6, &data, 1).unwrap();
+        assert_eq!(snap.value, EpicsValue::Double(42.0));
+        assert_eq!(snap.alarm.status, 0);
+    }
+
+    #[test]
+    fn test_decode_sts_double_roundtrip() {
+        let val = EpicsValue::Double(99.9);
+        let data = serialize_dbr(13, &val, 3, 2, SystemTime::UNIX_EPOCH).unwrap();
+        let snap = decode_dbr(13, &data, 1).unwrap();
+        assert_eq!(snap.value, EpicsValue::Double(99.9));
+        assert_eq!(snap.alarm.status, 3);
+        assert_eq!(snap.alarm.severity, 2);
+    }
+
+    #[test]
+    fn test_decode_time_double_roundtrip() {
+        let ts = SystemTime::UNIX_EPOCH + Duration::from_secs(EPICS_UNIX_EPOCH_OFFSET_SECS + 1000);
+        let val = EpicsValue::Double(1.23);
+        let data = serialize_dbr(20, &val, 5, 1, ts).unwrap();
+        let snap = decode_dbr(20, &data, 1).unwrap();
+        assert_eq!(snap.value, EpicsValue::Double(1.23));
+        assert_eq!(snap.alarm.status, 5);
+        assert_eq!(snap.alarm.severity, 1);
+        // Check timestamp roundtrip (within 1 second tolerance due to subsecond handling)
+        let orig_secs = ts.duration_since(SystemTime::UNIX_EPOCH).unwrap().as_secs();
+        let decoded_secs = snap.timestamp.duration_since(SystemTime::UNIX_EPOCH).unwrap().as_secs();
+        assert_eq!(orig_secs, decoded_secs);
+    }
+
+    #[test]
+    fn test_decode_time_short_roundtrip() {
+        let ts = SystemTime::UNIX_EPOCH + Duration::from_secs(EPICS_UNIX_EPOCH_OFFSET_SECS + 500);
+        let val = EpicsValue::Short(777);
+        let data = serialize_dbr(15, &val, 0, 0, ts).unwrap();
+        let snap = decode_dbr(15, &data, 1).unwrap();
+        assert_eq!(snap.value, EpicsValue::Short(777));
+    }
+
+    #[test]
+    fn test_decode_time_char_roundtrip() {
+        let ts = SystemTime::UNIX_EPOCH + Duration::from_secs(EPICS_UNIX_EPOCH_OFFSET_SECS + 10);
+        let val = EpicsValue::Char(0xBE);
+        let data = serialize_dbr(18, &val, 0, 0, ts).unwrap();
+        let snap = decode_dbr(18, &data, 1).unwrap();
+        assert_eq!(snap.value, EpicsValue::Char(0xBE));
+    }
+
+    #[test]
+    fn test_decode_time_float_roundtrip() {
+        let ts = SystemTime::UNIX_EPOCH + Duration::from_secs(EPICS_UNIX_EPOCH_OFFSET_SECS);
+        let val = EpicsValue::Float(2.5);
+        let data = serialize_dbr(16, &val, 0, 0, ts).unwrap();
+        let snap = decode_dbr(16, &data, 1).unwrap();
+        assert_eq!(snap.value, EpicsValue::Float(2.5));
+    }
+
+    #[test]
+    fn test_decode_time_enum_roundtrip() {
+        let ts = SystemTime::UNIX_EPOCH + Duration::from_secs(EPICS_UNIX_EPOCH_OFFSET_SECS + 1);
+        let val = EpicsValue::Enum(5);
+        let data = serialize_dbr(17, &val, 0, 0, ts).unwrap();
+        let snap = decode_dbr(17, &data, 1).unwrap();
+        assert_eq!(snap.value, EpicsValue::Enum(5));
+    }
+
+    #[test]
+    fn test_decode_time_string_roundtrip() {
+        let ts = SystemTime::UNIX_EPOCH + Duration::from_secs(EPICS_UNIX_EPOCH_OFFSET_SECS + 99);
+        let val = EpicsValue::String("abc".into());
+        let data = serialize_dbr(14, &val, 0, 0, ts).unwrap();
+        let snap = decode_dbr(14, &data, 1).unwrap();
+        assert_eq!(snap.value, EpicsValue::String("abc".into()));
+    }
+
+    #[test]
+    fn test_decode_ctrl_double_roundtrip() {
+        let snap_orig = full_snapshot(EpicsValue::Double(42.0));
+        let data = encode_dbr(34, &snap_orig).unwrap();
+        let snap = decode_dbr(34, &data, 1).unwrap();
+        assert_eq!(snap.value, EpicsValue::Double(42.0));
+        assert_eq!(snap.alarm.status, 3);
+        assert_eq!(snap.alarm.severity, 2);
+        let disp = snap.display.unwrap();
+        assert_eq!(disp.units, "degC");
+        assert_eq!(disp.precision, 3);
+        assert_eq!(disp.upper_disp_limit, 100.0);
+        assert_eq!(disp.lower_disp_limit, -50.0);
+        assert_eq!(disp.upper_alarm_limit, 90.0);
+        assert_eq!(disp.upper_warning_limit, 80.0);
+        assert_eq!(disp.lower_warning_limit, -20.0);
+        assert_eq!(disp.lower_alarm_limit, -40.0);
+        let ctrl = snap.control.unwrap();
+        assert_eq!(ctrl.upper_ctrl_limit, 95.0);
+        assert_eq!(ctrl.lower_ctrl_limit, -45.0);
+    }
+
+    #[test]
+    fn test_decode_ctrl_float_roundtrip() {
+        let snap_orig = full_snapshot(EpicsValue::Float(1.5));
+        let data = encode_dbr(30, &snap_orig).unwrap();
+        let snap = decode_dbr(30, &data, 1).unwrap();
+        assert_eq!(snap.value, EpicsValue::Float(1.5));
+        let disp = snap.display.unwrap();
+        assert_eq!(disp.units, "degC");
+        assert_eq!(disp.precision, 3);
+        // Float limits have reduced precision
+        assert!((disp.upper_disp_limit - 100.0).abs() < 0.01);
+        let ctrl = snap.control.unwrap();
+        assert!((ctrl.upper_ctrl_limit - 95.0).abs() < 0.01);
+    }
+
+    #[test]
+    fn test_decode_ctrl_long_roundtrip() {
+        let snap_orig = full_snapshot(EpicsValue::Long(99));
+        let data = encode_dbr(33, &snap_orig).unwrap();
+        let snap = decode_dbr(33, &data, 1).unwrap();
+        assert_eq!(snap.value, EpicsValue::Long(99));
+        let disp = snap.display.unwrap();
+        assert_eq!(disp.units, "degC");
+        assert_eq!(disp.upper_disp_limit, 100.0);
+        assert_eq!(disp.lower_disp_limit, -50.0);
+        let ctrl = snap.control.unwrap();
+        assert_eq!(ctrl.upper_ctrl_limit, 95.0);
+        assert_eq!(ctrl.lower_ctrl_limit, -45.0);
+    }
+
+    #[test]
+    fn test_decode_ctrl_short_roundtrip() {
+        let snap_orig = full_snapshot(EpicsValue::Short(7));
+        let data = encode_dbr(29, &snap_orig).unwrap();
+        let snap = decode_dbr(29, &data, 1).unwrap();
+        assert_eq!(snap.value, EpicsValue::Short(7));
+        let disp = snap.display.unwrap();
+        assert_eq!(disp.units, "degC");
+    }
+
+    #[test]
+    fn test_decode_ctrl_char_roundtrip() {
+        let snap_orig = full_snapshot(EpicsValue::Char(0xAB));
+        let data = encode_dbr(32, &snap_orig).unwrap();
+        let snap = decode_dbr(32, &data, 1).unwrap();
+        assert_eq!(snap.value, EpicsValue::Char(0xAB));
+        let disp = snap.display.unwrap();
+        assert_eq!(disp.units, "degC");
+    }
+
+    #[test]
+    fn test_decode_ctrl_enum_roundtrip() {
+        let mut snap_orig = full_snapshot(EpicsValue::Enum(2));
+        snap_orig.enums = Some(EnumInfo {
+            strings: vec!["Off".into(), "On".into(), "Reset".into()],
+        });
+        let data = encode_dbr(31, &snap_orig).unwrap();
+        let snap = decode_dbr(31, &data, 1).unwrap();
+        assert_eq!(snap.value, EpicsValue::Enum(2));
+        let ei = snap.enums.unwrap();
+        assert_eq!(ei.strings.len(), 3);
+        assert_eq!(ei.strings[0], "Off");
+        assert_eq!(ei.strings[1], "On");
+        assert_eq!(ei.strings[2], "Reset");
+    }
+
+    #[test]
+    fn test_decode_gr_double_roundtrip() {
+        let snap_orig = full_snapshot(EpicsValue::Double(3.14));
+        let data = encode_dbr(27, &snap_orig).unwrap();
+        let snap = decode_dbr(27, &data, 1).unwrap();
+        assert_eq!(snap.value, EpicsValue::Double(3.14));
+        let disp = snap.display.unwrap();
+        assert_eq!(disp.units, "degC");
+        assert_eq!(disp.precision, 3);
+        assert_eq!(disp.upper_disp_limit, 100.0);
+        // GR doesn't have control limits
+        assert!(snap.control.is_none());
+    }
+
+    #[test]
+    fn test_dbr_type_helpers() {
+        assert_eq!(DbFieldType::Double.time_dbr_type(), 20);
+        assert_eq!(DbFieldType::Short.time_dbr_type(), 15);
+        assert_eq!(DbFieldType::Double.ctrl_dbr_type(), 34);
+        assert_eq!(DbFieldType::Long.ctrl_dbr_type(), 33);
+        assert_eq!(DbFieldType::String.time_dbr_type(), 14);
+        assert_eq!(DbFieldType::Char.ctrl_dbr_type(), 32);
     }
 }

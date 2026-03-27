@@ -3,7 +3,7 @@ use std::collections::HashMap;
 use crate::runtime::sync::mpsc;
 
 use crate::error::CaResult;
-use crate::types::{DbFieldType, EpicsValue};
+use crate::types::{DbFieldType, EpicsValue, decode_dbr};
 
 use super::types::TransportCommand;
 
@@ -57,15 +57,22 @@ impl SubscriptionRegistry {
 
     pub fn on_monitor_data(&self, subid: u32, data_type: u16, count: u32, data: &[u8]) {
         if let Some(rec) = self.subscriptions.get(&subid) {
-            let dbr_type = match DbFieldType::from_u16(data_type) {
-                Ok(t) => t,
-                Err(e) => {
-                    let _ = rec.callback_tx.send(Err(e));
-                    return;
-                }
-            };
-            let value = EpicsValue::from_bytes_array(dbr_type, data, count as usize);
-            let _ = rec.callback_tx.send(value);
+            if data_type <= 6 {
+                // Native type — fast path
+                let dbr_type = match DbFieldType::from_u16(data_type) {
+                    Ok(t) => t,
+                    Err(e) => {
+                        let _ = rec.callback_tx.send(Err(e));
+                        return;
+                    }
+                };
+                let value = EpicsValue::from_bytes_array(dbr_type, data, count as usize);
+                let _ = rec.callback_tx.send(value);
+            } else {
+                // Extended DBR type (STS/TIME/GR/CTRL) — decode and extract value
+                let result = decode_dbr(data_type, data, count as usize).map(|snap| snap.value);
+                let _ = rec.callback_tx.send(result);
+            }
         }
     }
 
