@@ -404,12 +404,15 @@ pub fn parse_link(s: &str) -> Option<LinkAddress> {
 }
 
 /// Result of a record's process() call.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq)]
 pub enum RecordProcessResult {
     /// Processing completed synchronously this cycle.
     Complete,
     /// Processing started but not yet complete (PACT stays set).
     AsyncPending,
+    /// Async pending, but notify these intermediate field changes immediately.
+    /// Used by motor records to flush DMOV=0 before the move completes.
+    AsyncPendingNotify(Vec<(String, EpicsValue)>),
 }
 
 /// Result of setting a common field, indicating what scan index updates are needed.
@@ -1202,6 +1205,14 @@ impl RecordInstance {
             return Ok(ProcessSnapshot {
                 changed_fields: Vec::new(),
                 event_mask: EventMask::NONE,
+            });
+        }
+        if let RecordProcessResult::AsyncPendingNotify(fields) = process_result {
+            // Async with immediate notification of intermediate state (e.g. DMOV=0).
+            std::mem::forget(_guard);
+            return Ok(ProcessSnapshot {
+                changed_fields: fields,
+                event_mask: EventMask::VALUE | EventMask::ALARM,
             });
         }
 

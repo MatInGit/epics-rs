@@ -1036,6 +1036,7 @@ impl Record for MotorRecord {
         }
 
         let effects = self.do_process();
+        let move_started = !self.stat.dmov && !effects.commands.is_empty();
 
         // Write effects to shared mailbox for DeviceSupport.write() to consume
         if let Some(state) = self.device_state.clone() {
@@ -1047,7 +1048,21 @@ impl Record for MotorRecord {
             }
         }
 
-        Ok(RecordProcessResult::Complete)
+        if move_started {
+            // Flush DMOV=0 immediately so monitors see the 1→0 transition
+            // before the move completes. The next I/O Intr cycle will
+            // process again and eventually notify DMOV=1.
+            use epics_base_rs::types::EpicsValue;
+            Ok(RecordProcessResult::AsyncPendingNotify(vec![
+                ("DMOV".to_string(), EpicsValue::Short(0)),
+                ("MOVN".to_string(), EpicsValue::Short(1)),
+                ("VAL".to_string(), EpicsValue::Double(self.pos.val)),
+                ("DVAL".to_string(), EpicsValue::Double(self.pos.dval)),
+                ("RVAL".to_string(), EpicsValue::Long(self.pos.rval)),
+            ]))
+        } else {
+            Ok(RecordProcessResult::Complete)
+        }
     }
 
     fn should_fire_forward_link(&self) -> bool {
