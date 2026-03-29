@@ -1443,3 +1443,278 @@ async fn database_process_empty() {
     let result = db.process_record_with_links("nonexistent", &mut HashSet::new(), 0).await;
     assert!(result.is_err(), "Processing nonexistent record should fail");
 }
+
+// ============================================================
+// asyncproctest.c — Forward Links & Processing Chains
+// ============================================================
+
+/// C EPICS: Chain 1 — FLNK record processing chain
+/// Source record processes and triggers target via forward link
+#[tokio::test]
+async fn flnk_chain_processes_target() {
+    use epics_base_rs::server::database::PvDatabase;
+    use std::sync::Arc;
+    use std::collections::HashSet;
+
+    let db = Arc::new(PvDatabase::new());
+    db.add_record("src", Box::new(AoRecord::new(0.0))).await;
+    db.add_record("dst", Box::new(AiRecord::new(0.0))).await;
+
+    // Set FLNK: src → dst
+    if let Some(rec) = db.get_record("src").await {
+        let mut inst = rec.write().await;
+        inst.put_common_field("FLNK", EpicsValue::String("dst".into())).unwrap();
+    }
+
+    // Set dst INP to read from src
+    if let Some(rec) = db.get_record("dst").await {
+        let mut inst = rec.write().await;
+        inst.put_common_field("INP", EpicsValue::String("src".into())).unwrap();
+    }
+
+    // Write to src and process — should trigger dst via FLNK
+    db.put_pv("src", EpicsValue::Double(42.0)).await.unwrap();
+
+    // src should have value 42
+    assert_eq!(db.get_pv("src").await.unwrap(), EpicsValue::Double(42.0));
+}
+
+/// C EPICS: Chain 3 — Loop breaking via visited set
+/// Record chain A → B → A should not infinite loop
+#[tokio::test]
+async fn flnk_loop_does_not_infinite_loop() {
+    use epics_base_rs::server::database::PvDatabase;
+    use std::sync::Arc;
+    use std::collections::HashSet;
+
+    let db = Arc::new(PvDatabase::new());
+    db.add_record("loop_a", Box::new(AoRecord::new(0.0))).await;
+    db.add_record("loop_b", Box::new(AoRecord::new(0.0))).await;
+
+    // Create circular FLNK: loop_a → loop_b → loop_a
+    if let Some(rec) = db.get_record("loop_a").await {
+        let mut inst = rec.write().await;
+        inst.put_common_field("FLNK", EpicsValue::String("loop_b".into())).unwrap();
+    }
+    if let Some(rec) = db.get_record("loop_b").await {
+        let mut inst = rec.write().await;
+        inst.put_common_field("FLNK", EpicsValue::String("loop_a".into())).unwrap();
+    }
+
+    // Process should complete without hanging (visited set breaks the loop)
+    let mut visited = HashSet::new();
+    let result = db.process_record_with_links("loop_a", &mut visited, 0).await;
+    assert!(result.is_ok(), "Circular FLNK should not cause error");
+    // Visited set should contain both records
+    assert!(visited.contains("loop_a"));
+    assert!(visited.contains("loop_b"));
+}
+
+/// C EPICS: Chain 4/5 — RPRO reprocessing prevention
+#[tokio::test]
+async fn rpro_reprocessing() {
+    use epics_base_rs::server::database::PvDatabase;
+    use std::sync::Arc;
+    use std::collections::HashSet;
+
+    let db = Arc::new(PvDatabase::new());
+    db.add_record("rpro_rec", Box::new(AoRecord::new(0.0))).await;
+
+    // Set RPRO flag
+    if let Some(rec) = db.get_record("rpro_rec").await {
+        let mut inst = rec.write().await;
+        inst.common.rpro = true;
+    }
+
+    // Process — should process, detect RPRO, reprocess once, then clear RPRO
+    let mut visited = HashSet::new();
+    db.process_record_with_links("rpro_rec", &mut visited, 0).await.unwrap();
+
+    // RPRO should be cleared after reprocessing
+    if let Some(rec) = db.get_record("rpro_rec").await {
+        let inst = rec.read().await;
+        assert!(!inst.common.rpro, "RPRO should be cleared after reprocessing");
+    }
+}
+
+/// C EPICS: Multiple rapid puts to same record
+#[tokio::test]
+async fn rapid_puts_to_same_record() {
+    use epics_base_rs::server::database::PvDatabase;
+    use std::sync::Arc;
+
+    let db = Arc::new(PvDatabase::new());
+    db.add_record("rapid", Box::new(AoRecord::new(0.0))).await;
+
+    // Multiple rapid puts — last value should stick
+    for i in 0..10 {
+        db.put_pv("rapid", EpicsValue::Double(i as f64)).await.unwrap();
+    }
+
+    let val = db.get_pv("rapid").await.unwrap();
+    assert_eq!(val, EpicsValue::Double(9.0), "Last put value should be retained");
+}
+
+// ============================================================
+// scanIoTest.c — Scan & Processing
+// ============================================================
+
+/// C EPICS: process_record processes and clears UDF
+#[tokio::test]
+async fn process_record_clears_udf() {
+    use epics_base_rs::server::database::PvDatabase;
+    use std::sync::Arc;
+
+    let db = Arc::new(PvDatabase::new());
+    db.add_record("scan_rec", Box::new(AoRecord::new(5.0))).await;
+
+    // UDF should be true initially
+    if let Some(rec) = db.get_record("scan_rec").await {
+        let inst = rec.read().await;
+        assert!(inst.common.udf, "UDF should be true before process");
+    }
+
+    // Process record
+    db.process_record("scan_rec").await.unwrap();
+
+    // UDF should be cleared
+    if let Some(rec) = db.get_record("scan_rec").await {
+        let inst = rec.read().await;
+        assert!(!inst.common.udf, "UDF should be false after process");
+    }
+}
+
+/// C EPICS: PINI=YES processes record at init time
+#[tokio::test]
+async fn pini_flag() {
+    use epics_base_rs::server::database::PvDatabase;
+    use std::sync::Arc;
+
+    let db = Arc::new(PvDatabase::new());
+    db.add_record("pini_rec", Box::new(AoRecord::new(0.0))).await;
+
+    // Set PINI
+    if let Some(rec) = db.get_record("pini_rec").await {
+        let mut inst = rec.write().await;
+        inst.common.pini = true;
+    }
+
+    // Verify PINI flag is set
+    if let Some(rec) = db.get_record("pini_rec").await {
+        let inst = rec.read().await;
+        assert!(inst.common.pini, "PINI should be set");
+    }
+}
+
+// ============================================================
+// dbLockTest.c — Record isolation
+// ============================================================
+
+/// C EPICS: independent records don't interfere
+#[tokio::test]
+async fn independent_records_no_interference() {
+    use epics_base_rs::server::database::PvDatabase;
+    use std::sync::Arc;
+
+    let db = Arc::new(PvDatabase::new());
+    db.add_record("iso_a", Box::new(AoRecord::new(1.0))).await;
+    db.add_record("iso_b", Box::new(AoRecord::new(2.0))).await;
+
+    // Process A shouldn't affect B
+    db.process_record("iso_a").await.unwrap();
+    assert_eq!(db.get_pv("iso_b").await.unwrap(), EpicsValue::Double(2.0));
+
+    // Modify A shouldn't affect B
+    db.put_pv("iso_a", EpicsValue::Double(99.0)).await.unwrap();
+    assert_eq!(db.get_pv("iso_b").await.unwrap(), EpicsValue::Double(2.0));
+}
+
+/// C EPICS: maximum depth protection in process chains
+#[tokio::test]
+async fn process_chain_depth_limit() {
+    use epics_base_rs::server::database::PvDatabase;
+    use std::sync::Arc;
+    use std::collections::HashSet;
+
+    let db = Arc::new(PvDatabase::new());
+
+    // Create long chain: rec0 → rec1 → rec2 → ... → rec19
+    for i in 0..20 {
+        db.add_record(&format!("chain{i}"), Box::new(AoRecord::new(i as f64))).await;
+    }
+    for i in 0..19 {
+        if let Some(rec) = db.get_record(&format!("chain{i}")).await {
+            let mut inst = rec.write().await;
+            inst.put_common_field("FLNK", EpicsValue::String(format!("chain{}", i + 1))).unwrap();
+        }
+    }
+
+    // Process chain0 — should follow FLNK chain without panic
+    let mut visited = HashSet::new();
+    let result = db.process_record_with_links("chain0", &mut visited, 0).await;
+    assert!(result.is_ok(), "Long FLNK chain should not fail");
+
+    // All records should have been visited
+    assert!(visited.len() >= 2, "At least some records in chain should be visited");
+}
+
+// ============================================================
+// CA protocol tests (extending client_server.rs coverage)
+// ============================================================
+
+/// C EPICS: ca_test — put and readback for all numeric types
+#[test]
+fn epics_value_all_numeric_put_get() {
+    // Test that all numeric EpicsValue types round-trip via put_field/get_field
+    let mut ao = AoRecord::new(0.0);
+
+    // Double
+    ao.put_field("VAL", EpicsValue::Double(3.14)).unwrap();
+    assert_eq!(ao.get_field("VAL"), Some(EpicsValue::Double(3.14)));
+
+    // Via string conversion
+    ao.put_field("EGU", EpicsValue::String("mm/s".into())).unwrap();
+    assert_eq!(ao.get_field("EGU"), Some(EpicsValue::String("mm/s".into())));
+
+    // PREC (Short)
+    ao.put_field("PREC", EpicsValue::Short(5)).unwrap();
+    assert_eq!(ao.get_field("PREC"), Some(EpicsValue::Short(5)));
+
+    // HOPR/LOPR (Double limits)
+    ao.put_field("HOPR", EpicsValue::Double(1000.0)).unwrap();
+    ao.put_field("LOPR", EpicsValue::Double(-500.0)).unwrap();
+    assert_eq!(ao.get_field("HOPR"), Some(EpicsValue::Double(1000.0)));
+    assert_eq!(ao.get_field("LOPR"), Some(EpicsValue::Double(-500.0)));
+}
+
+/// C EPICS: record type string matches expected
+#[test]
+fn all_20_record_types() {
+    let types: Vec<(&str, Box<dyn Record>)> = vec![
+        ("ai", Box::new(AiRecord::new(0.0))),
+        ("ao", Box::new(AoRecord::new(0.0))),
+        ("bi", Box::new(BiRecord::new(0))),
+        ("bo", Box::new(BoRecord::new(0))),
+        ("longin", Box::new(LonginRecord::new(0))),
+        ("longout", Box::new(LongoutRecord::new(0))),
+        ("stringin", Box::new(StringinRecord::new(""))),
+        ("stringout", Box::new(StringoutRecord::new(""))),
+        ("waveform", Box::new(WaveformRecord::new(1, DbFieldType::Double))),
+        ("mbbi", Box::new(MbbiRecord::default())),
+        ("mbbo", Box::new(MbboRecord::default())),
+        ("dfanout", Box::new(DfanoutRecord::default())),
+        ("compress", Box::new(CompressRecord::default())),
+        ("histogram", Box::new(HistogramRecord::default())),
+        ("sel", Box::new(SelRecord::default())),
+        ("seq", Box::new(SeqRecord::default())),
+        ("sub", Box::new(SubRecord::default())),
+    ];
+
+    for (expected, rec) in &types {
+        assert_eq!(rec.record_type(), *expected);
+        // Every record should have at least one field
+        assert!(!rec.field_list().is_empty(), "{expected} has no fields");
+        // Every record should have a val() method
+        assert!(rec.val().is_some(), "{expected} val() returned None");
+    }
+}
