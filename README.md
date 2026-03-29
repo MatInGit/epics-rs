@@ -637,7 +637,7 @@ Test coverage: protocol encoding, wire format golden packets, snapshot generatio
 
 ## Requirements
 
-- Rust 1.70+
+- Rust 1.85+ (edition 2024)
 - tokio runtime
 
 ### Optional System Dependencies
