@@ -9,6 +9,8 @@
 //!   - modules/database/test/ioc/db/dbDbLinkTest.c
 //!   - modules/database/test/ioc/db/dbPutGetTest.c
 
+use std::collections::HashSet;
+
 use epics_base_rs::server::record::{Record, RecordInstance, AlarmSeverity};
 use epics_base_rs::server::records::ai::AiRecord;
 use epics_base_rs::server::records::ao::AoRecord;
@@ -28,6 +30,8 @@ use epics_base_rs::server::records::sel::SelRecord;
 use epics_base_rs::server::records::seq::SeqRecord;
 use epics_base_rs::server::records::sub_record::SubRecord;
 use epics_base_rs::types::{DbFieldType, EpicsValue};
+
+const TEST_DOUBLE: f64 = 3.125;
 
 // ============================================================
 // aiTest.c — Analog Input Record
@@ -1019,8 +1023,8 @@ fn mbbi_all_16_states() {
 #[test]
 fn sel_record_field_access() {
     let mut rec = SelRecord::default();
-    rec.put_field("VAL", EpicsValue::Double(3.14)).unwrap();
-    assert_eq!(rec.get_field("VAL"), Some(EpicsValue::Double(3.14)));
+    rec.put_field("VAL", EpicsValue::Double(TEST_DOUBLE)).unwrap();
+    assert_eq!(rec.get_field("VAL"), Some(EpicsValue::Double(TEST_DOUBLE)));
     assert_eq!(rec.record_type(), "sel");
 }
 
@@ -1346,8 +1350,8 @@ fn type_conversion_round_trips() {
     assert!(s.contains("-12345") || s.contains("-12345"));
 
     // String → Double conversion
-    let converted = EpicsValue::String("3.14".into()).convert_to(DbFieldType::Double);
-    assert_eq!(converted, EpicsValue::Double(3.14));
+    let converted = EpicsValue::String("3.125".into()).convert_to(DbFieldType::Double);
+    assert_eq!(converted, EpicsValue::Double(TEST_DOUBLE));
 
     // Double → Long truncation
     let converted = EpicsValue::Double(99.9).convert_to(DbFieldType::Long);
@@ -1437,8 +1441,6 @@ async fn database_init_cleanup_cycle() {
 async fn database_process_empty() {
     use epics_base_rs::server::database::PvDatabase;
     use std::sync::Arc;
-    use std::collections::HashSet;
-
     let db = Arc::new(PvDatabase::new());
     let result = db.process_record_with_links("nonexistent", &mut HashSet::new(), 0).await;
     assert!(result.is_err(), "Processing nonexistent record should fail");
@@ -1454,8 +1456,6 @@ async fn database_process_empty() {
 async fn flnk_chain_processes_target() {
     use epics_base_rs::server::database::PvDatabase;
     use std::sync::Arc;
-    use std::collections::HashSet;
-
     let db = Arc::new(PvDatabase::new());
     db.add_record("src", Box::new(AoRecord::new(0.0))).await;
     db.add_record("dst", Box::new(AiRecord::new(0.0))).await;
@@ -1669,8 +1669,8 @@ fn epics_value_all_numeric_put_get() {
     let mut ao = AoRecord::new(0.0);
 
     // Double
-    ao.put_field("VAL", EpicsValue::Double(3.14)).unwrap();
-    assert_eq!(ao.get_field("VAL"), Some(EpicsValue::Double(3.14)));
+    ao.put_field("VAL", EpicsValue::Double(TEST_DOUBLE)).unwrap();
+    assert_eq!(ao.get_field("VAL"), Some(EpicsValue::Double(TEST_DOUBLE)));
 
     // Via string conversion
     ao.put_field("EGU", EpicsValue::String("mm/s".into())).unwrap();

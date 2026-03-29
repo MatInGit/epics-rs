@@ -1,3 +1,5 @@
+#![allow(clippy::collapsible_if)]
+
 pub mod error;
 pub mod maclib;
 pub mod subst;

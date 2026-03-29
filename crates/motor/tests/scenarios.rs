@@ -569,11 +569,14 @@ fn sim_motor_same_position_dmov_transition() {
 
     // Execute move command on SimMotor
     for cmd in &effects.commands {
-        match cmd {
-            MotorCommand::MoveAbsolute { position, velocity, acceleration } => {
-                motor.move_absolute(&user, *position, *velocity, *acceleration).unwrap();
-            }
-            _ => {}
+        if let MotorCommand::MoveAbsolute {
+            position,
+            velocity,
+            acceleration,
+        } = cmd
+        {
+            motor.move_absolute(&user, *position, *velocity, *acceleration)
+                .unwrap();
         }
     }
 
@@ -601,7 +604,7 @@ fn sequential_moves_verify_position() {
 
     for &target in &positions {
         rec.put_field("VAL", EpicsValue::Double(target)).unwrap();
-        let effects = rec.plan_motion(CommandSource::Val);
+        let _effects = rec.plan_motion(CommandSource::Val);
 
         // Move should always start (DMOV=0), even for same position
         assert!(!rec.stat.dmov, "DMOV should be 0 after move to {target}");

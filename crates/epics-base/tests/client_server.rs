@@ -6,6 +6,7 @@
 //! None handling, etc.).
 
 use std::sync::Arc;
+use std::f64::consts::PI;
 use std::time::Duration;
 
 use epics_base_rs::error::CaResult;
@@ -150,7 +151,7 @@ async fn test_get_with_metadata_time_string() {
 #[tokio::test]
 #[serial]
 async fn test_get_with_metadata_ctrl_double() {
-    let client = setup(vec![("TEST:CTRL", EpicsValue::Double(3.14))])
+    let client = setup(vec![("TEST:CTRL", EpicsValue::Double(PI))])
         .await
         .unwrap();
 
@@ -158,7 +159,7 @@ async fn test_get_with_metadata_ctrl_double() {
     ch.wait_connected(Duration::from_secs(3)).await.unwrap();
 
     let snap = ch.get_with_metadata(DbrClass::Ctrl).await.unwrap();
-    assert_eq!(snap.value, EpicsValue::Double(3.14));
+    assert_eq!(snap.value, EpicsValue::Double(PI));
     // SimplePv has no display metadata, so fields should be default/zero
     assert_eq!(snap.alarm.status, 0);
     assert_eq!(snap.alarm.severity, 0);

@@ -1,3 +1,13 @@
+#![allow(
+    clippy::approx_constant,
+    clippy::collapsible_if,
+    clippy::derivable_impls,
+    clippy::if_same_then_else,
+    clippy::manual_range_contains,
+    clippy::single_match,
+    clippy::unnecessary_map_or
+)]
+
 pub mod error;
 pub mod param;
 pub mod user;

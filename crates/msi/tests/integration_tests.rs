@@ -64,7 +64,7 @@ fn subst_file_end_to_end() {
     let subst = dir.path().join("test.substitutions");
     std::fs::write(
         &subst,
-        &format!(
+        format!(
             "file \"{}\" {{\n  pattern {{ P, R }}\n  {{ \"IOC:\", \"ai1\" }}\n  {{ \"IOC:\", \"ai2\" }}\n}}\n",
             tmpl.display()
         ),

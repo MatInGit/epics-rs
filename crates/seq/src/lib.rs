@@ -1,3 +1,10 @@
+#![allow(
+    clippy::collapsible_if,
+    clippy::get_first,
+    clippy::too_many_arguments,
+    clippy::unnecessary_map_or
+)]
+
 pub mod channel;
 pub mod channel_store;
 pub mod error;

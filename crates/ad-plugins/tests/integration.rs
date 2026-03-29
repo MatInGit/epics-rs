@@ -1,3 +1,5 @@
+#![allow(clippy::needless_range_loop)]
+
 use std::collections::HashMap;
 use std::sync::Arc;
 

@@ -92,7 +92,7 @@ async fn test_dated_filename() {
         .filter(|e| {
             e.file_name()
                 .to_str()
-                .map_or(false, |n| n.starts_with("test.sav_"))
+                .is_some_and(|n| n.starts_with("test.sav_"))
         })
         .collect();
     assert_eq!(entries.len(), 1);

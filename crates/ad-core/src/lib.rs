@@ -1,3 +1,12 @@
+#![allow(
+    clippy::approx_constant,
+    clippy::collapsible_if,
+    clippy::manual_is_multiple_of,
+    clippy::needless_range_loop,
+    clippy::new_without_default,
+    clippy::too_many_arguments
+)]
+
 pub mod error;
 pub mod timestamp;
 pub mod ndarray;
@@ -15,4 +24,3 @@ pub mod roi;
 
 #[cfg(feature = "ioc")]
 pub mod ioc;
-

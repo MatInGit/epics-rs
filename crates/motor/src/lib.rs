@@ -1,3 +1,11 @@
+#![allow(
+    clippy::collapsible_if,
+    clippy::derivable_impls,
+    clippy::field_reassign_with_default,
+    clippy::if_same_then_else,
+    clippy::type_complexity
+)]
+
 pub mod fields;
 pub mod flags;
 pub mod coordinate;
