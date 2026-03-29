@@ -86,6 +86,7 @@ impl MotorPollLoop {
                         match cmd {
                             Some(PollCommand::StartPolling) => {
                                 active = true;
+                                self.poll_and_notify().await;
                             }
                             Some(PollCommand::StopPolling) => {
                                 active = false;
@@ -119,6 +120,7 @@ impl MotorPollLoop {
                 match self.cmd_rx.recv().await {
                     Some(PollCommand::StartPolling) => {
                         active = true;
+                        self.poll_and_notify().await;
                     }
                     Some(PollCommand::StopPolling) => {
                         active = false;
