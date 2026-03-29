@@ -559,6 +559,8 @@ pub struct RecordInstance {
     pub processing: AtomicBool,
     // Deferred put_notify completion (fires when async processing completes)
     pub put_notify_tx: Option<crate::runtime::sync::oneshot::Sender<()>>,
+    // Last posted values for subscribed fields (generic change detection)
+    pub last_posted: HashMap<String, EpicsValue>,
 }
 
 impl RecordInstance {
@@ -589,6 +591,7 @@ impl RecordInstance {
             subroutine: None,
             processing: AtomicBool::new(false),
             put_notify_tx: None,
+            last_posted: HashMap::new(),
         }
     }
 
@@ -1266,10 +1269,35 @@ impl RecordInstance {
             // Unlike AsyncPending, we DO release the processing flag so
             // subsequent I/O Intr cycles can continue processing normally.
             self.common.time = crate::runtime::general_time::get_current();
+            // Filter out fields that haven't actually changed, and update
+            // MLST/last_posted for those that have.
+            let mut changed_fields = Vec::new();
+            for (name, val) in fields {
+                let changed = match self.last_posted.get(&name) {
+                    Some(prev) => prev != &val,
+                    None => true,
+                };
+                if changed {
+                    if name == "VAL" {
+                        if let Some(f) = val.to_f64() {
+                            if self.record.put_field("MLST", EpicsValue::Double(f)).is_err() {
+                                self.common.mlst = Some(f);
+                            }
+                        }
+                    }
+                    self.last_posted.insert(name.clone(), val.clone());
+                    changed_fields.push((name, val));
+                }
+            }
+            let event_mask = if changed_fields.is_empty() {
+                EventMask::NONE
+            } else {
+                EventMask::VALUE | EventMask::ALARM
+            };
             // _guard drops here, clearing the processing flag
             return Ok(ProcessSnapshot {
-                changed_fields: fields,
-                event_mask: EventMask::VALUE | EventMask::ALARM,
+                changed_fields,
+                event_mask,
             });
         }
 
@@ -1311,18 +1339,26 @@ impl RecordInstance {
             changed_fields.push(("STAT".to_string(), EpicsValue::Short(self.common.stat as i16)));
         }
 
-        // Add subscribed fields that have active subscribers.
-        // These are auxiliary fields (RBV, DMOV, etc.) that may change each cycle.
-        let mut has_subscribed_fields = false;
+        // Add subscribed fields that actually changed since last notification.
+        let mut sub_updates: Vec<(String, EpicsValue)> = Vec::new();
         for (field, subs) in &self.subscribers {
             if !subs.is_empty() && field != "VAL" && field != "SEVR" && field != "STAT" {
                 if let Some(val) = self.resolve_field(field) {
-                    changed_fields.push((field.clone(), val));
-                    has_subscribed_fields = true;
+                    let changed = match self.last_posted.get(field) {
+                        Some(prev) => prev != &val,
+                        None => true,
+                    };
+                    if changed {
+                        sub_updates.push((field.clone(), val));
+                    }
                 }
             }
         }
-        if has_subscribed_fields {
+        if !sub_updates.is_empty() {
+            for (field, val) in &sub_updates {
+                self.last_posted.insert(field.clone(), val.clone());
+            }
+            changed_fields.extend(sub_updates);
             event_mask |= EventMask::VALUE;
         }
 
@@ -1438,10 +1474,19 @@ impl RecordInstance {
             mask,
             tx,
         };
+        let field_str = field.to_string();
         self.subscribers
-            .entry(field.to_string())
+            .entry(field_str.clone())
             .or_default()
             .push(sub);
+        // Initialize last_posted with current value so the first process cycle
+        // doesn't treat it as "changed" (the initial value is already sent
+        // to the client as part of EVENT_ADD response).
+        if !self.last_posted.contains_key(&field_str) {
+            if let Some(val) = self.resolve_field(&field_str) {
+                self.last_posted.insert(field_str, val);
+            }
+        }
         rx
     }
 

@@ -508,3 +508,85 @@ fn sim_motor_end_to_end() {
     assert!(rec.stat.dmov);
     assert!((rec.pos.rbv - 10.0).abs() < 1e-6);
 }
+
+/// Setting VAL to the current position must still produce a DMOV 1→0→1
+/// transition. ophyd/bluesky rely on this to detect move completion.
+#[test]
+fn move_to_same_position_produces_dmov_transition() {
+    let mut rec = make_record();
+
+    // Start at position 0 with DMOV=1 (idle)
+    rec.pos.val = 0.0;
+    rec.pos.dval = 0.0;
+    rec.pos.rval = 0;
+    rec.pos.rbv = 0.0;
+    rec.pos.drbv = 0.0;
+    rec.stat.dmov = true;
+    rec.stat.phase = MotionPhase::Idle;
+
+    // Write VAL=0 (same position)
+    rec.put_field("VAL", EpicsValue::Double(0.0)).unwrap();
+    let effects = rec.plan_motion(CommandSource::Val);
+
+    // DMOV must go to 0 even though target == current position
+    assert!(!rec.stat.dmov, "DMOV should be 0 after move command to same position");
+    assert_eq!(rec.stat.phase, MotionPhase::MainMove);
+    assert!(!effects.commands.is_empty(), "should issue move command even for same position");
+
+    // Simulate motor immediately reporting done (already at target)
+    complete_move(&mut rec, 0.0);
+    let _effects = rec.check_completion();
+
+    // DMOV must return to 1
+    assert!(rec.stat.dmov, "DMOV should be 1 after completion");
+    assert_eq!(rec.stat.phase, MotionPhase::Idle);
+}
+
+/// Same-position DMOV transition with SimMotor end-to-end.
+#[test]
+fn sim_motor_same_position_dmov_transition() {
+    let mut motor = SimMotor::new();
+    let user = AsynUser::new(0);
+
+    // Set SimMotor position to 5.0 first
+    motor.set_position(&user, 5.0).unwrap();
+
+    let mut rec = make_record();
+    rec.pos.val = 5.0;
+    rec.pos.dval = 5.0;
+    rec.pos.rval = 5000;
+    rec.pos.rbv = 5.0;
+    rec.pos.drbv = 5.0;
+    rec.stat.dmov = true;
+    rec.stat.phase = MotionPhase::Idle;
+
+    // Write VAL=5 (same position)
+    rec.put_field("VAL", EpicsValue::Double(5.0)).unwrap();
+    let effects = rec.plan_motion(CommandSource::Val);
+
+    // DMOV 1→0
+    assert!(!rec.stat.dmov);
+
+    // Execute move command on SimMotor
+    for cmd in &effects.commands {
+        match cmd {
+            MotorCommand::MoveAbsolute { position, velocity, acceleration } => {
+                motor.move_absolute(&user, *position, *velocity, *acceleration).unwrap();
+            }
+            _ => {}
+        }
+    }
+
+    // SimMotor should complete immediately (no distance to travel)
+    std::thread::sleep(Duration::from_millis(10));
+    let status = motor.poll(&user).unwrap();
+    assert!(status.done);
+
+    rec.process_motor_info(&status);
+    let _effects = rec.check_completion();
+
+    // DMOV 0→1
+    assert!(rec.stat.dmov, "DMOV must return to 1 after same-position move completes");
+    assert_eq!(rec.stat.phase, MotionPhase::Idle);
+    assert!((rec.pos.rbv - 5.0).abs() < 1e-6);
+}

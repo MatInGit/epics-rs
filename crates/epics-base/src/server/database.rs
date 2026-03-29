@@ -327,8 +327,10 @@ impl PvDatabase {
             instance.common.putf = false;
 
             instance.cleanup_subscribers();
-            // For non-Passive, notify immediately; Passive will notify after process
-            if instance.common.scan != ScanType::Passive {
+            // For non-Passive non-VAL fields, notify immediately since
+            // processing may not post events for auxiliary fields.
+            // VAL is always notified via processing (deadband check + snapshot).
+            if instance.common.scan != ScanType::Passive && field != "VAL" {
                 instance.notify_field(&field, crate::server::recgbl::EventMask::VALUE | crate::server::recgbl::EventMask::LOG);
             }
 
@@ -909,9 +911,33 @@ impl PvDatabase {
                     }
                 }
                 apply_timestamp(&mut instance.common, is_soft);
+                // Filter out fields that haven't changed, update MLST/last_posted.
+                let mut changed_fields = Vec::new();
+                for (name, val) in fields {
+                    let changed = match instance.last_posted.get(&name) {
+                        Some(prev) => prev != &val,
+                        None => true,
+                    };
+                    if changed {
+                        if name == "VAL" {
+                            if let Some(f) = val.to_f64() {
+                                if instance.record.put_field("MLST", EpicsValue::Double(f)).is_err() {
+                                    instance.common.mlst = Some(f);
+                                }
+                            }
+                        }
+                        instance.last_posted.insert(name.clone(), val.clone());
+                        changed_fields.push((name, val));
+                    }
+                }
+                let event_mask = if changed_fields.is_empty() {
+                    crate::server::recgbl::EventMask::NONE
+                } else {
+                    crate::server::recgbl::EventMask::VALUE | crate::server::recgbl::EventMask::ALARM
+                };
                 let snapshot = super::record::ProcessSnapshot {
-                    changed_fields: fields,
-                    event_mask: crate::server::recgbl::EventMask::VALUE | crate::server::recgbl::EventMask::ALARM,
+                    changed_fields,
+                    event_mask,
                 };
                 let rec_clone = rec.clone();
                 drop(instance);
@@ -1064,17 +1090,26 @@ impl PvDatabase {
                     changed_fields.push(("VAL".to_string(), val));
                 }
             }
-            // Always include subscribed fields — C EPICS posts all monitored
-            // fields on every process cycle, not just when VAL changes.
+            // Add subscribed fields that actually changed since last notification.
+            let mut sub_updates: Vec<(String, EpicsValue)> = Vec::new();
             for (field, subs) in &instance.subscribers {
                 if !subs.is_empty() && field != "VAL" && field != "SEVR" && field != "STAT" && field != "UDF" {
                     if let Some(val) = instance.resolve_field(field) {
-                        changed_fields.push((field.clone(), val));
+                        let changed = match instance.last_posted.get(field) {
+                            Some(prev) => prev != &val,
+                            None => true,
+                        };
+                        if changed {
+                            sub_updates.push((field.clone(), val));
+                        }
                     }
                 }
             }
-            // Ensure event_mask includes VALUE when we have subscribed field updates
-            if !changed_fields.is_empty() {
+            if !sub_updates.is_empty() {
+                for (field, val) in &sub_updates {
+                    instance.last_posted.insert(field.clone(), val.clone());
+                }
+                changed_fields.extend(sub_updates);
                 event_mask |= crate::server::recgbl::EventMask::VALUE;
             }
             if alarm_result.alarm_changed {
