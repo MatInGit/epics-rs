@@ -282,27 +282,40 @@ C EPICS clients (`caget`, `camonitor`, CSS, PyDM, etc.) also work as-is.
 #### Declarative IOC Builder
 
 ```rust
-use epics_rs::ca::server::ioc_app::IocApplication;
+use epics_rs::base::server::ioc_app::IocApplication;
 use epics_rs::base::server::records::ao::AoRecord;
 use epics_rs::base::server::records::bi::BiRecord;
+use epics_rs::ca::server::run_ca_ioc;
 
 IocApplication::new()
     .record("TEMP", AoRecord::new(25.0))
     .record("INTERLOCK", BiRecord::new(0))
-    .run()
+    .run(run_ca_ioc)
     .await?;
 ```
 
 #### IocApplication (st.cmd Style)
 
 ```rust
-use epics_rs::ca::server::ioc_app::IocApplication;
+use epics_rs::base::server::ioc_app::IocApplication;
+use epics_rs::ca::server::run_ca_ioc;
 
 IocApplication::new()
     .register_device_support("myDriver", || Box::new(MyDeviceSupport::new()))
     .startup_script("ioc/st.cmd")
-    .run()
+    .run(run_ca_ioc)
     .await?;
+```
+
+The protocol runner is pluggable — future pvAccess support uses the same pattern:
+
+```rust
+// CA + PVA simultaneously
+app.run(|config| async {
+    let ca = CaServer::from_parts(config.db.clone(), config.port, ...);
+    let pva = PvaServer::new(config.db.clone(), 5075);
+    tokio::select! { _ = ca.run() => {}, _ = pva.run() => {} }
+}).await
 ```
 
 st.cmd uses **the same syntax as C++ EPICS** (`iocInit()` is called automatically after the script completes):
