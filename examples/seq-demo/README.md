@@ -1,6 +1,6 @@
 # Sequencer Demo
 
-Hand-written Rust implementation of `demo.st`, demonstrating the [seq](../../crates/seq/) runtime API for state-based automation.
+Hand-written Rust implementation of `demo.st`, demonstrating the [seq](../../crates/epics-seq-rs/) runtime API for state-based automation.
 
 Two concurrent state machines coordinate via event flags and PV monitoring:
 

@@ -376,7 +376,7 @@ areaDetector framework:
 - **NDArrayPool** — free-list buffer reuse
 - **ADDriverBase** — detector driver base (Single/Multiple/Continuous modes)
 - **23 plugins** — Stats, ROI, ROIStat, Process, Transform, ColorConvert, Overlay, FFT, TimeSeries, CircularBuff, Codec, Gather, Scatter, StdArrays, FileTIFF, FileJPEG, FileHDF5, Attribute, AttrPlot, BadPixel, PosPlugin, Passthrough
-- **Parallel processing** — rayon data-parallelism for CPU-heavy plugins (Stats, ROIStat, ColorConvert, Process). Shared thread pool sized to `available_cores - 2` to leave headroom for driver threads and tokio runtime. Enabled by default; see [ad-plugins README](crates/ad-plugins/README.md#parallel-processing)
+- **Parallel processing** — rayon data-parallelism for CPU-heavy plugins (Stats, ROIStat, ColorConvert, Process). Shared thread pool sized to `available_cores - 2` to leave headroom for driver threads and tokio runtime. Enabled by default; see [ad-plugins README](crates/ad-plugins-rs/README.md#parallel-processing)
 
 ### epics-calc-rs
 
@@ -506,7 +506,7 @@ caget mini:dot:cam:ArrayCounter_RBV
 
 ```bash
 # Motor control
-pydm crates/motor/opi/pydm/motorx_all.ui -m "P=mini:,M=ph:mtr"
+pydm crates/motor-rs/opi/pydm/motorx_all.ui -m "P=mini:,M=ph:mtr"
 
 # areaDetector top-level display
 pydm opi/pydm/ADTop.ui -m "P=mini:,R=dot:cam:"
@@ -602,10 +602,8 @@ pydm <path-to-ui-file> -m "P=<prefix>,R=<record>"
 | Location | Screens | Description |
 |----------|---------|-------------|
 | `opi/pydm/` | areaDetector + plugins | ADTop, Stats, ROI, FFT, file writers, etc. |
-| `crates/motor/opi/pydm/` | Motor record | Motor control panels |
-| `crates/asyn/opi/pydm/` | asyn record | Port driver diagnostics |
-| `crates/calc/opi/pydm/` | Calc records | Transform, scalcout, sseq, userCalc |
-| `crates/autosave/opi/pydm/` | Autosave | Save/restore status |
+| `crates/motor-rs/opi/pydm/` | Motor record | Motor control panels |
+| `crates/asyn-rs/opi/pydm/` | asyn record | Port driver diagnostics |
 | `examples/scope-ioc/opi/pydm/` | Scope simulator | Waveform display |
 | `examples/sim-detector/opi/pydm/` | SimDetector | Detector-specific controls |
 
