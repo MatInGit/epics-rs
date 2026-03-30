@@ -1,3 +1,4 @@
+#![allow(unused_imports)]
 //! Pure-data protocol types for port communication.
 //!
 //! All types in this module are serializable and contain no trait objects,

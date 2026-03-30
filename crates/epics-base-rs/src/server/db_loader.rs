@@ -601,6 +601,18 @@ pub fn create_record(record_type: &str) -> CaResult<Box<dyn Record>> {
     }
 }
 
+/// Create a record, checking extra factories first, then built-in types.
+/// Preferred over `create_record()` — avoids the global registry.
+pub fn create_record_with_factories(
+    record_type: &str,
+    extra_factories: &std::collections::HashMap<String, super::RecordFactory>,
+) -> CaResult<Box<dyn Record>> {
+    if let Some(factory) = extra_factories.get(record_type) {
+        return Ok(factory());
+    }
+    create_record(record_type)
+}
+
 /// Apply fields from a DbRecordDef to a record.
 /// Returns the record along with any common field values.
 pub fn apply_fields(

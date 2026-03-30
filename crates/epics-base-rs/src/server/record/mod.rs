@@ -13,6 +13,7 @@ pub use record_instance::RecordInstance;
 pub use record_trait::{
     CommonFieldPutResult, FieldDesc, ProcessSnapshot, Record, RecordProcessResult, SubroutineFn,
 };
+pub use crate::server::recgbl::EventMask;
 pub use scan::ScanType;
 
 #[cfg(test)]

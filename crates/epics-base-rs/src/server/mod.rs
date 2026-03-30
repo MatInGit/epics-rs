@@ -7,11 +7,11 @@ pub mod ioc_app;
 pub mod ioc_builder;
 pub mod iocsh;
 pub mod pv;
-pub mod recgbl;
+pub(crate) mod recgbl;
 pub mod record;
 pub mod records;
 pub mod scan;
-pub mod scan_event;
+pub(crate) mod scan_event;
 pub mod snapshot;
 
 use crate::server::record::Record;

@@ -147,16 +147,10 @@ impl IocBuilder {
 
         // 3. .db definitions — create records, apply fields, init, wire device support & subs
         for def in self.db_defs {
-            let mut record = db_loader::create_record(&def.record_type)
-                .or_else(|_| {
-                    self.record_factories.get(&def.record_type)
-                        .map(|f| f())
-                        .ok_or_else(|| CaError::DbParseError {
-                            line: 0,
-                            column: 0,
-                            message: format!("unknown record type: '{}'", def.record_type),
-                        })
-                })?;
+            let mut record = db_loader::create_record_with_factories(
+                &def.record_type,
+                &self.record_factories,
+            )?;
             let mut common_fields = Vec::new();
             db_loader::apply_fields(&mut record, &def.fields, &mut common_fields)?;
 

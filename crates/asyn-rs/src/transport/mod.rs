@@ -1,3 +1,4 @@
+#![allow(unused_imports)]
 //! Transport layer for port communication.
 //!
 //! Defines the [`RuntimeClient`] trait and provides [`InProcessClient`]
