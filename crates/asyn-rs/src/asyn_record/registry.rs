@@ -19,6 +19,8 @@ pub struct PortEntry {
 }
 
 /// Global registry of ports (name → PortEntry).
+/// TODO: Migrate to context injection via IocApplication/IocBuilder to support
+/// multiple IOC instances and better test isolation.
 static PORT_REGISTRY: OnceLock<Mutex<HashMap<String, PortEntry>>> = OnceLock::new();
 
 fn get_port_registry() -> &'static Mutex<HashMap<String, PortEntry>> {
