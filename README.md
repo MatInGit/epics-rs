@@ -43,14 +43,48 @@ epics-rs reimplements the core components of C/C++ EPICS in Rust:
 - **Sequencer** — SNL compiler + runtime
 - **Calc engine** — numeric/string/array expressions
 - **Autosave** — PV save/restore
-- **msi** — macro substitution & include tool
+
+## Installation
+
+Add `epics-rs` as a git dependency with feature flags for the modules you need:
+
+```toml
+[dependencies]
+epics-rs = { git = "https://github.com/epics-rs/epics-rs" }
+```
+
+### Feature Flags
+
+| Feature | Description | Default |
+|---------|-------------|---------|
+| `ca` | Channel Access client & server | **yes** |
+| `pva` | pvAccess client (experimental) | no |
+| `asyn` | Async port driver framework | no |
+| `motor` | Motor record + SimMotor | no |
+| `ad` | areaDetector (core + 23 plugins) | no |
+| `calc` | Calc expression engine | no |
+| `autosave` | PV save/restore | no |
+| `busy` | Busy record | no |
+| `seq` | Sequencer runtime | no |
+| `full` | Everything | no |
+
+```toml
+# Motor + areaDetector
+epics-rs = { git = "https://github.com/epics-rs/epics-rs", features = ["motor", "ad"] }
+
+# Everything
+epics-rs = { git = "https://github.com/epics-rs/epics-rs", features = ["full"] }
+```
 
 ## Workspace Structure
 
 ```
 epics-rs/
 ├── crates/
-│   ├── epics-base/       # CA protocol, IOC runtime, 20 record types, iocsh
+│   ├── epics-rs/         # Umbrella crate (feature-gated re-exports)
+│   ├── epics-base/       # Core: IOC runtime, 20 record types, iocsh, db loader
+│   ├── epics-ca/         # Channel Access protocol (client + server)
+│   ├── epics-pva/        # pvAccess protocol (experimental)
 │   ├── epics-macros/     # #[derive(EpicsRecord)] proc macro
 │   ├── asyn/             # Async device I/O framework (port driver model)
 │   ├── motor/            # Motor record + SimMotor
@@ -61,8 +95,7 @@ epics-rs/
 │   ├── snc-core/         # SNL compiler library (lexer, parser, codegen)
 │   ├── snc/              # SNL compiler CLI
 │   ├── autosave/         # PV automatic save/restore
-│   ├── busy/             # Busy record
-│   └── msi/              # Macro substitution & include tool (.template → .db)
+│   └── busy/             # Busy record
 └── examples/
     ├── scope-ioc/        # Digital oscilloscope simulator
     ├── mini-beamline/    # Beamline simulator with 5 motors + detectors
@@ -73,21 +106,23 @@ epics-rs/
 ### Crate Dependency Graph
 
 ```
-epics-base-rs ◄─── epics-macros (proc macro)
-    ▲
-    ├── epics-calc-rs (epics feature)
-    ├── autosave-rs
-    ├── busy-rs
-    ├── seq
-    │    └── snc-core
-    ├── asyn-rs (epics feature)
-    │    └── motor-rs
-    └── ad-core (ioc feature)
-         ├── asyn-rs
-         └── ad-plugins
-              └── asyn-rs
-
-msi-rs (standalone — no EPICS dependency)
+epics-rs (umbrella — feature-gated re-exports)
+    │
+    ├── epics-base-rs ◄─── epics-macros-rs (proc macro)
+    │       ▲
+    │       ├── epics-calc-rs
+    │       ├── autosave-rs
+    │       ├── busy-rs
+    │       ├── epics-seq-rs
+    │       │    └── snc-core-rs
+    │       ├── asyn-rs
+    │       │    └── motor-rs
+    │       └── ad-core-rs
+    │            ├── asyn-rs
+    │            └── ad-plugins-rs
+    │
+    ├── epics-ca-rs (Channel Access protocol)
+    └── epics-pva-rs (pvAccess protocol, experimental)
 ```
 
 ## Architecture: C EPICS vs epics-rs
@@ -247,9 +282,9 @@ C EPICS clients (`caget`, `camonitor`, CSS, PyDM, etc.) also work as-is.
 #### Declarative IOC Builder
 
 ```rust
-use epics_base_rs::server::ioc_app::IocApplication;
-use epics_base_rs::server::records::ao::AoRecord;
-use epics_base_rs::server::records::bi::BiRecord;
+use epics_rs::ca::server::ioc_app::IocApplication;
+use epics_rs::base::server::records::ao::AoRecord;
+use epics_rs::base::server::records::bi::BiRecord;
 
 IocApplication::new()
     .record("TEMP", AoRecord::new(25.0))
@@ -261,7 +296,7 @@ IocApplication::new()
 #### IocApplication (st.cmd Style)
 
 ```rust
-use epics_base_rs::server::ioc_app::IocApplication;
+use epics_rs::ca::server::ioc_app::IocApplication;
 
 IocApplication::new()
     .register_device_support("myDriver", || Box::new(MyDeviceSupport::new()))
@@ -281,7 +316,7 @@ dbLoadRecords("$(MY_DRIVER)/Db/myDriver.db", "P=$(PREFIX)")
 #### CA Client Library
 
 ```rust
-use epics_base_rs::client::CaClient;
+use epics_rs::ca::client::CaClient;
 
 let client = CaClient::new().await?;
 let (_type, value) = client.caget("TEMP").await?;
@@ -290,15 +325,27 @@ client.caput("TEMP", "42.0").await?;
 
 ## Crate Details
 
-### epics-base-rs
+### epics-base-rs (core)
 
-CA protocol client/server, IOC runtime, 20 record types, iocsh, access security, autosave integration.
+IOC runtime, 20 record types, iocsh, .db file loader, access security, autosave integration.
+
+- Record system with `#[derive(EpicsRecord)]` proc macro
+- PvDatabase with record processing chains (FLNK, INP/OUT links)
+- ACF file parser (UAG/HAG/ASG rules)
+- iocsh command interpreter
+
+### epics-ca-rs
+
+Channel Access protocol client and server.
 
 - UDP name resolution + TCP virtual circuit
 - Extended CA header (>64 KB payloads)
-- Beacon emitter, monitor subscriptions
-- ACF file parser (UAG/HAG/ASG rules)
-- pvAccess client (experimental)
+- Beacon emitter with reset on connect/disconnect
+- Monitor subscriptions with deadband filtering
+
+### epics-pva-rs (experimental)
+
+pvAccess protocol client.
 
 ### asyn-rs
 
@@ -621,12 +668,11 @@ pydm opi/pydm/ADTop.ui -m "P=SIM1:,R=cam1:"
 | `ad-plugins` | `parallel` | yes | Rayon data-parallelism for CPU-heavy plugins |
 | `ad-plugins` | `ioc` | no | Plugin IOC support |
 | `ad-plugins` | `hdf5` | no | HDF5 file plugin (HDF5 2.0 built from bundled source, requires cmake) |
-| `msi-rs` | `cli` | no | `msi-rs` CLI binary |
 
 ## Testing
 
 ```bash
-# All tests (1,290+)
+# All tests (1,550+)
 cargo test --workspace
 
 # With optional features
