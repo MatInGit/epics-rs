@@ -407,14 +407,6 @@ PV automatic save/restore:
 - C autosave-compatible `.sav` file format
 - **Runtime iocsh commands** — `fdbrestore`, `fdbsave`, `fdblist`
 
-### msi-rs
-
-Macro substitution & include tool:
-
-- `.template` -> `.db` conversion
-- `$(KEY)`, `${KEY}`, `$(KEY=default)`, `$$` escape
-- C EPICS msi-compatible output
-
 ## Running the Examples
 
 All examples are self-contained IOCs that simulate real hardware. Each one builds from source with no external dependencies beyond Rust and Cargo.
@@ -652,7 +644,6 @@ pydm opi/pydm/ADTop.ui -m "P=SIM1:,R=cam1:"
 |--------|-------------|
 | `softioc-rs` | Soft IOC server |
 | `snc-rs` | SNL compiler |
-| `msi-rs` | Macro substitution tool (cli feature) |
 
 ## Feature Flags
 
@@ -668,9 +659,6 @@ pydm opi/pydm/ADTop.ui -m "P=SIM1:,R=cam1:"
 
 ```bash
 # All tests (1,550+)
-cargo test --workspace
-
-# With all features
 cargo test --workspace
 ```
 
