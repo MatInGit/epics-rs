@@ -27,7 +27,7 @@ pub struct IocBuilder {
     device_factories: HashMap<String, DeviceSupportFactory>,
     record_factories: HashMap<String, RecordFactory>,
     subroutine_registry: HashMap<String, Arc<SubroutineFn>>,
-    autosave_config: Option<autosave::AutosaveConfig>,
+    autosave_config: Option<autosave::SaveSetConfig>,
 }
 
 impl IocBuilder {
@@ -113,8 +113,8 @@ impl IocBuilder {
         self
     }
 
-    /// Configure autosave.
-    pub fn autosave(mut self, config: autosave::AutosaveConfig) -> Self {
+    /// Configure autosave with a save set configuration.
+    pub fn autosave(mut self, config: autosave::SaveSetConfig) -> Self {
         self.autosave_config = Some(config);
         self
     }
@@ -132,7 +132,7 @@ impl IocBuilder {
     ///
     /// Returns the populated database and the optional autosave config (so the
     /// caller can start the autosave loop).
-    pub async fn build(self) -> CaResult<(Arc<PvDatabase>, Option<autosave::AutosaveConfig>)> {
+    pub async fn build(self) -> CaResult<(Arc<PvDatabase>, Option<autosave::SaveSetConfig>)> {
         let db = Arc::new(PvDatabase::new());
 
         // 1. Simple PVs

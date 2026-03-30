@@ -125,8 +125,8 @@ impl CaServerBuilder {
         self
     }
 
-    /// Configure autosave.
-    pub fn autosave(mut self, config: autosave::AutosaveConfig) -> Self {
+    /// Configure autosave with a save set configuration.
+    pub fn autosave(mut self, config: autosave::SaveSetConfig) -> Self {
         self.ioc = self.ioc.autosave(config);
         self
     }
@@ -144,7 +144,7 @@ pub struct CaServer {
     db: Arc<PvDatabase>,
     port: u16,
     acf: Arc<Option<access_security::AccessSecurityConfig>>,
-    autosave_config: Option<autosave::AutosaveConfig>,
+    autosave_config: Option<autosave::SaveSetConfig>,
     autosave_manager: Option<Arc<autosave::AutosaveManager>>,
 }
 
@@ -160,7 +160,7 @@ impl CaServer {
         db: Arc<PvDatabase>,
         port: u16,
         acf: Option<access_security::AccessSecurityConfig>,
-        autosave_config: Option<autosave::AutosaveConfig>,
+        autosave_config: Option<autosave::SaveSetConfig>,
         autosave_manager: Option<Arc<autosave::AutosaveManager>>,
     ) -> Self {
         Self {
@@ -259,17 +259,24 @@ impl CaServer {
 
         let scanner = ScanScheduler::new(db_scan);
 
-        // Spawn autosave: prefer manager (from startup config), fall back to legacy
+        // Spawn autosave: prefer existing manager, otherwise build one from SaveSetConfig
         let autosave_handle = if let Some(ref mgr) = self.autosave_manager {
             let mgr = mgr.clone();
             let db_save = self.db.clone();
             Some(mgr.start(db_save))
         } else if let Some(ref cfg) = self.autosave_config {
-            let db_save = self.db.clone();
-            let cfg = cfg.clone();
-            Some(epics_base_rs::runtime::task::spawn(async move {
-                autosave::run_autosave(db_save, cfg).await;
-            }))
+            let builder = autosave::AutosaveBuilder::new().add_set(cfg.clone());
+            match builder.build().await {
+                Ok(mgr) => {
+                    let mgr = Arc::new(mgr);
+                    let db_save = self.db.clone();
+                    Some(mgr.start(db_save))
+                }
+                Err(e) => {
+                    eprintln!("autosave: failed to start: {e}");
+                    None
+                }
+            }
         } else {
             None
         };

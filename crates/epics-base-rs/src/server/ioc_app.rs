@@ -54,7 +54,7 @@ pub struct IocApplication {
     dynamic_device_factory: Option<DynamicDeviceSupportFactory>,
     subroutine_registry: HashMap<String, Arc<SubroutineFn>>,
     acf: Option<access_security::AccessSecurityConfig>,
-    autosave_config: Option<autosave::AutosaveConfig>,
+    autosave_config: Option<autosave::SaveSetConfig>,
     autosave_startup: Option<Arc<Mutex<AutosaveStartupConfig>>>,
     startup_commands: Vec<CommandDef>,
     shell_commands: Vec<CommandDef>,
@@ -147,8 +147,8 @@ impl IocApplication {
         self
     }
 
-    /// Configure autosave (legacy single-file API).
-    pub fn autosave(mut self, config: autosave::AutosaveConfig) -> Self {
+    /// Configure autosave with a save set configuration.
+    pub fn autosave(mut self, config: autosave::SaveSetConfig) -> Self {
         self.autosave_config = Some(config);
         self
     }
@@ -299,7 +299,7 @@ impl IocApplication {
             }
         }
 
-        // Legacy autosave restore
+        // Autosave restore from SaveSetConfig
         if let Some(ref cfg) = autosave_config {
             let count = autosave::restore_from_file(&db, &cfg.save_path).await?;
             if count > 0 {
