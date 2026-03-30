@@ -7,7 +7,7 @@ pub mod ioc_app;
 pub mod ioc_builder;
 pub mod iocsh;
 pub mod pv;
-pub(crate) mod recgbl;
+pub mod recgbl;
 pub mod record;
 pub mod records;
 pub mod scan;
