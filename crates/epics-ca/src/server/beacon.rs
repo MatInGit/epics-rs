@@ -4,7 +4,7 @@ use tokio::net::UdpSocket;
 use tokio::sync::Notify;
 use std::sync::Arc;
 
-use crate::error::CaResult;
+use epics_base_rs::error::CaResult;
 use crate::protocol::*;
 
 /// Run the beacon emitter. Broadcasts CA_PROTO_RSRV_IS_UP at exponentially
@@ -40,7 +40,7 @@ pub async fn run_beacon_emitter(server_port: u16, reset: Arc<Notify>) -> CaResul
         beacon_id = beacon_id.wrapping_add(1);
 
         tokio::select! {
-            () = crate::runtime::task::sleep(interval) => {
+            () = epics_base_rs::runtime::task::sleep(interval) => {
                 if interval < max_interval {
                     interval = (interval * 2).min(max_interval);
                 }

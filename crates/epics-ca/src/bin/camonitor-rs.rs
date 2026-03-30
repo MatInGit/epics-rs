@@ -1,5 +1,5 @@
 use clap::Parser;
-use epics_base_rs::client::{CaClient, ConnectionEvent};
+use epics_ca_rs::client::{CaClient, ConnectionEvent};
 
 #[derive(Parser)]
 #[command(name = "rcamonitor", about = "Monitor EPICS PVs for changes")]
@@ -18,7 +18,7 @@ async fn main() {
 
     for pv_name in args.pv_names {
         let channel = client.create_channel(&pv_name);
-        let handle = epics_base_rs::runtime::task::spawn(async move {
+        let handle = epics_ca_rs::runtime::task::spawn(async move {
             monitor_pv(channel, &pv_name).await;
         });
         handles.push(handle);
@@ -29,11 +29,11 @@ async fn main() {
     }
 }
 
-async fn monitor_pv(channel: epics_base_rs::client::CaChannel, pv_name: &str) {
+async fn monitor_pv(channel: epics_ca_rs::client::CaChannel, pv_name: &str) {
     // Connection state monitoring (separate task)
     let mut conn_rx = channel.connection_events();
     let pv = pv_name.to_string();
-    epics_base_rs::runtime::task::spawn(async move {
+    epics_ca_rs::runtime::task::spawn(async move {
         while let Ok(evt) = conn_rx.recv().await {
             if let ConnectionEvent::Disconnected = evt {
                 let now = chrono::Local::now().format("%Y-%m-%d %H:%M:%S%.6f");

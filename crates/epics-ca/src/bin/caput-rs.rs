@@ -1,5 +1,5 @@
 use clap::Parser;
-use epics_base_rs::client::CaClient;
+use epics_ca_rs::client::CaClient;
 use std::time::Duration;
 
 #[derive(Parser)]
@@ -40,7 +40,7 @@ async fn main() {
         }
     };
 
-    let value = match epics_base_rs::types::EpicsValue::parse(native_type, &args.value) {
+    let value = match epics_ca_rs::EpicsValue::parse(native_type, &args.value) {
         Ok(v) => v,
         Err(e) => {
             eprintln!("error: {e}");

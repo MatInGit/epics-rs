@@ -11,6 +11,7 @@ readme = "README.md"
 [dependencies]
 asyn-rs = { workspace = true }
 epics-base-rs = { workspace = true, optional = true }
+epics-ca-rs = { workspace = true, optional = true }
 tokio = { version = "1", features = ["sync", "time", "rt", "macros"] }
 tracing = "0.1"
 thiserror = "2"
@@ -18,4 +19,4 @@ parking_lot = "0.12"
 
 [features]
 default = []
-ioc = ["dep:epics-base-rs", "asyn-rs/epics"]
+ioc = ["dep:epics-base-rs", "dep:epics-ca-rs", "asyn-rs/epics"]

@@ -95,12 +95,12 @@ impl SimMotorHolder {
     /// Each device support is consumed once (take semantics).
     pub fn device_support_factory(
         self: &Arc<Self>,
-    ) -> impl Fn(&epics_base_rs::server::ioc_app::DeviceSupportContext) -> Option<Box<dyn epics_base_rs::server::device_support::DeviceSupport>>
+    ) -> impl Fn(&epics_ca_rs::server::ioc_app::DeviceSupportContext) -> Option<Box<dyn epics_base_rs::server::device_support::DeviceSupport>>
            + Send
            + Sync
            + 'static {
         let holder = self.clone();
-        move |ctx: &epics_base_rs::server::ioc_app::DeviceSupportContext| {
+        move |ctx: &epics_ca_rs::server::ioc_app::DeviceSupportContext| {
             let mut motors = holder.motors.lock().unwrap();
             if let Some(slot) = motors.get_mut(ctx.dtyp) {
                 if let Some(ds) = slot.take() {

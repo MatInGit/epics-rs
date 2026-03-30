@@ -4,16 +4,16 @@ use std::sync::Arc;
 use tokio::io::{AsyncReadExt, AsyncWriteExt, BufWriter};
 use tokio::net::tcp::OwnedWriteHalf;
 use tokio::net::TcpListener;
-use crate::runtime::sync::{Mutex, RwLock};
+use epics_base_rs::runtime::sync::{Mutex, RwLock};
 
-use crate::error::CaResult;
+use epics_base_rs::error::CaResult;
 use crate::protocol::*;
-use crate::server::access_security::{AccessLevel, AccessSecurityConfig};
-use crate::server::database::{parse_pv_name, PvDatabase, PvEntry};
+use epics_base_rs::server::access_security::{AccessLevel, AccessSecurityConfig};
+use epics_base_rs::server::database::{parse_pv_name, PvDatabase, PvEntry};
 use crate::server::monitor::spawn_monitor_sender;
-use crate::server::pv::ProcessVariable;
-use crate::server::record::RecordInstance;
-use crate::types::{encode_dbr, native_type_for_dbr, DbFieldType, EpicsValue};
+use epics_base_rs::server::pv::ProcessVariable;
+use epics_base_rs::server::record::RecordInstance;
+use epics_base_rs::types::{encode_dbr, native_type_for_dbr, DbFieldType, EpicsValue};
 
 #[derive(Clone)]
 enum ChannelTarget {
@@ -136,14 +136,14 @@ pub async fn run_tcp_listener(
         let acf = acf.clone();
         let beacon_reset = beacon_reset.clone();
         beacon_reset.notify_one();
-        crate::runtime::task::spawn(async move {
+        epics_base_rs::runtime::task::spawn(async move {
             let result = handle_client(stream, db, acf, actual_port).await;
             beacon_reset.notify_one();
             if let Err(e) = result {
                 // Suppress normal disconnection errors (client closed connection)
                 let is_disconnect = matches!(
                     e,
-                    crate::error::CaError::Io(ref io) if matches!(
+                    epics_base_rs::error::CaError::Io(ref io) if matches!(
                         io.kind(),
                         std::io::ErrorKind::ConnectionReset
                             | std::io::ErrorKind::BrokenPipe
@@ -569,7 +569,7 @@ async fn dispatch_message(
                         }
 
                         let writer_clone = writer.clone();
-                        let task = crate::runtime::task::spawn(async move {
+                        let task = epics_base_rs::runtime::task::spawn(async move {
                             let mut rx = rx;
                             while let Some(event) = rx.recv().await {
                                 let payload_bytes = match encode_dbr(
@@ -718,7 +718,7 @@ async fn dispatch_message(
 }
 async fn get_full_snapshot(
     target: &ChannelTarget,
-) -> Option<crate::server::snapshot::Snapshot> {
+) -> Option<epics_base_rs::server::snapshot::Snapshot> {
     match target {
         ChannelTarget::SimplePv(pv) => Some(pv.snapshot().await),
         ChannelTarget::RecordField { record, field } => {
@@ -731,7 +731,7 @@ async fn send_monitor_snapshot(
     writer: &Arc<Mutex<BufWriter<OwnedWriteHalf>>>,
     sub_id: u32,
     data_type: u16,
-    snapshot: &crate::server::snapshot::Snapshot,
+    snapshot: &epics_base_rs::server::snapshot::Snapshot,
 ) -> CaResult<()> {
     let data = encode_dbr(data_type, snapshot)?;
     let element_count = snapshot.value.count() as u32;

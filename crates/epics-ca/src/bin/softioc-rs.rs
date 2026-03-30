@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 use clap::Parser;
 use epics_base_rs::error::CaResult;
-use epics_base_rs::server::CaServer;
+use epics_ca_rs::server::CaServer;
 use epics_base_rs::server::records::{
     ai::AiRecord, ao::AoRecord, bi::BiRecord, bo::BoRecord,
     stringin::StringinRecord, stringout::StringoutRecord,

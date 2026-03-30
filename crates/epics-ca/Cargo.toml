@@ -1,0 +1,39 @@
+[package]
+name = "epics-ca-rs"
+version.workspace = true
+edition.workspace = true
+description = "EPICS Channel Access protocol client and server"
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
+
+[dependencies]
+epics-base-rs = { workspace = true }
+tokio = { version = "1", features = ["full"] }
+chrono = "0.4"
+clap = { version = "4", features = ["derive"] }
+socket2 = { version = "0.5", features = ["all"] }
+
+[[bin]]
+name = "caget-rs"
+path = "src/bin/caget-rs.rs"
+
+[[bin]]
+name = "caput-rs"
+path = "src/bin/caput-rs.rs"
+
+[[bin]]
+name = "camonitor-rs"
+path = "src/bin/camonitor-rs.rs"
+
+[[bin]]
+name = "cainfo-rs"
+path = "src/bin/cainfo-rs.rs"
+
+[[bin]]
+name = "ca-repeater-rs"
+path = "src/bin/ca-repeater-rs.rs"
+
+[[bin]]
+name = "softioc-rs"
+path = "src/bin/softioc-rs.rs"

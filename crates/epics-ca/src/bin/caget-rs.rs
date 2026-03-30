@@ -1,5 +1,5 @@
 use clap::Parser;
-use epics_base_rs::client::CaClient;
+use epics_ca_rs::client::CaClient;
 
 #[derive(Parser)]
 #[command(name = "rcaget", about = "Read EPICS PV values")]

@@ -10,14 +10,14 @@ use std::net::{Ipv4Addr, SocketAddr, SocketAddrV4};
 
 use std::time::Duration;
 
-use crate::runtime::sync::{broadcast, mpsc, oneshot};
+use epics_base_rs::runtime::sync::{broadcast, mpsc, oneshot};
 
 use crate::channel::{alloc_cid, alloc_ioid, alloc_subid, AccessRights, ChannelInfo};
-use crate::error::{CaError, CaResult};
+use epics_base_rs::error::{CaError, CaResult};
 use crate::protocol::*;
 use crate::repeater;
-use crate::server::snapshot::{DbrClass, Snapshot};
-use crate::types::{DbFieldType, EpicsValue, decode_dbr};
+use epics_base_rs::server::snapshot::{DbrClass, Snapshot};
+use epics_base_rs::types::{DbFieldType, EpicsValue, decode_dbr};
 
 pub use state::{ChannelState, ConnectionEvent};
 
@@ -91,7 +91,7 @@ struct ChannelSnapshot {
 impl CaClient {
     pub async fn new() -> CaResult<Self> {
         // Run repeater registration in background — don't block client startup.
-        crate::runtime::task::spawn(async { repeater::ensure_repeater().await });
+        epics_base_rs::runtime::task::spawn(async { repeater::ensure_repeater().await });
 
         let addr_list = parse_addr_list()?;
 
@@ -103,18 +103,18 @@ impl CaClient {
 
         let (coord_tx, coord_rx) = mpsc::unbounded_channel();
 
-        let search_task = crate::runtime::task::spawn(search::run_search_engine(
+        let search_task = epics_base_rs::runtime::task::spawn(search::run_search_engine(
             addr_list,
             search_rx,
             search_resp_tx,
         ));
 
-        let transport_task = crate::runtime::task::spawn(transport::run_transport_manager(
+        let transport_task = epics_base_rs::runtime::task::spawn(transport::run_transport_manager(
             transport_rx,
             transport_evt_tx,
         ));
 
-        let coordinator = crate::runtime::task::spawn(run_coordinator(
+        let coordinator = epics_base_rs::runtime::task::spawn(run_coordinator(
             coord_rx,
             search_resp_rx,
             transport_evt_rx,
@@ -852,7 +852,7 @@ fn resolve_host(host: &str, port: u16) -> CaResult<SocketAddr> {
 fn parse_addr_list() -> CaResult<Vec<SocketAddr>> {
     let mut addrs = Vec::new();
 
-    if let Some(list) = crate::runtime::env::get("EPICS_CA_ADDR_LIST") {
+    if let Some(list) = epics_base_rs::runtime::env::get("EPICS_CA_ADDR_LIST") {
         for entry in list.split_whitespace() {
             let addr = if entry.contains(':') {
                 // Try direct parse first, fall back to DNS resolution
@@ -870,7 +870,7 @@ fn parse_addr_list() -> CaResult<Vec<SocketAddr>> {
         }
     }
 
-    let auto_addr = crate::runtime::env::get_or("EPICS_CA_AUTO_ADDR_LIST", "YES");
+    let auto_addr = epics_base_rs::runtime::env::get_or("EPICS_CA_AUTO_ADDR_LIST", "YES");
 
     if auto_addr.eq_ignore_ascii_case("YES") || addrs.is_empty() {
         addrs.push(SocketAddr::V4(SocketAddrV4::new(

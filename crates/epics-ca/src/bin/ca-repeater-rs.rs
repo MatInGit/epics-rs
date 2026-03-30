@@ -1,4 +1,4 @@
-use epics_base_rs::repeater::run_repeater;
+use epics_ca_rs::repeater::run_repeater;
 
 #[tokio::main]
 async fn main() {

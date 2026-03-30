@@ -2,7 +2,7 @@ use std::fmt;
 use std::net::SocketAddr;
 
 use crate::channel::AccessRights;
-use crate::types::DbFieldType;
+use epics_base_rs::types::DbFieldType;
 
 /// Channel lifecycle states
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -47,9 +47,9 @@ pub(crate) struct ChannelInner {
     /// Access rights
     pub access_rights: AccessRights,
     /// Waiters for connection (oneshot senders)
-    pub connect_waiters: Vec<crate::runtime::sync::oneshot::Sender<()>>,
+    pub connect_waiters: Vec<epics_base_rs::runtime::sync::oneshot::Sender<()>>,
     /// Connection event broadcaster
-    pub conn_tx: crate::runtime::sync::broadcast::Sender<ConnectionEvent>,
+    pub conn_tx: epics_base_rs::runtime::sync::broadcast::Sender<ConnectionEvent>,
 }
 
 /// Connection state change events

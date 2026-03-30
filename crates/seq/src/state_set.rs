@@ -2,7 +2,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
-use epics_base_rs::client::CaChannel;
+use epics_ca_rs::client::CaChannel;
 use tokio::sync::{Mutex as TokioMutex, Notify};
 
 use crate::channel::Channel;

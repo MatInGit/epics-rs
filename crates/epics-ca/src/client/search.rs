@@ -3,7 +3,7 @@ use std::net::{Ipv4Addr, SocketAddr};
 use std::time::{Duration, Instant};
 
 use tokio::net::UdpSocket;
-use crate::runtime::sync::mpsc;
+use epics_base_rs::runtime::sync::mpsc;
 
 use crate::protocol::*;
 
@@ -43,7 +43,7 @@ pub(crate) async fn run_search_engine(
             .min()
             .unwrap_or_else(|| Instant::now() + Duration::from_secs(3600));
 
-        let sleep = crate::runtime::task::sleep_until(next_deadline);
+        let sleep = epics_base_rs::runtime::task::sleep_until(next_deadline);
 
         tokio::select! {
             req = request_rx.recv() => {

@@ -3,7 +3,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use std::time::Duration;
 
-use epics_base_rs::client::{CaChannel, CaClient, ConnectionEvent};
+use epics_ca_rs::client::{CaChannel, CaClient, ConnectionEvent};
 use tokio::sync::Notify;
 
 use crate::channel_store::ChannelStore;

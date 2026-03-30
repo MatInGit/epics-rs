@@ -4,7 +4,7 @@ use std::sync::Arc;
 
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::TcpStream;
-use crate::runtime::sync::{mpsc, Mutex};
+use epics_base_rs::runtime::sync::{mpsc, Mutex};
 
 use crate::channel::AccessRights;
 use crate::protocol::*;
@@ -241,15 +241,15 @@ async fn connect_server(
         version_hdr.count = CA_MINOR_VERSION;
         w.write_all(&version_hdr.to_bytes()).await.ok()?;
 
-        let hostname = crate::runtime::env::hostname();
+        let hostname = epics_base_rs::runtime::env::hostname();
         let host_payload = pad_string(&hostname);
         let mut host_hdr = CaHeader::new(CA_PROTO_HOST_NAME);
         host_hdr.postsize = host_payload.len() as u16;
         w.write_all(&host_hdr.to_bytes()).await.ok()?;
         w.write_all(&host_payload).await.ok()?;
 
-        let username = crate::runtime::env::get("USER")
-            .or_else(|| crate::runtime::env::get("USERNAME"))
+        let username = epics_base_rs::runtime::env::get("USER")
+            .or_else(|| epics_base_rs::runtime::env::get("USERNAME"))
             .unwrap_or_else(|| "unknown".to_string());
         let user_payload = pad_string(&username);
         let mut user_hdr = CaHeader::new(CA_PROTO_CLIENT_NAME);
@@ -260,7 +260,7 @@ async fn connect_server(
         w.flush().await.ok()?;
     }
 
-    let read_task = crate::runtime::task::spawn(read_loop(reader, server_addr, event_tx, writer.clone()));
+    let read_task = epics_base_rs::runtime::task::spawn(read_loop(reader, server_addr, event_tx, writer.clone()));
 
     Some(ServerConnection {
         writer,

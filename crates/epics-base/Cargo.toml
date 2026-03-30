@@ -19,28 +19,9 @@ epics-macros = { workspace = true }
 rustyline = "14"
 
 [dev-dependencies]
+epics-ca-rs = { workspace = true }
 tempfile = "3"
 serial_test = "3"
-
-[[bin]]
-name = "caget-rs"
-path = "src/bin/caget-rs.rs"
-
-[[bin]]
-name = "caput-rs"
-path = "src/bin/caput-rs.rs"
-
-[[bin]]
-name = "camonitor-rs"
-path = "src/bin/camonitor-rs.rs"
-
-[[bin]]
-name = "cainfo-rs"
-path = "src/bin/cainfo-rs.rs"
-
-[[bin]]
-name = "ca-repeater-rs"
-path = "src/bin/ca-repeater-rs.rs"
 
 [[bin]]
 name = "pvaget-rs"
@@ -57,7 +38,3 @@ path = "src/bin/pvamonitor-rs.rs"
 [[bin]]
 name = "pvainfo-rs"
 path = "src/bin/pvainfo-rs.rs"
-
-[[bin]]
-name = "softioc-rs"
-path = "src/bin/softioc-rs.rs"

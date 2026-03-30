@@ -2,7 +2,7 @@ use std::sync::Arc;
 
 use asyn_rs::port_handle::PortHandle;
 use asyn_rs::trace::TraceManager;
-use epics_base_rs::server::ioc_app::IocApplication;
+use epics_ca_rs::server::ioc_app::IocApplication;
 
 use crate::plugin::registry::{build_plugin_base_registry, ParamRegistry};
 use crate::plugin::runtime::PluginRuntimeHandle;
@@ -132,7 +132,7 @@ impl PluginManager {
         app: IocApplication,
     ) -> IocApplication {
         let mgr = self.clone();
-        app.register_dynamic_device_support(move |ctx: &epics_base_rs::server::ioc_app::DeviceSupportContext| {
+        app.register_dynamic_device_support(move |ctx: &epics_ca_rs::server::ioc_app::DeviceSupportContext| {
             let plugins = mgr.plugins.lock();
             // Exact DTYP match (port-based: "asynIMAGE1", "asynSTATS1", etc.)
             for p in plugins.iter() {

@@ -16,7 +16,7 @@ use std::sync::Arc;
 
 use asyn_rs::trace::TraceManager;
 use epics_base_rs::error::CaResult;
-use epics_base_rs::server::ioc_app::IocApplication;
+use epics_ca_rs::server::ioc_app::IocApplication;
 use epics_base_rs::server::iocsh::registry::*;
 
 use ad_core::ioc::{PluginManager, register_noop_commands};

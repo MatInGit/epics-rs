@@ -8,6 +8,7 @@ version = "0.6.1"
 dependencies = [
  "asyn-rs",
  "epics-base-rs",
+ "epics-ca-rs",
  "parking_lot",
  "thiserror",
  "tokio",
@@ -21,6 +22,7 @@ dependencies = [
  "ad-core",
  "asyn-rs",
  "epics-base-rs",
+ "epics-ca-rs",
  "hdf5-metno",
  "jpeg-decoder",
  "jpeg-encoder",
@@ -177,6 +179,7 @@ name = "busy-rs"
 version = "0.6.1"
 dependencies = [
  "epics-base-rs",
+ "epics-ca-rs",
  "tokio",
 ]
 
@@ -425,6 +428,7 @@ dependencies = [
  "bytes",
  "chrono",
  "clap",
+ "epics-ca-rs",
  "epics-macros",
  "hostname",
  "rustyline",
@@ -432,6 +436,17 @@ dependencies = [
  "socket2 0.5.10",
  "tempfile",
  "thiserror",
+ "tokio",
+]
+
+[[package]]
+name = "epics-ca-rs"
+version = "0.6.1"
+dependencies = [
+ "chrono",
+ "clap",
+ "epics-base-rs",
+ "socket2 0.5.10",
  "tokio",
 ]
 
@@ -456,6 +471,7 @@ name = "epics-seq"
 version = "0.6.1"
 dependencies = [
  "epics-base-rs",
+ "epics-ca-rs",
  "thiserror",
  "tokio",
  "tracing",
@@ -894,6 +910,7 @@ dependencies = [
  "ad-plugins",
  "asyn-rs",
  "epics-base-rs",
+ "epics-ca-rs",
  "libm",
  "motor-rs",
  "parking_lot",
@@ -936,6 +953,7 @@ dependencies = [
  "bitflags",
  "criterion",
  "epics-base-rs",
+ "epics-ca-rs",
  "tokio",
  "tracing",
 ]
@@ -1065,6 +1083,7 @@ dependencies = [
  "ad-plugins",
  "asyn-rs",
  "epics-base-rs",
+ "epics-ca-rs",
  "libm",
  "motor-rs",
  "parking_lot",
@@ -1273,6 +1292,7 @@ name = "random-signals"
 version = "0.6.1"
 dependencies = [
  "epics-base-rs",
+ "epics-ca-rs",
  "rand",
  "tokio",
 ]
@@ -1420,6 +1440,7 @@ version = "0.6.1"
 dependencies = [
  "asyn-rs",
  "epics-base-rs",
+ "epics-ca-rs",
  "parking_lot",
  "tokio",
 ]

@@ -25,7 +25,7 @@ fn free_port() -> u16 {
 /// a connected `CaClient` whose ADDR_LIST points at that server.
 async fn setup(
     pvs: Vec<(&str, EpicsValue)>,
-) -> CaResult<epics_base_rs::client::CaClient> {
+) -> CaResult<epics_ca_rs::client::CaClient> {
     let db = Arc::new(PvDatabase::new());
     for (name, val) in pvs {
         db.add_pv(name, val).await;
@@ -39,7 +39,7 @@ async fn setup(
     let acf_clone = acf.clone();
     tokio::spawn(async move {
         let beacon_reset = std::sync::Arc::new(tokio::sync::Notify::new());
-        let _ = epics_base_rs::server::tcp::run_tcp_listener(db_tcp, 0, acf_clone, tcp_tx, beacon_reset).await;
+        let _ = epics_ca_rs::server::tcp::run_tcp_listener(db_tcp, 0, acf_clone, tcp_tx, beacon_reset).await;
     });
     let tcp_port = tcp_rx.await.expect("TCP listener started");
 
@@ -47,7 +47,7 @@ async fn setup(
     let udp_port = free_port();
     let db_udp = db.clone();
     tokio::spawn(async move {
-        let _ = epics_base_rs::server::udp::run_udp_search_responder(db_udp, udp_port, tcp_port).await;
+        let _ = epics_ca_rs::server::udp::run_udp_search_responder(db_udp, udp_port, tcp_port).await;
     });
     // Give UDP socket a moment to bind
     tokio::time::sleep(Duration::from_millis(50)).await;
@@ -58,7 +58,7 @@ async fn setup(
         std::env::set_var("EPICS_CA_AUTO_ADDR_LIST", "NO");
     }
 
-    epics_base_rs::client::CaClient::new().await
+    epics_ca_rs::client::CaClient::new().await
 }
 
 // ---------------------------------------------------------------------------

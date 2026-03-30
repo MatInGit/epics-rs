@@ -9,7 +9,7 @@
 use std::time::Duration;
 
 use epics_base_rs::error::CaResult;
-use epics_base_rs::server::CaServer;
+use epics_ca_rs::server::CaServer;
 use epics_base_rs::types::EpicsValue;
 use rand::rngs::SmallRng;
 use rand::{Rng, SeedableRng};

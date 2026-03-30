@@ -10,6 +10,7 @@ readme = "README.md"
 
 [dependencies]
 epics-base-rs = { workspace = true }
+epics-ca-rs = { workspace = true }
 asyn-rs = { workspace = true }
 tokio = { version = "1", features = ["sync", "time", "rt", "macros"] }
 bitflags = "2"

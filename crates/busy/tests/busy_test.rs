@@ -1,5 +1,5 @@
 use busy_rs::BusyRecord;
-use epics_base_rs::server::CaServerBuilder;
+use epics_ca_rs::server::CaServerBuilder;
 use epics_base_rs::server::record::Record;
 use epics_base_rs::types::EpicsValue;
 use std::collections::HashMap;

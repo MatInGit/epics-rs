@@ -1,4 +1,4 @@
-use crate::types::DbFieldType;
+use epics_base_rs::types::DbFieldType;
 use std::fmt;
 use std::net::SocketAddr;
 use std::sync::atomic::{AtomicU32, Ordering};

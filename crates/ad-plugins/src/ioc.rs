@@ -14,7 +14,7 @@ use ad_core::plugin::wiring::WiringRegistry;
 use asyn_rs::trace::TraceManager;
 use epics_base_rs::error::CaResult;
 use epics_base_rs::server::autosave::AutosaveStartupConfig;
-use epics_base_rs::server::ioc_app::IocApplication;
+use epics_ca_rs::server::ioc_app::IocApplication;
 use epics_base_rs::server::iocsh::registry::*;
 
 /// Register all standard areaDetector plugin configure commands.
@@ -425,7 +425,7 @@ impl AdIoc {
     /// Register a dynamic device support factory (dispatches by context).
     pub fn register_dynamic_device_support<F>(&mut self, factory: F)
     where
-        F: Fn(&epics_base_rs::server::ioc_app::DeviceSupportContext) -> Option<Box<dyn epics_base_rs::server::device_support::DeviceSupport>>
+        F: Fn(&epics_ca_rs::server::ioc_app::DeviceSupportContext) -> Option<Box<dyn epics_base_rs::server::device_support::DeviceSupport>>
             + Send
             + Sync
             + 'static,

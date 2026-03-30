@@ -12,4 +12,5 @@ readme = "README.md"
 epics-base-rs = { workspace = true }
 
 [dev-dependencies]
+epics-ca-rs = { workspace = true }
 tokio = { version = "1", features = ["full", "test-util"] }

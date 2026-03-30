@@ -6,13 +6,14 @@ description = "Scope simulator IOC — port of EPICS testAsynPortDriver"
 publish = false
 
 [features]
-ioc = ["dep:epics-base-rs", "asyn-rs/epics"]
+ioc = ["dep:epics-base-rs", "dep:epics-ca-rs", "asyn-rs/epics"]
 
 [dependencies]
 asyn-rs = { workspace = true }
 parking_lot = "0.12"
 tokio = { version = "1", features = ["sync", "time", "rt", "rt-multi-thread", "macros"] }
 epics-base-rs = { workspace = true, optional = true }
+epics-ca-rs = { workspace = true, optional = true }
 
 [[bin]]
 name = "scope_ioc"

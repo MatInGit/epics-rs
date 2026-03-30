@@ -18,7 +18,7 @@ use asyn_rs::user::AsynUser;
 
 use epics_base_rs::error::{CaError, CaResult};
 use epics_base_rs::server::device_support::DeviceSupport;
-use epics_base_rs::server::ioc_app::IocApplication;
+use epics_ca_rs::server::ioc_app::IocApplication;
 use epics_base_rs::server::iocsh::registry::*;
 use epics_base_rs::server::record::{Record, ScanType};
 use epics_base_rs::types::EpicsValue;

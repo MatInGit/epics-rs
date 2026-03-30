@@ -4,7 +4,7 @@ use std::pin::Pin;
 use std::sync::atomic::AtomicBool;
 use std::sync::Arc;
 
-use epics_base_rs::client::CaClient;
+use epics_ca_rs::client::CaClient;
 use tokio::sync::Notify;
 
 use crate::channel::Channel;

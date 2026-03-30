@@ -1,9 +1,9 @@
 use std::collections::HashMap;
 
-use crate::runtime::sync::mpsc;
+use epics_base_rs::runtime::sync::mpsc;
 
-use crate::error::CaResult;
-use crate::types::{DbFieldType, EpicsValue, decode_dbr};
+use epics_base_rs::error::CaResult;
+use epics_base_rs::types::{DbFieldType, EpicsValue, decode_dbr};
 
 use super::types::TransportCommand;
 

@@ -2,8 +2,9 @@ use std::net::SocketAddr;
 
 use super::env;
 
-// Re-export canonical port constants
-pub use crate::protocol::{CA_REPEATER_PORT, CA_SERVER_PORT};
+// CA port constants (originally from protocol.rs, now in epics-ca-rs)
+pub const CA_SERVER_PORT: u16 = 5064;
+pub const CA_REPEATER_PORT: u16 = 5065;
 pub use crate::pva::protocol::{PVA_BROADCAST_PORT, PVA_SERVER_PORT};
 
 /// Returns the CA server port, allowing override via `EPICS_CA_SERVER_PORT`.

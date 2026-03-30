@@ -1,4 +1,4 @@
-use epics_base_rs::server::ioc_app::IocApplication;
+use epics_ca_rs::server::ioc_app::IocApplication;
 use epics_base_rs::server::iocsh::registry::*;
 
 /// Standard C-compatible arg descriptors for plugin configure commands.

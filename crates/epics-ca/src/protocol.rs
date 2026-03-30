@@ -1,4 +1,4 @@
-use crate::error::{CaError, CaResult};
+use epics_base_rs::error::{CaError, CaResult};
 
 // CA protocol command codes
 pub const CA_PROTO_VERSION: u16 = 0;

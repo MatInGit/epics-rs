@@ -2,11 +2,11 @@ use std::sync::Arc;
 use tokio::io::{AsyncWriteExt, BufWriter};
 use tokio::net::tcp::OwnedWriteHalf;
 
-use crate::runtime::sync::{mpsc, Mutex};
+use epics_base_rs::runtime::sync::{mpsc, Mutex};
 
 use crate::protocol::*;
-use crate::server::pv::{MonitorEvent, ProcessVariable};
-use crate::types::encode_dbr;
+use epics_base_rs::server::pv::{MonitorEvent, ProcessVariable};
+use epics_base_rs::types::encode_dbr;
 
 /// Spawn a task that forwards monitor events from a PV subscription to the client TCP stream.
 /// Returns a handle that can be used to cancel the subscription.
@@ -17,7 +17,7 @@ pub fn spawn_monitor_sender(
     writer: Arc<Mutex<BufWriter<OwnedWriteHalf>>>,
     mut rx: mpsc::Receiver<MonitorEvent>,
 ) -> tokio::task::JoinHandle<()> {
-    crate::runtime::task::spawn(async move {
+    epics_base_rs::runtime::task::spawn(async move {
         while let Some(event) = rx.recv().await {
             let payload = match encode_dbr(data_type, &event.snapshot) {
                 Ok(bytes) => bytes,

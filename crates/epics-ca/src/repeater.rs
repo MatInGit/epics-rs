@@ -72,7 +72,7 @@ pub async fn ensure_repeater() {
     spawn_repeater();
 
     // Give it a moment to start, then register
-    crate::runtime::task::sleep(std::time::Duration::from_millis(50)).await;
+    epics_base_rs::runtime::task::sleep(std::time::Duration::from_millis(50)).await;
     let _ = try_register().await;
 }
 

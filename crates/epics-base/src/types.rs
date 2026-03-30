@@ -1500,7 +1500,7 @@ mod tests {
     #[test]
     fn test_golden_header_read_notify() {
         // Verify CaHeader bytes for a READ_NOTIFY response
-        use crate::protocol::*;
+        use epics_ca_rs::protocol::*;
         let mut hdr = CaHeader::new(CA_PROTO_READ_NOTIFY);
         hdr.data_type = 20; // DBR_TIME_DOUBLE
         hdr.set_payload_size(24, 1);

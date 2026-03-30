@@ -55,17 +55,23 @@ pub enum CaError {
     Shutdown,
 }
 
+// ECA status constants (originally from protocol.rs, now in epics-ca-rs)
+const ECA_TIMEOUT: u32 = 80;       // defmsg(CA_K_WARNING, 10)
+const ECA_NOWTACCESS: u32 = 376;   // defmsg(CA_K_WARNING, 47)
+const ECA_PUTFAIL: u32 = 160;      // defmsg(CA_K_WARNING, 20)
+const ECA_BADTYPE: u32 = 114;      // defmsg(CA_K_ERROR, 14)
+
 impl CaError {
     pub fn to_eca_status(&self) -> u32 {
         match self {
-            CaError::Timeout => crate::protocol::ECA_TIMEOUT,
-            CaError::ReadOnlyField(_) => crate::protocol::ECA_NOWTACCESS,
-            CaError::PutDisabled(_) => crate::protocol::ECA_PUTFAIL,
-            CaError::TypeMismatch(_) => crate::protocol::ECA_BADTYPE,
-            CaError::UnsupportedType(_) => crate::protocol::ECA_BADTYPE,
-            CaError::InvalidValue(_) => crate::protocol::ECA_BADTYPE,
-            CaError::FieldNotFound(_) => crate::protocol::ECA_PUTFAIL,
-            _ => crate::protocol::ECA_PUTFAIL,
+            CaError::Timeout => ECA_TIMEOUT,
+            CaError::ReadOnlyField(_) => ECA_NOWTACCESS,
+            CaError::PutDisabled(_) => ECA_PUTFAIL,
+            CaError::TypeMismatch(_) => ECA_BADTYPE,
+            CaError::UnsupportedType(_) => ECA_BADTYPE,
+            CaError::InvalidValue(_) => ECA_BADTYPE,
+            CaError::FieldNotFound(_) => ECA_PUTFAIL,
+            _ => ECA_PUTFAIL,
         }
     }
 }

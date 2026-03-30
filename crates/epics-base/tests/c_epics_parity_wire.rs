@@ -5,7 +5,7 @@
 //!   - DB loader: modules/database/test/ioc/db/dbStaticTest.c
 //!   - autosave: modules/database/test/std/rec/asTestLib.c
 
-use epics_base_rs::protocol::{CaHeader, CA_PROTO_VERSION, CA_PROTO_SEARCH, CA_PROTO_READ_NOTIFY,
+use epics_ca_rs::protocol::{CaHeader, CA_PROTO_VERSION, CA_PROTO_SEARCH, CA_PROTO_READ_NOTIFY,
     CA_PROTO_WRITE_NOTIFY, CA_PROTO_RSRV_IS_UP, pad_string, align8};
 use epics_base_rs::types::{DbFieldType, EpicsValue};
 
