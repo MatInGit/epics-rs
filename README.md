@@ -651,7 +651,7 @@ pydm opi/pydm/ADTop.ui -m "P=SIM1:,R=cam1:"
 | Binary | Description |
 |--------|-------------|
 | `softioc-rs` | Soft IOC server |
-| `snc` | SNL compiler |
+| `snc-rs` | SNL compiler |
 | `msi-rs` | Macro substitution tool (cli feature) |
 
 ## Feature Flags
