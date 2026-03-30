@@ -6,9 +6,9 @@
     clippy::type_complexity
 )]
 
-pub mod fields;
+pub(crate) mod fields;
 pub mod flags;
-pub mod coordinate;
+pub(crate) mod coordinate;
 pub mod device_state;
 pub mod record;
 pub mod device_support;
@@ -18,8 +18,6 @@ pub mod builder;
 pub mod axis_runtime;
 pub mod ioc;
 
-pub use fields::*;
-pub use flags::*;
 pub use record::MotorRecord;
 pub use builder::MotorBuilder;
 pub use axis_runtime::{AxisHandle, AxisRuntime};
