@@ -64,7 +64,7 @@ async fn main() -> CaResult<()> {
     );
     epics_base_rs::runtime::env::set_default(
         "ADCORE",
-        concat!(env!("CARGO_MANIFEST_DIR"), "/../../crates/ad-core"),
+        concat!(env!("CARGO_MANIFEST_DIR"), "/../../crates/ad-core-rs"),
     );
 
     let script = if args.len() > 1 && !args[1].starts_with('-') {

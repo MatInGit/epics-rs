@@ -109,7 +109,7 @@ async fn main() -> CaResult<()> {
 
     // Set macro paths so st.cmd can resolve $(MINI_BEAMLINE)/db/... and $(ADCORE)/ioc/...
     epics_base_rs::runtime::env::set_default("MINI_BEAMLINE", env!("CARGO_MANIFEST_DIR"));
-    epics_base_rs::runtime::env::set_default("ADCORE", concat!(env!("CARGO_MANIFEST_DIR"), "/../../crates/ad-core"));
+    epics_base_rs::runtime::env::set_default("ADCORE", concat!(env!("CARGO_MANIFEST_DIR"), "/../../crates/ad-core-rs"));
 
     let script = if args.len() > 1 && !args[1].starts_with('-') {
         args[1].clone()
@@ -125,6 +125,11 @@ async fn main() -> CaResult<()> {
     let mgr = PluginManager::new(trace.clone());
     let holder = BeamlineHolder::new(trace.clone());
 
+    // Enable autosave startup commands (set_savefile_path, create_monitor_set, etc.)
+    let autosave_config = Arc::new(std::sync::Mutex::new(
+        epics_base_rs::server::autosave::startup::AutosaveStartupConfig::new()
+    ));
+
     let mut app = IocApplication::new();
     app = app.port(
         std::env::var("EPICS_CA_SERVER_PORT")
@@ -132,6 +137,7 @@ async fn main() -> CaResult<()> {
             .and_then(|s| s.parse().ok())
             .unwrap_or(5064),
     );
+    app = app.autosave_startup(autosave_config);
 
     // ========================================================================
     // Startup command: miniBeamlineConfig

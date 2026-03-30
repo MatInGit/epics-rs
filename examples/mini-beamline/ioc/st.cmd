@@ -53,3 +53,9 @@ epicsEnvSet("NCHANS",  "2048")
 epicsEnvSet("CBUFFS",  "500")
 epicsEnvSet("EPICS_DB_INCLUDE_PATH", "$(ADCORE)/db")
 < $(ADCORE)/ioc/commonPlugins.cmd
+
+# ===== Autosave =====
+set_savefile_path("$(MINI_BEAMLINE)/ioc/autosave")
+set_requestfile_path("$(MINI_BEAMLINE)/ioc/autosave")
+set_pass0_restoreFile("mini_positions.sav")
+create_monitor_set("mini_positions.req", 5)

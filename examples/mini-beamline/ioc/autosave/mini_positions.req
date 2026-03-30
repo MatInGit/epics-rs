@@ -1,0 +1,11 @@
+# Motor positions
+mini:ph:mtr.VAL
+mini:ph:mtr.OFF
+mini:edge:mtr.VAL
+mini:edge:mtr.OFF
+mini:slit:mtr.VAL
+mini:slit:mtr.OFF
+mini:dot:mtrx.VAL
+mini:dot:mtrx.OFF
+mini:dot:mtry.VAL
+mini:dot:mtry.OFF

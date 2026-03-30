@@ -37,7 +37,7 @@ pub fn set_default(name: &str, value: &str) {
 /// Usage:
 /// ```ignore
 /// // In a binary crate, set ADCORE pointing to the ad-core crate:
-/// epics_base_rs::runtime::env::set_crate_path("ADCORE", env!("CARGO_MANIFEST_DIR"), "../../crates/ad-core");
+/// epics_base_rs::runtime::env::set_crate_path("ADCORE", env!("CARGO_MANIFEST_DIR"), "../../crates/ad-core-rs");
 /// ```
 pub fn set_crate_path(name: &str, manifest_dir: &str, relative: &str) {
     set_default(name, &format!("{manifest_dir}/{relative}"));
