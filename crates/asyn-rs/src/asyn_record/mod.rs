@@ -1,6 +1,15 @@
 pub mod registry;
 pub use registry::{register_port, register_asyn_record_type, get_port, PortEntry};
 
+use std::sync::Arc;
+
+use epics_base_rs::error::{CaError, CaResult};
+use epics_base_rs::server::record::{FieldDesc, Record, RecordProcessResult};
+use epics_base_rs::types::{DbFieldType, EpicsValue};
+
+use crate::port_handle::PortHandle;
+use crate::trace::{TraceFile, TraceInfoMask, TraceIoMask, TraceMask, TraceManager};
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[repr(u16)]
 enum TransferMode {
@@ -613,7 +622,7 @@ impl AsynRecord {
             return;
         }
 
-        match lookup_port(&self.port) {
+        match registry::get_port(&self.port) {
             Some(entry) => {
                 // Resolve drvinfo → reason if specified
                 if !self.drvinfo.is_empty() {
@@ -1347,7 +1356,7 @@ mod tests {
     }
 
     #[test]
-    fn test_register_and_lookup_port() {
+    fn test_register_and_get_port() {
         use crate::interrupt::InterruptManager;
         use crate::port::{PortDriverBase, PortDriver, PortFlags};
         use crate::port_actor::PortActor;
@@ -1373,7 +1382,7 @@ mod tests {
 
         register_port("test_asyn_rec", handle, trace);
 
-        let entry = lookup_port("test_asyn_rec");
+        let entry = registry::get_port("test_asyn_rec");
         assert!(entry.is_some());
         assert_eq!(entry.unwrap().handle.port_name(), "test_asyn_rec");
     }

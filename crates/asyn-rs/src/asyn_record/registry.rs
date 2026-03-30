@@ -6,12 +6,8 @@
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex, OnceLock};
 
-use epics_base_rs::error::{CaError, CaResult};
-use epics_base_rs::server::record::{FieldDesc, Record, RecordProcessResult};
-use epics_base_rs::types::{DbFieldType, EpicsValue};
-
 use crate::port_handle::PortHandle;
-use crate::trace::{TraceFile, TraceInfoMask, TraceIoMask, TraceMask, TraceManager};
+use crate::trace::TraceManager;
 
 // ===== Global Port Registry =====
 
@@ -37,7 +33,7 @@ pub fn register_port(name: &str, handle: PortHandle, trace: Arc<TraceManager>) {
 }
 
 /// Look up a port by name.
-fn lookup_port(name: &str) -> Option<PortEntry> {
+pub fn get_port(name: &str) -> Option<PortEntry> {
     let reg = get_port_registry().lock().ok()?;
     reg.get(name).cloned()
 }
@@ -47,7 +43,7 @@ fn lookup_port(name: &str) -> Option<PortEntry> {
 pub fn register_asyn_record_type() {
     epics_base_rs::server::db_loader::register_record_type(
         "asyn",
-        Box::new(|| Box::new(AsynRecord::default())),
+        Box::new(|| Box::new(super::AsynRecord::default())),
     );
 }
 

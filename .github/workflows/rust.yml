@@ -25,3 +25,8 @@ jobs:
       run: cargo build --workspace --verbose
     - name: Run tests
       run: cargo test --workspace --verbose
+    - name: Test feature-gated code
+      run: |
+        cargo test -p asyn-rs --features epics --verbose
+        cargo test -p ad-core-rs --features ioc --verbose
+        cargo test -p ad-plugins-rs --features ioc --verbose
