@@ -169,6 +169,12 @@ pub struct AsynDeviceSupport {
     initial_readback: bool,
     /// RAII interrupt subscription — dropping unsubscribes.
     interrupt_sub: Option<InterruptSubscription>,
+    /// Shared cache for the latest interrupt value. Written by the I/O Intr
+    /// forwarding task, read by read(). When an I/O Intr record is processed
+    /// due to an interrupt, read() uses this cached value instead of sending
+    /// a blocking read to the port driver. This matches C EPICS behavior
+    /// where the interrupt callback directly provides the value.
+    interrupt_cache: Arc<std::sync::Mutex<Option<crate::param::ParamValue>>>,
 }
 
 impl AsynDeviceSupport {
@@ -196,6 +202,7 @@ impl AsynDeviceSupport {
             scan: ScanType::Passive,
             initial_readback: false,
             interrupt_sub: None,
+            interrupt_cache: Arc::new(std::sync::Mutex::new(None)),
         }
     }
 
@@ -246,6 +253,20 @@ impl AsynDeviceSupport {
 
 fn asyn_to_ca_error(e: AsynError) -> CaError {
     CaError::Protocol(e.to_string())
+}
+
+/// Convert an asyn ParamValue to an EpicsValue.
+fn param_value_to_epics_value(pv: &crate::param::ParamValue) -> Option<EpicsValue> {
+    use crate::param::ParamValue;
+    match pv {
+        ParamValue::Int32(v) => Some(EpicsValue::Long(*v)),
+        ParamValue::Int64(v) => Some(EpicsValue::Double(*v as f64)),
+        ParamValue::Float64(v) => Some(EpicsValue::Double(*v)),
+        ParamValue::Octet(s) => Some(EpicsValue::String(s.clone())),
+        ParamValue::UInt32Digital(v) => Some(EpicsValue::Long(*v as i32)),
+        ParamValue::Enum { index, .. } => Some(EpicsValue::Enum(*index as u16)),
+        _ => None,
+    }
 }
 
 /// Bridges async `AsyncCompletionHandle` to epics-base-rs `WriteCompletion`.
@@ -352,6 +373,21 @@ impl DeviceSupport for AsynDeviceSupport {
     }
 
     fn read(&mut self, record: &mut dyn Record) -> CaResult<DeviceReadOutcome> {
+        // For I/O Intr records, use the cached interrupt value instead of
+        // sending a blocking read to the port. This matches C EPICS behavior
+        // where the interrupt callback directly provides the new value.
+        if self.scan == ScanType::IoIntr {
+            let cached = self.interrupt_cache.lock().unwrap().take();
+            if let Some(pv) = cached {
+                if let Some(val) = param_value_to_epics_value(&pv) {
+                    record.set_val(val)?;
+                }
+                return Ok(DeviceReadOutcome::ok());
+            }
+            // No cached value — this is the initial read or a missed interrupt.
+            // Fall through to blocking read.
+        }
+
         let op = self.read_op().ok_or_else(|| {
             CaError::Protocol(format!("unsupported interface type for read: {}", self.iface_type))
         })?;
@@ -434,8 +470,13 @@ impl DeviceSupport for AsynDeviceSupport {
 
         let (tx, rx) = tokio::sync::mpsc::channel(16);
         let mut intr_rx = intr_rx;
+        let cache = self.interrupt_cache.clone();
         tokio::spawn(async move {
-            while intr_rx.recv().await.is_some() {
+            while let Some(iv) = intr_rx.recv().await {
+                // Cache the interrupt value so read() can use it without
+                // a blocking port request. This matches C EPICS where the
+                // interrupt callback directly provides the new value.
+                *cache.lock().unwrap() = Some(iv.value);
                 if tx.send(()).await.is_err() {
                     break;
                 }
