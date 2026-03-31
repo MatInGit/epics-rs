@@ -4,7 +4,7 @@ pub use registry::{register_port, register_asyn_record_type, asyn_record_factory
 use std::sync::Arc;
 
 use epics_base_rs::error::{CaError, CaResult};
-use epics_base_rs::server::record::{FieldDesc, Record, RecordProcessResult};
+use epics_base_rs::server::record::{FieldDesc, ProcessOutcome, Record};
 use epics_base_rs::types::{DbFieldType, EpicsValue};
 
 use crate::port_handle::PortHandle;
@@ -1198,15 +1198,15 @@ impl Record for AsynRecord {
         Ok(())
     }
 
-    fn process(&mut self) -> CaResult<RecordProcessResult> {
+    fn process(&mut self) -> CaResult<ProcessOutcome> {
         let tmod = TransferMode::from_u16(self.tmod as u16);
         if tmod == TransferMode::NoIo {
-            return Ok(RecordProcessResult::Complete);
+            return Ok(ProcessOutcome::complete());
         }
 
         self.errs.clear();
         self.perform_io()?;
-        Ok(RecordProcessResult::Complete)
+        Ok(ProcessOutcome::complete())
     }
 
     fn clears_udf(&self) -> bool {
