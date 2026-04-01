@@ -1215,8 +1215,10 @@ impl Record for AsynRecord {
 }
 
 #[cfg(test)]
+#[allow(clippy::field_reassign_with_default)]
 mod tests {
     use super::*;
+    use epics_base_rs::server::record::RecordProcessResult;
 
     #[test]
     fn test_default_fields() {
@@ -1325,7 +1327,7 @@ mod tests {
         let mut rec = AsynRecord::default();
         rec.tmod = TransferMode::NoIo as i32;
         let result = rec.process().unwrap();
-        assert_eq!(result, RecordProcessResult::Complete);
+        assert_eq!(result.result, RecordProcessResult::Complete);
     }
 
     #[test]

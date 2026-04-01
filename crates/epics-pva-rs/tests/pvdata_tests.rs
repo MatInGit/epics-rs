@@ -136,12 +136,12 @@ fn scalar_value_parse_all_types() {
         ScalarValue::ULong(u64::MAX)
     );
     assert_eq!(
-        ScalarValue::parse(ScalarType::Float, "3.14").unwrap(),
-        ScalarValue::Float(3.14)
+        ScalarValue::parse(ScalarType::Float, "3.15").unwrap(),
+        ScalarValue::Float(3.15)
     );
     assert_eq!(
-        ScalarValue::parse(ScalarType::Double, "2.718281828").unwrap(),
-        ScalarValue::Double(2.718281828)
+        ScalarValue::parse(ScalarType::Double, "2.72").unwrap(),
+        ScalarValue::Double(2.72)
     );
     assert_eq!(
         ScalarValue::parse(ScalarType::String, "hello world").unwrap(),
@@ -503,7 +503,7 @@ fn field_desc_serialization_roundtrip_nested_structure() {
 #[test]
 fn pv_field_scalar_serialization_roundtrip() {
     let desc = FieldDesc::Scalar(ScalarType::Double);
-    let field = PvField::Scalar(ScalarValue::Double(3.14159));
+    let field = PvField::Scalar(ScalarValue::Double(3.14160));
 
     for be in [false, true] {
         let mut buf = Vec::new();
@@ -512,7 +512,7 @@ fn pv_field_scalar_serialization_roundtrip() {
         let decoded = read_pv_field(&buf, &mut pos, &desc, be).unwrap();
         match decoded {
             PvField::Scalar(ScalarValue::Double(v)) => {
-                assert!((v - 3.14159).abs() < 1e-10);
+                assert!((v - 3.14160).abs() < 1e-10);
             }
             _ => panic!("expected Scalar(Double)"),
         }
@@ -864,10 +864,10 @@ fn scalar_value_display() {
 #[test]
 fn pv_structure_display_with_value() {
     let mut s = PvStructure::new("nt_scalar");
-    s.fields.push(("value".into(), PvField::Scalar(ScalarValue::Double(3.14))));
+    s.fields.push(("value".into(), PvField::Scalar(ScalarValue::Double(3.15))));
     // Display should show the value directly
     let display = format!("{s}");
-    assert!(display.contains("3.14"));
+    assert!(display.contains("3.15"));
 }
 
 #[test]

@@ -1,3 +1,5 @@
+#![allow(clippy::field_reassign_with_default)]
+
 use epics_base_rs::server::record::Record;
 use epics_base_rs::types::EpicsValue;
 use std_rs::TimestampRecord;

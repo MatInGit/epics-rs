@@ -29,6 +29,7 @@ struct TestScopeDriver {
     p_max_value: usize,
     p_mean_value: usize,
     p_noise: usize,
+    #[allow(dead_code)]
     p_volts_per_div: usize,
 }
 
@@ -450,9 +451,9 @@ fn test_blocking_float64_roundtrip() {
     let rt = tokio::runtime::Runtime::new().unwrap();
     let (_mgr, h) = rt.block_on(async { setup_scope() });
     let reason = h.drv_user_create_blocking("NoiseAmplitude").unwrap();
-    h.write_float64_blocking(reason, 0, 3.14).unwrap();
+    h.write_float64_blocking(reason, 0, 3.15).unwrap();
     let val = h.read_float64_blocking(reason, 0).unwrap();
-    assert!((val - 3.14).abs() < 1e-10);
+    assert!((val - 3.15).abs() < 1e-10);
 }
 
 // ============================================================
@@ -478,11 +479,8 @@ async fn test_callback_flushes_multiple_changes() {
     h.write_int32(run, 0, 1).await.unwrap();
 
     let mut received_reasons = std::collections::HashSet::new();
-    loop {
-        match tokio::time::timeout(Duration::from_millis(100), broadcast_rx.recv()).await {
-            Ok(Ok(iv)) => { received_reasons.insert(iv.reason); }
-            _ => break,
-        }
+    while let Ok(Ok(iv)) = tokio::time::timeout(Duration::from_millis(100), broadcast_rx.recv()).await {
+        received_reasons.insert(iv.reason);
     }
     assert!(received_reasons.len() > 1,
         "Should receive interrupts for multiple params, got {:?}", received_reasons);

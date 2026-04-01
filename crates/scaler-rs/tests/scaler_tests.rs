@@ -1,3 +1,4 @@
+#![allow(clippy::field_reassign_with_default)]
 use epics_base_rs::server::record::Record;
 use epics_base_rs::types::EpicsValue;
 use scaler_rs::records::scaler::{ScalerRecord, MAX_SCALER_CHANNELS};

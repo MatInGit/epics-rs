@@ -102,8 +102,8 @@ fn test_sscanf_int() {
 
 #[test]
 fn test_sscanf_float() {
-    let result = eval_str(r#"SSCANF("3.14", "%f")"#);
-    assert_eq!(result, StackValue::Double(3.14));
+    let result = eval_str(r#"SSCANF("3.15", "%f")"#);
+    assert_eq!(result, StackValue::Double(3.15));
 }
 
 #[test]

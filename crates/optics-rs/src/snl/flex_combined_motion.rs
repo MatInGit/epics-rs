@@ -641,6 +641,7 @@ pub async fn run(config: FlexConfig) -> Result<(), Box<dyn std::error::Error + S
 }
 
 #[cfg(test)]
+#[allow(clippy::field_reassign_with_default, clippy::approx_constant)]
 mod tests {
     use super::*;
 

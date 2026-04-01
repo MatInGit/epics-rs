@@ -2784,6 +2784,7 @@ impl Record for TableRecord {
 // ===========================================================================
 
 #[cfg(test)]
+#[allow(clippy::excessive_precision, clippy::needless_range_loop)]
 mod tests {
     use super::*;
 

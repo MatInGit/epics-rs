@@ -669,6 +669,7 @@ async fn apply_pf4_actions(
 }
 
 #[cfg(test)]
+#[allow(clippy::field_reassign_with_default, clippy::needless_range_loop)]
 mod tests {
     use super::*;
 

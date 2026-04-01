@@ -1,3 +1,4 @@
+#![allow(clippy::field_reassign_with_default)]
 use std_rs::snl::femto::*;
 use std_rs::snl::delay_do::*;
 use std::time::Duration;

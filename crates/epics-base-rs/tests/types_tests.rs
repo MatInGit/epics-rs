@@ -7,11 +7,11 @@ const EPICS_UNIX_EPOCH_OFFSET_SECS: u64 = 631_152_000;
 
 #[test]
 fn test_double_roundtrip() {
-    let val = EpicsValue::Double(3.14);
+    let val = EpicsValue::Double(3.15);
     let bytes = val.to_bytes();
     let val2 = EpicsValue::from_bytes(DbFieldType::Double, &bytes).unwrap();
     match val2 {
-        EpicsValue::Double(v) => assert!((v - 3.14).abs() < 1e-10),
+        EpicsValue::Double(v) => assert!((v - 3.15).abs() < 1e-10),
         _ => panic!("wrong type"),
     }
 }
@@ -707,10 +707,10 @@ fn test_decode_ctrl_enum_roundtrip() {
 
 #[test]
 fn test_decode_gr_double_roundtrip() {
-    let snap_orig = full_snapshot(EpicsValue::Double(3.14));
+    let snap_orig = full_snapshot(EpicsValue::Double(3.15));
     let data = encode_dbr(27, &snap_orig).unwrap();
     let snap = decode_dbr(27, &data, 1).unwrap();
-    assert_eq!(snap.value, EpicsValue::Double(3.14));
+    assert_eq!(snap.value, EpicsValue::Double(3.15));
     let disp = snap.display.unwrap();
     assert_eq!(disp.units, "degC");
     assert_eq!(disp.precision, 3);

@@ -248,7 +248,7 @@ pub fn register_all_plugins(
         app = app.register_startup_command(CommandDef::new(
             cmd_name,
             plugin_arg_defs(),
-            &format!("{cmd_name} portName [queueSize] ... (stub)"),
+            format!("{cmd_name} portName [queueSize] ... (stub)"),
             move |args: &[ArgValue], _ctx: &CommandContext| {
                 let (port_name, queue_size, ndarray_port) = extract_plugin_args(args)?;
                 let dtyp = dtyp_from_port(&port_name);
@@ -300,10 +300,10 @@ where
     let m = mgr.clone();
     // Take ownership of app temporarily via a dummy
     let taken = std::mem::replace(app, IocApplication::new());
-    let result = taken.register_startup_command(CommandDef::new(
+    taken.register_startup_command(CommandDef::new(
         cmd_name,
         plugin_arg_defs(),
-        &format!("{cmd_name} portName [queueSize] ..."),
+        format!("{cmd_name} portName [queueSize] ..."),
         move |args: &[ArgValue], _ctx: &CommandContext| {
             let (port_name, queue_size, ndarray_port) = extract_plugin_args(args)?;
             let dtyp = dtyp_from_port(&port_name);
@@ -317,8 +317,7 @@ where
             println!("{cmd_name}: port={port_name}");
             Ok(CommandOutcome::Continue)
         },
-    ));
-    result
+    ))
 }
 
 // ============================================================================

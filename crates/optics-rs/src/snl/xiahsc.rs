@@ -1529,6 +1529,7 @@ pub async fn run<R, W>(
 // ---------------------------------------------------------------------------
 
 #[cfg(test)]
+#[allow(clippy::field_reassign_with_default)]
 mod tests {
     use super::*;
 

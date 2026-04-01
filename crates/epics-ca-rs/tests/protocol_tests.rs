@@ -189,7 +189,7 @@ fn header_set_payload_count_boundary_at_0xffff() {
 #[tokio::test]
 async fn server_builder_with_simple_pvs() {
     let server = CaServer::builder()
-        .pv("TEST:DOUBLE", EpicsValue::Double(3.14))
+        .pv("TEST:DOUBLE", EpicsValue::Double(3.15))
         .pv("TEST:STRING", EpicsValue::String("hello".into()))
         .pv("TEST:SHORT", EpicsValue::Short(42))
         .pv("TEST:ENUM", EpicsValue::Enum(2))
@@ -198,7 +198,7 @@ async fn server_builder_with_simple_pvs() {
         .unwrap();
 
     // Verify get returns the initial values
-    assert_eq!(server.get("TEST:DOUBLE").await.unwrap(), EpicsValue::Double(3.14));
+    assert_eq!(server.get("TEST:DOUBLE").await.unwrap(), EpicsValue::Double(3.15));
     assert_eq!(
         server.get("TEST:STRING").await.unwrap(),
         EpicsValue::String("hello".into())

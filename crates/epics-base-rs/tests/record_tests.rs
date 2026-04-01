@@ -291,8 +291,8 @@ fn test_parse_link_v2() {
 
     assert_eq!(parse_link_v2("\"hello\""), ParsedLink::Constant("hello".to_string()));
 
-    let c = parse_link_v2("3.14");
-    assert_eq!(c.constant_value(), Some(EpicsValue::Double(3.14)));
+    let c = parse_link_v2("3.15");
+    assert_eq!(c.constant_value(), Some(EpicsValue::Double(3.15)));
     let c = parse_link_v2("\"hello\"");
     assert_eq!(c.constant_value(), Some(EpicsValue::String("hello".into())));
     assert_eq!(parse_link_v2("TEMP").constant_value(), None);

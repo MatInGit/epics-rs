@@ -24,6 +24,12 @@ pub struct PortRegistry {
     inner: Arc<Mutex<HashMap<String, PortEntry>>>,
 }
 
+impl Default for PortRegistry {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl PortRegistry {
     pub fn new() -> Self {
         Self { inner: Arc::new(Mutex::new(HashMap::new())) }

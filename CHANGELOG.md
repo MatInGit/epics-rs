@@ -1,5 +1,41 @@
 # Changelog
 
+## v0.7.4
+
+### New Crate
+- **optics-rs**: Port of EPICS optics synApps module — table record (6-DOF, 4 geometry modes), Kohzu/HR/ML-mono DCM controllers, 4-circle orientation matrix, XIA PF4 dual filter, auto filter drive, HSC-1 slit, quad BPM, ion chamber, Chantler X-ray absorption data (22 elements), 36 database templates, PyDM UI screens, 362 tests including 46 golden tests vs C tableRecord.c
+
+### dbAccess: C EPICS Parity
+- **Three-tier DB write API** matching C EPICS semantics:
+  - `put_pv` / `put_f64` = C `dbPut` — value + special, no monitor, no process
+  - `put_pv_and_post` / `put_f64_post` = C `dbPut` + `db_post_events` — value + monitor on change
+  - `put_record_field_from_ca` / `put_f64_process` = C `dbPutField` — value + process + monitor
+- **Event source tagging** — origin ID prevents sequencer self-feedback loops; `DbChannel::with_origin()`, `DbMultiMonitor::new_filtered()`, origin-aware `DbSubscription`
+- **DbChannel API**: add `put_i16_process`, `put_i32_process`, `put_string_process`, `get_i32`
+- **TPRO** trace processing output when field is set
+- **Pre-write special** hook in CA put path (`special(field, false)` before write)
+- **Read-only field** enforcement in `put_record_field_from_ca`
+- **ACKS/ACKT** alarm acknowledge with severity comparison
+- **Menu string resolution** in type conversion (String → Enum/Short)
+- **dbValueSize / dbBufferSize** equivalents
+- **is_soft_dtyp**: recognize "Raw Soft Channel", "Async Soft Channel", "Soft Timestamp", "Sec Past Epoch"
+- **stringout**: add OMSL/DOL fields and framework DOL processing support
+
+### SNL Programs: CA → DbChannel Migration
+- All 7 optics-rs SNL programs converted from CA client to direct database access:
+  kohzu_ctl, hr_ctl, ml_mono_ctl, kohzu_ctl_soft, orient, pf4, filter_drive
+- Origin tagging + filtered monitors prevent write-back loops
+- Kohzu DCM: non-blocking move with `tokio::select!` retarget support
+
+### Bug Fixes
+- **I/O Intr read timeout**: cache interrupt value in adapter, skip blocking read on cache miss
+- **ao DOL/OIF conflict**: remove duplicate DOL handling from ao process() (framework handles it)
+- **put_pv_and_post timestamp**: update `common.time` before posting monitor events
+- **Redundant monitors**: suppress duplicate events when value unchanged
+
+### Breaking Changes
+- Remove `epics-seq-rs`, `snc-core-rs`, `snc-rs` (replaced by native Rust async state machines in optics-rs and std-rs)
+
 ## v0.7.3
 
 ### New Crates

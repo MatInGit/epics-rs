@@ -64,7 +64,7 @@ pub fn register_noop_commands(mut app: IocApplication) -> IocApplication {
                 ArgDesc { name: "arg1", arg_type: ArgType::String, optional: true },
                 ArgDesc { name: "arg2", arg_type: ArgType::String, optional: true },
             ],
-            &format!("{name} [args...] - no-op (not implemented)"),
+            format!("{name} [args...] - no-op (not implemented)"),
             move |_args: &[ArgValue], _ctx: &CommandContext| {
                 Ok(CommandOutcome::Continue)
             },

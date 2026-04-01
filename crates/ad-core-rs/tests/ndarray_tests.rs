@@ -286,10 +286,10 @@ fn pool_alloc_copy_respects_memory_limit() {
 #[test]
 fn buffer_get_set_f64_roundtrip() {
     let mut buf = NDDataBuffer::zeros(NDDataType::Float64, 10);
-    buf.set_from_f64(0, 3.14);
-    buf.set_from_f64(9, -2.718);
-    assert_eq!(buf.get_as_f64(0), Some(3.14));
-    assert_eq!(buf.get_as_f64(9), Some(-2.718));
+    buf.set_from_f64(0, 3.15);
+    buf.set_from_f64(9, -2.72);
+    assert_eq!(buf.get_as_f64(0), Some(3.15));
+    assert_eq!(buf.get_as_f64(9), Some(-2.72));
     // Unset elements are zero
     assert_eq!(buf.get_as_f64(5), Some(0.0));
 }

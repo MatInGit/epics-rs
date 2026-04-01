@@ -735,14 +735,14 @@ async fn test_constant_inp_link() {
     db.add_record("AI_CONST", Box::new(AiRecord::new(0.0))).await;
     if let Some(rec) = db.get_record("AI_CONST").await {
         let mut inst = rec.write().await;
-        inst.put_common_field("INP", EpicsValue::String("3.14".into())).unwrap();
+        inst.put_common_field("INP", EpicsValue::String("3.15".into())).unwrap();
     }
     let mut visited = HashSet::new();
     db.process_record_with_links("AI_CONST", &mut visited, 0).await.unwrap();
     let val = db.get_pv("AI_CONST").await.unwrap();
     match val {
-        EpicsValue::Double(v) => assert!((v - 3.14).abs() < 1e-10),
-        other => panic!("expected Double(3.14), got {:?}", other),
+        EpicsValue::Double(v) => assert!((v - 3.15).abs() < 1e-10),
+        other => panic!("expected Double(3.15), got {:?}", other),
     }
 }
 

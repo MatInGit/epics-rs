@@ -967,6 +967,7 @@ pub async fn run(config: OrientConfig, db: PvDatabase) -> Result<(), Box<dyn std
 }
 
 #[cfg(test)]
+#[allow(clippy::field_reassign_with_default)]
 mod tests {
     use super::*;
     use crate::math::orient::Constraint;

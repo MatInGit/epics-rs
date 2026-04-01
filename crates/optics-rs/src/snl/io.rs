@@ -626,6 +626,7 @@ pub async fn run(config: IoConfig) -> Result<(), Box<dyn std::error::Error + Sen
 }
 
 #[cfg(test)]
+#[allow(clippy::field_reassign_with_default)]
 mod tests {
     use super::*;
 
