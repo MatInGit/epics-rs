@@ -61,6 +61,7 @@ pub struct PortHandle {
     tx: mpsc::Sender<ActorMessage>,
     port_name: String,
     interrupts: Arc<InterruptManager>,
+    can_block: bool,
 }
 
 impl PortHandle {
@@ -73,7 +74,18 @@ impl PortHandle {
             tx,
             port_name,
             interrupts,
+            can_block: false,
         }
+    }
+
+    /// Set whether this port can perform blocking I/O.
+    pub fn set_can_block(&mut self, can_block: bool) {
+        self.can_block = can_block;
+    }
+
+    /// Whether this port can perform blocking I/O.
+    pub fn can_block(&self) -> bool {
+        self.can_block
     }
 
     /// Port name this handle is connected to.

@@ -211,6 +211,10 @@ impl TimeSeriesPortDriver {
             destructible: true,
         });
 
+        // NDPluginBase params (NDTimeSeries.template includes NDPluginBase.template)
+        let _ = ad_core_rs::params::ndarray_driver::NDArrayDriverParams::create(&mut base);
+        let _ = ad_core_rs::plugin::params::PluginBaseParams::create(&mut base);
+
         // Register control params
         let ts_acquire = base.create_param("TS_ACQUIRE", ParamType::Int32).unwrap();
         let _ = base.set_int32_param(ts_acquire, 0, 0);

@@ -366,12 +366,21 @@ impl AsynDeviceSupport {
 
     /// Build a `RequestOp` for writing an `EpicsValue` for the current interface type.
     fn write_op(&self, val: &EpicsValue) -> Option<RequestOp> {
+        // First try exact match, then coerce numeric types to match the interface.
+        // C EPICS always converts record VAL to the interface type (e.g. ao→double).
         match (self.iface_type.as_str(), val) {
             ("asynInt32", EpicsValue::Long(v)) => Some(RequestOp::Int32Write { value: *v }),
             ("asynInt32", EpicsValue::Enum(v)) => Some(RequestOp::Int32Write { value: *v as i32 }),
             ("asynInt32", EpicsValue::Short(v)) => Some(RequestOp::Int32Write { value: *v as i32 }),
+            ("asynInt32", EpicsValue::Double(v)) => Some(RequestOp::Int32Write { value: *v as i32 }),
+            ("asynInt32", EpicsValue::Float(v)) => Some(RequestOp::Int32Write { value: *v as i32 }),
             ("asynInt64", EpicsValue::Long(v)) => Some(RequestOp::Int64Write { value: *v as i64 }),
+            ("asynInt64", EpicsValue::Double(v)) => Some(RequestOp::Int64Write { value: *v as i64 }),
             ("asynFloat64", EpicsValue::Double(v)) => Some(RequestOp::Float64Write { value: *v }),
+            ("asynFloat64", EpicsValue::Long(v)) => Some(RequestOp::Float64Write { value: *v as f64 }),
+            ("asynFloat64", EpicsValue::Float(v)) => Some(RequestOp::Float64Write { value: *v as f64 }),
+            ("asynFloat64", EpicsValue::Short(v)) => Some(RequestOp::Float64Write { value: *v as f64 }),
+            ("asynFloat64", EpicsValue::Enum(v)) => Some(RequestOp::Float64Write { value: *v as f64 }),
             ("asynOctet", EpicsValue::String(s)) => Some(RequestOp::OctetWrite {
                 data: s.as_bytes().to_vec(),
             }),
@@ -379,6 +388,11 @@ impl AsynDeviceSupport {
                 // Trim trailing nulls (waveform FTVL=CHAR pads to NELM)
                 let len = data.iter().position(|&b| b == 0).unwrap_or(data.len());
                 Some(RequestOp::OctetWrite { data: data[..len].to_vec() })
+            }
+            // Coerce numeric types to octet (e.g. longout writing to NDArrayPort string param)
+            ("asynOctet", v) => {
+                let s = format!("{v}");
+                Some(RequestOp::OctetWrite { data: s.as_bytes().to_vec() })
             }
             ("asynUInt32Digital", EpicsValue::Long(v)) => Some(RequestOp::UInt32DigitalWrite {
                 value: *v as u32,
@@ -539,6 +553,16 @@ impl DeviceSupport for AsynDeviceSupport {
         let user = AsynUser::new(self.reason)
             .with_addr(self.addr)
             .with_timeout(self.timeout);
+
+        // For non-blocking ports, use synchronous submit to match C EPICS behavior:
+        // the write completes within the same dbProcess call, so CP chain targets
+        // see the updated value immediately. This prevents actor channel overflow
+        // and stale reads during fast motor moves.
+        if !self.handle.can_block() {
+            let _ = self.handle.submit_blocking(op, user).map_err(asyn_to_ca_error)?;
+            return Ok(None); // completed synchronously, no async completion needed
+        }
+
         let completion = self.handle.try_submit(op, user).map_err(asyn_to_ca_error)?;
         Ok(Some(Box::new(AsynAsyncWriteCompletion {
             handle: parking_lot::Mutex::new(Some(completion)),

@@ -84,6 +84,7 @@ pub fn create_port_runtime_boxed(
     config: RuntimeConfig,
 ) -> (PortRuntimeHandle, std::thread::JoinHandle<()>) {
     let port_name = driver.base().port_name.clone();
+    let can_block = driver.base().flags.can_block;
 
     // Event broadcast
     let (event_tx, _) = broadcast::channel(256);
@@ -119,7 +120,8 @@ pub fn create_port_runtime_boxed(
         })
         .expect("failed to spawn port runtime thread");
 
-    let port_handle = PortHandle::new(tx, port_name.clone(), handle_interrupts);
+    let mut port_handle = PortHandle::new(tx, port_name.clone(), handle_interrupts);
+    port_handle.set_can_block(can_block);
     let client = InProcessClient::new(port_handle.clone());
 
     let handle = PortRuntimeHandle {
