@@ -49,6 +49,8 @@ impl MovingDotDetector {
         base.set_int32_param(ad.params.num_images, 0, 100)?;
 
         base.set_int32_param(ad.params.base.data_type, 0, 3)?; // UInt16
+        base.set_int32_param(ad.params.bin_x, 0, 1)?;
+        base.set_int32_param(ad.params.bin_y, 0, 1)?;
 
         base.set_float64_param(dot_params.motor_x_pos, 0, 0.0)?;
         base.set_float64_param(dot_params.motor_y_pos, 0, 0.0)?;
@@ -100,7 +102,10 @@ impl PortDriver for MovingDotDetector {
             }
         } else {
             self.ad.port_base.params.set_int32(reason, user.addr, value)?;
-            if reason == self.dot_params.shutter_open {
+            if reason == self.dot_params.shutter_open
+                || reason == self.ad.params.bin_x
+                || reason == self.ad.params.bin_y
+            {
                 self.dirty.lock().set();
             }
             self.ad.port_base.call_param_callback(0, reason)?;
@@ -113,11 +118,9 @@ impl PortDriver for MovingDotDetector {
         let reason = user.reason;
         self.ad.port_base.params.set_float64(reason, user.addr, value)?;
 
-        let is_cp_linked = reason == self.dot_params.motor_x_pos
+        if reason == self.dot_params.motor_x_pos
             || reason == self.dot_params.motor_y_pos
-            || reason == self.dot_params.beam_current;
-
-        if is_cp_linked
+            || reason == self.dot_params.beam_current
             || reason == self.ad.params.acquire_time
             || reason == self.ad.params.acquire_period
             || reason == self.dot_params.slit_left
@@ -128,13 +131,7 @@ impl PortDriver for MovingDotDetector {
             self.dirty.lock().set();
         }
 
-        // Skip callbacks for CP-linked params (MotorXPos, MotorYPos, BeamCurrent)
-        // which update rapidly during motor moves — the acquisition task flushes
-        // these via call_param_callbacks after each frame.
-        if !is_cp_linked {
-            self.ad.port_base.call_param_callback(0, reason)?;
-        }
-
+        self.ad.port_base.call_param_callback(0, reason)?;
         Ok(())
     }
 }

@@ -1,22 +1,48 @@
 # commonPlugins_settings.req — Autosave settings for all standard areaDetector plugins
 #
-# Matches C ADCore/iocBoot/EXAMPLE_commonPlugins_settings.req
+# Matches C ADCore/iocBoot/EXAMPLE_commonPlugin_settings.req
 #
-# Required macros: P, R (detector prefix)
+# Required macros: P (detector prefix)
+
+# StdArrays (image data)
+file NDStdArrays_settings.req, P=$(P), R=image1:
 
 # File saving plugins
-file NDFile_settings.req,      P=$(P), R=netCDF1:
-file NDFile_settings.req,      P=$(P), R=TIFF1:
-file NDFile_settings.req,      P=$(P), R=JPEG1:
-file NDFile_settings.req,      P=$(P), R=Nexus1:
-file NDFileHDF5_settings.req,  P=$(P), R=HDF1:
-file NDFile_settings.req,      P=$(P), R=Magick1:
+file NDFileNetCDF_settings.req, P=$(P), R=netCDF1:
+file NDFileTIFF_settings.req,   P=$(P), R=TIFF1:
+file NDFileJPEG_settings.req,   P=$(P), R=JPEG1:
+file NDFileNexus_settings.req,  P=$(P), R=Nexus1:
+file NDFileHDF5_settings.req,   P=$(P), R=HDF1:
+#file NDFileMagick_settings.req, P=$(P), R=Magick1:
 
 # ROI plugins
 file NDROI_settings.req,       P=$(P), R=ROI1:
 file NDROI_settings.req,       P=$(P), R=ROI2:
 file NDROI_settings.req,       P=$(P), R=ROI3:
 file NDROI_settings.req,       P=$(P), R=ROI4:
+
+# Processing (with helper TIFF for dark/flat field loading)
+file NDProcess_settings.req,   P=$(P), R=Proc1:
+file NDFileTIFF_settings.req,  P=$(P), R=Proc1:TIFF:
+
+# Scatter/Gather
+file NDScatter_settings.req,   P=$(P), R=Scatter1:
+file NDGather_settings.req,    P=$(P), R=Gather1:
+file NDGatherN_settings.req,   P=$(P), R=Gather1:, N=1
+file NDGatherN_settings.req,   P=$(P), R=Gather1:, N=2
+file NDGatherN_settings.req,   P=$(P), R=Gather1:, N=3
+file NDGatherN_settings.req,   P=$(P), R=Gather1:, N=4
+file NDGatherN_settings.req,   P=$(P), R=Gather1:, N=5
+file NDGatherN_settings.req,   P=$(P), R=Gather1:, N=6
+file NDGatherN_settings.req,   P=$(P), R=Gather1:, N=7
+file NDGatherN_settings.req,   P=$(P), R=Gather1:, N=8
+
+# Statistics plugins
+file NDStats_settings.req,     P=$(P), R=Stats1:
+file NDStats_settings.req,     P=$(P), R=Stats2:
+file NDStats_settings.req,     P=$(P), R=Stats3:
+file NDStats_settings.req,     P=$(P), R=Stats4:
+file NDStats_settings.req,     P=$(P), R=Stats5:
 
 # ROI statistics
 file NDROIStat_settings.req,   P=$(P), R=ROIStat1:
@@ -28,16 +54,6 @@ file NDROIStatN_settings.req,  P=$(P), R=ROIStat1:5:
 file NDROIStatN_settings.req,  P=$(P), R=ROIStat1:6:
 file NDROIStatN_settings.req,  P=$(P), R=ROIStat1:7:
 file NDROIStatN_settings.req,  P=$(P), R=ROIStat1:8:
-
-# Processing
-file NDProcess_settings.req,   P=$(P), R=Proc1:
-
-# Statistics plugins
-file NDStats_settings.req,     P=$(P), R=Stats1:
-file NDStats_settings.req,     P=$(P), R=Stats2:
-file NDStats_settings.req,     P=$(P), R=Stats3:
-file NDStats_settings.req,     P=$(P), R=Stats4:
-file NDStats_settings.req,     P=$(P), R=Stats5:
 
 # Transform
 file NDTransform_settings.req, P=$(P), R=Trans1:
@@ -61,7 +77,15 @@ file NDColorConvert_settings.req, P=$(P), R=CC2:
 file NDCircularBuff_settings.req, P=$(P), R=CB1:
 
 # Attributes
-file NDAttribute_settings.req, P=$(P), R=Attr1:
+file NDAttribute_settings.req,  P=$(P), R=Attr1:
+file NDAttributeN_settings.req, P=$(P), R=Attr1:1:
+file NDAttributeN_settings.req, P=$(P), R=Attr1:2:
+file NDAttributeN_settings.req, P=$(P), R=Attr1:3:
+file NDAttributeN_settings.req, P=$(P), R=Attr1:4:
+file NDAttributeN_settings.req, P=$(P), R=Attr1:5:
+file NDAttributeN_settings.req, P=$(P), R=Attr1:6:
+file NDAttributeN_settings.req, P=$(P), R=Attr1:7:
+file NDAttributeN_settings.req, P=$(P), R=Attr1:8:
 
 # FFT
 file NDFFT_settings.req,       P=$(P), R=FFT1:

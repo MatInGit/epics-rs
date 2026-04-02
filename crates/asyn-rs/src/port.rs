@@ -360,6 +360,14 @@ impl PortDriverBase {
         }
         Ok(())
     }
+
+    /// Mark a parameter as changed without modifying its value.
+    ///
+    /// Use this to trigger I/O Intr on params whose data is served via
+    /// `read_*_array()` overrides rather than the param cache (e.g. pixel data).
+    pub fn mark_param_changed(&mut self, index: usize, addr: i32) -> AsynResult<()> {
+        self.params.mark_changed(index, addr)
+    }
 }
 
 /// Port driver trait. All methods have default implementations that operate
@@ -584,50 +592,54 @@ pub trait PortDriver: Send + Sync + 'static {
         ))
     }
 
-    fn write_float64_array(&mut self, _user: &AsynUser, _data: &[f64]) -> AsynResult<()> {
-        Err(AsynError::InterfaceNotSupported(
-            "asynFloat64Array".into(),
-        ))
+    fn write_float64_array(&mut self, user: &AsynUser, data: &[f64]) -> AsynResult<()> {
+        self.base_mut().params.set_float64_array(user.reason, user.addr, data.to_vec())?;
+        self.base_mut().call_param_callbacks(user.addr)
     }
 
     fn read_int32_array(&mut self, _user: &AsynUser, _buf: &mut [i32]) -> AsynResult<usize> {
         Err(AsynError::InterfaceNotSupported("asynInt32Array".into()))
     }
 
-    fn write_int32_array(&mut self, _user: &AsynUser, _data: &[i32]) -> AsynResult<()> {
-        Err(AsynError::InterfaceNotSupported("asynInt32Array".into()))
+    fn write_int32_array(&mut self, user: &AsynUser, data: &[i32]) -> AsynResult<()> {
+        self.base_mut().params.set_int32_array(user.reason, user.addr, data.to_vec())?;
+        self.base_mut().call_param_callbacks(user.addr)
     }
 
     fn read_int8_array(&mut self, _user: &AsynUser, _buf: &mut [i8]) -> AsynResult<usize> {
         Err(AsynError::InterfaceNotSupported("asynInt8Array".into()))
     }
 
-    fn write_int8_array(&mut self, _user: &AsynUser, _data: &[i8]) -> AsynResult<()> {
-        Err(AsynError::InterfaceNotSupported("asynInt8Array".into()))
+    fn write_int8_array(&mut self, user: &AsynUser, data: &[i8]) -> AsynResult<()> {
+        self.base_mut().params.set_int8_array(user.reason, user.addr, data.to_vec())?;
+        self.base_mut().call_param_callbacks(user.addr)
     }
 
     fn read_int16_array(&mut self, _user: &AsynUser, _buf: &mut [i16]) -> AsynResult<usize> {
         Err(AsynError::InterfaceNotSupported("asynInt16Array".into()))
     }
 
-    fn write_int16_array(&mut self, _user: &AsynUser, _data: &[i16]) -> AsynResult<()> {
-        Err(AsynError::InterfaceNotSupported("asynInt16Array".into()))
+    fn write_int16_array(&mut self, user: &AsynUser, data: &[i16]) -> AsynResult<()> {
+        self.base_mut().params.set_int16_array(user.reason, user.addr, data.to_vec())?;
+        self.base_mut().call_param_callbacks(user.addr)
     }
 
     fn read_int64_array(&mut self, _user: &AsynUser, _buf: &mut [i64]) -> AsynResult<usize> {
         Err(AsynError::InterfaceNotSupported("asynInt64Array".into()))
     }
 
-    fn write_int64_array(&mut self, _user: &AsynUser, _data: &[i64]) -> AsynResult<()> {
-        Err(AsynError::InterfaceNotSupported("asynInt64Array".into()))
+    fn write_int64_array(&mut self, user: &AsynUser, data: &[i64]) -> AsynResult<()> {
+        self.base_mut().params.set_int64_array(user.reason, user.addr, data.to_vec())?;
+        self.base_mut().call_param_callbacks(user.addr)
     }
 
     fn read_float32_array(&mut self, _user: &AsynUser, _buf: &mut [f32]) -> AsynResult<usize> {
         Err(AsynError::InterfaceNotSupported("asynFloat32Array".into()))
     }
 
-    fn write_float32_array(&mut self, _user: &AsynUser, _data: &[f32]) -> AsynResult<()> {
-        Err(AsynError::InterfaceNotSupported("asynFloat32Array".into()))
+    fn write_float32_array(&mut self, user: &AsynUser, data: &[f32]) -> AsynResult<()> {
+        self.base_mut().params.set_float32_array(user.reason, user.addr, data.to_vec())?;
+        self.base_mut().call_param_callbacks(user.addr)
     }
 
     // --- I/O methods (worker thread calls these) ---

@@ -3,7 +3,8 @@
 ###################################################################
 record(bo, "$(P)$(R)Run") {
     field(PINI, "1")
-    field(DTYP, "asynScopeSimulator")
+    field(DTYP, "asynInt32")
+    field(OUT,  "@asyn($(PORT),0,1)P_Run")
     field(VAL,  "0")
     field(ZNAM, "Stop")
     field(ONAM, "Run")
@@ -11,7 +12,8 @@ record(bo, "$(P)$(R)Run") {
 
 record(bi, "$(P)$(R)Run_RBV") {
     field(PINI, "1")
-    field(DTYP, "asynScopeSimulator")
+    field(DTYP, "asynInt32")
+    field(INP,  "@asyn($(PORT),0,1)P_Run")
     field(ZNAM, "Done")
     field(ZSV,  "NO_ALARM")
     field(ONAM, "Running")
@@ -24,7 +26,8 @@ record(bi, "$(P)$(R)Run_RBV") {
 ###################################################################
 record(longin, "$(P)$(R)MaxPoints_RBV") {
     field(PINI, "1")
-    field(DTYP, "asynScopeSimulator")
+    field(DTYP, "asynInt32")
+    field(INP,  "@asyn($(PORT),0,1)P_MaxPoints")
     field(SCAN, "I/O Intr")
 }
 
@@ -33,7 +36,8 @@ record(longin, "$(P)$(R)MaxPoints_RBV") {
 ###################################################################
 record(mbbo, "$(P)$(R)TimePerDivSelect") {
     field(PINI, "1")
-    field(DTYP, "asynScopeSimulator")
+    field(DTYP, "asynInt32")
+    field(OUT,  "@asyn($(PORT),0,1)P_TimePerDivSelect")
     field(ZRST, "0.01 msec")
     field(ZRVL, "10")
     field(ONST, "0.02 msec")
@@ -58,7 +62,8 @@ record(mbbo, "$(P)$(R)TimePerDivSelect") {
 
 record(ai, "$(P)$(R)TimePerDiv_RBV") {
     field(PINI, "1")
-    field(DTYP, "asynScopeSimulator")
+    field(DTYP, "asynFloat64")
+    field(INP,  "@asyn($(PORT),0,1)P_TimePerDiv")
     field(PREC, "5")
     field(SCAN, "I/O Intr")
 }
@@ -68,7 +73,8 @@ record(ai, "$(P)$(R)TimePerDiv_RBV") {
 ###################################################################
 record(mbbo, "$(P)$(R)VertGainSelect") {
     field(PINI, "1")
-    field(DTYP, "asynScopeSimulator")
+    field(DTYP, "asynInt32")
+    field(OUT,  "@asyn($(PORT),0,1)P_VertGainSelect")
     field(ZRST, "1")
     field(ZRVL, "1")
     field(ONST, "10")
@@ -79,7 +85,8 @@ record(mbbo, "$(P)$(R)VertGainSelect") {
 
 record(ai, "$(P)$(R)VertGain_RBV") {
     field(PINI, "1")
-    field(DTYP, "asynScopeSimulator")
+    field(DTYP, "asynFloat64")
+    field(INP,  "@asyn($(PORT),0,1)P_VertGain")
     field(PREC, "0")
     field(SCAN, "I/O Intr")
 }
@@ -89,13 +96,15 @@ record(ai, "$(P)$(R)VertGain_RBV") {
 ###################################################################
 record(mbbo, "$(P)$(R)VoltsPerDivSelect") {
     field(PINI, "1")
-    field(DTYP, "asynScopeSimulator")
+    field(DTYP, "asynInt32")
+    field(OUT,  "@asyn($(PORT),0,1)P_VoltsPerDivSelect")
     field(ZRST, "Garbage")
     field(ZRVL, "0")
 }
 
 record(mbbi, "$(P)$(R)VoltsPerDivSelect_RBV") {
-    field(DTYP, "asynScopeSimulator")
+    field(DTYP, "asynInt32")
+    field(INP,  "@asyn($(PORT),0,1)P_VoltsPerDivSelect")
     field(ZRST, "Garbage")
     field(ZRVL, "0")
     field(SCAN, "I/O Intr")
@@ -103,7 +112,8 @@ record(mbbi, "$(P)$(R)VoltsPerDivSelect_RBV") {
 
 record(ai, "$(P)$(R)VoltsPerDiv_RBV") {
     field(PINI, "1")
-    field(DTYP, "asynScopeSimulator")
+    field(DTYP, "asynFloat64")
+    field(INP,  "@asyn($(PORT),0,1)P_VoltsPerDiv")
     field(PREC, "2")
     field(SCAN, "I/O Intr")
 }
@@ -113,14 +123,16 @@ record(ai, "$(P)$(R)VoltsPerDiv_RBV") {
 ###################################################################
 record(ao, "$(P)$(R)VoltOffset") {
     field(PINI, "1")
-    field(DTYP, "asynScopeSimulator")
+    field(DTYP, "asynFloat64")
+    field(OUT,  "@asyn($(PORT),0,1)P_VoltOffset")
     field(VAL,  "0.0")
     field(PREC, "3")
 }
 
 record(ai, "$(P)$(R)VoltOffset_RBV") {
     field(PINI, "1")
-    field(DTYP, "asynScopeSimulator")
+    field(DTYP, "asynFloat64")
+    field(INP,  "@asyn($(PORT),0,1)P_VoltOffset")
     field(PREC, "3")
     field(SCAN, "I/O Intr")
 }
@@ -130,14 +142,16 @@ record(ai, "$(P)$(R)VoltOffset_RBV") {
 ###################################################################
 record(ao, "$(P)$(R)TriggerDelay") {
     field(PINI, "1")
-    field(DTYP, "asynScopeSimulator")
+    field(DTYP, "asynFloat64")
+    field(OUT,  "@asyn($(PORT),0,1)P_TriggerDelay")
     field(VAL,  "0.0")
     field(PREC, "5")
 }
 
 record(ai, "$(P)$(R)TriggerDelay_RBV") {
     field(PINI, "1")
-    field(DTYP, "asynScopeSimulator")
+    field(DTYP, "asynFloat64")
+    field(INP,  "@asyn($(PORT),0,1)P_TriggerDelay")
     field(PREC, "5")
     field(SCAN, "I/O Intr")
 }
@@ -147,14 +161,16 @@ record(ai, "$(P)$(R)TriggerDelay_RBV") {
 ###################################################################
 record(ao, "$(P)$(R)NoiseAmplitude") {
     field(PINI, "1")
-    field(DTYP, "asynScopeSimulator")
+    field(DTYP, "asynFloat64")
+    field(OUT,  "@asyn($(PORT),0,1)P_NoiseAmplitude")
     field(VAL,  "0.0")
     field(PREC, "3")
 }
 
 record(ai, "$(P)$(R)NoiseAmplitude_RBV") {
     field(PINI, "1")
-    field(DTYP, "asynScopeSimulator")
+    field(DTYP, "asynFloat64")
+    field(INP,  "@asyn($(PORT),0,1)P_NoiseAmplitude")
     field(PREC, "3")
     field(SCAN, "I/O Intr")
 }
@@ -164,14 +180,16 @@ record(ai, "$(P)$(R)NoiseAmplitude_RBV") {
 ###################################################################
 record(ao, "$(P)$(R)UpdateTime") {
     field(PINI, "1")
-    field(DTYP, "asynScopeSimulator")
+    field(DTYP, "asynFloat64")
+    field(OUT,  "@asyn($(PORT),0,1)P_UpdateTime")
     field(VAL,  "0.5")
     field(PREC, "3")
 }
 
 record(ai, "$(P)$(R)UpdateTime_RBV") {
     field(PINI, "1")
-    field(DTYP, "asynScopeSimulator")
+    field(DTYP, "asynFloat64")
+    field(INP,  "@asyn($(PORT),0,1)P_UpdateTime")
     field(PREC, "3")
     field(SCAN, "I/O Intr")
 }
@@ -180,7 +198,8 @@ record(ai, "$(P)$(R)UpdateTime_RBV") {
 #  This record is the waveform                                    #
 ###################################################################
 record(waveform, "$(P)$(R)Waveform_RBV") {
-    field(DTYP, "asynScopeSimulator")
+    field(DTYP, "asynFloat64ArrayIn")
+    field(INP,  "@asyn($(PORT),0,1)P_Waveform")
     field(FTVL, "DOUBLE")
     field(NELM, "1000")
     field(SCAN, "I/O Intr")
@@ -191,7 +210,8 @@ record(waveform, "$(P)$(R)Waveform_RBV") {
 ###################################################################
 record(waveform, "$(P)$(R)TimeBase_RBV") {
     field(PINI, "1")
-    field(DTYP, "asynScopeSimulator")
+    field(DTYP, "asynFloat64ArrayIn")
+    field(INP,  "@asyn($(PORT),0,1)P_TimeBase")
     field(FTVL, "DOUBLE")
     field(NELM, "1000")
     field(SCAN, "I/O Intr")
@@ -202,21 +222,24 @@ record(waveform, "$(P)$(R)TimeBase_RBV") {
 ###################################################################
 record(ai, "$(P)$(R)MinValue_RBV") {
     field(PINI, "1")
-    field(DTYP, "asynScopeSimulator")
+    field(DTYP, "asynFloat64")
+    field(INP,  "@asyn($(PORT),0,1)P_MinValue")
     field(PREC, "4")
     field(SCAN, "I/O Intr")
 }
 
 record(ai, "$(P)$(R)MaxValue_RBV") {
     field(PINI, "1")
-    field(DTYP, "asynScopeSimulator")
+    field(DTYP, "asynFloat64")
+    field(INP,  "@asyn($(PORT),0,1)P_MaxValue")
     field(PREC, "4")
     field(SCAN, "I/O Intr")
 }
 
 record(ai, "$(P)$(R)MeanValue_RBV") {
     field(PINI, "1")
-    field(DTYP, "asynScopeSimulator")
+    field(DTYP, "asynFloat64")
+    field(INP,  "@asyn($(PORT),0,1)P_MeanValue")
     field(PREC, "4")
     field(SCAN, "I/O Intr")
 }

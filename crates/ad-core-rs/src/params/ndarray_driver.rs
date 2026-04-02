@@ -106,7 +106,7 @@ impl NDArrayDriverParams {
             array_size: base.create_param("ARRAY_SIZE", ParamType::Int32)?,
             array_counter: base.create_param("ARRAY_COUNTER", ParamType::Int32)?,
             array_callbacks: base.create_param("ARRAY_CALLBACKS", ParamType::Int32)?,
-            n_dimensions: base.create_param("NDIMENSIONS", ParamType::Int32)?,
+            n_dimensions: base.create_param("ARRAY_NDIMENSIONS", ParamType::Int32)?,
             array_dimensions: base.create_param("ARRAY_DIMENSIONS", ParamType::Int32Array)?,
             data_type: base.create_param("DATA_TYPE", ParamType::Int32)?,
             color_mode: base.create_param("COLOR_MODE", ParamType::Int32)?,
@@ -114,12 +114,12 @@ impl NDArrayDriverParams {
             bayer_pattern: base.create_param("BAYER_PATTERN", ParamType::Int32)?,
             codec: base.create_param("CODEC", ParamType::Octet)?,
             compressed_size: base.create_param("COMPRESSED_SIZE", ParamType::Int32)?,
-            timestamp_rbv: base.create_param("TIMESTAMP", ParamType::Float64)?,
+            timestamp_rbv: base.create_param("TIME_STAMP", ParamType::Float64)?,
             epics_ts_sec: base.create_param("EPICS_TS_SEC", ParamType::Int32)?,
             epics_ts_nsec: base.create_param("EPICS_TS_NSEC", ParamType::Int32)?,
 
             // NDArray data
-            ndarray_data: base.create_param("NDARRAY_DATA", ParamType::GenericPointer)?,
+            ndarray_data: base.create_param("ARRAY_DATA", ParamType::GenericPointer)?,
 
             // Pool stats
             pool_max_memory: base.create_param("POOL_MAX_MEMORY", ParamType::Float64)?,
@@ -127,8 +127,8 @@ impl NDArrayDriverParams {
             pool_alloc_buffers: base.create_param("POOL_ALLOC_BUFFERS", ParamType::Int32)?,
             pool_free_buffers: base.create_param("POOL_FREE_BUFFERS", ParamType::Int32)?,
             pool_max_buffers: base.create_param("POOL_MAX_BUFFERS", ParamType::Int32)?,
-            pool_pre_alloc: base.create_param("POOL_PRE_ALLOC", ParamType::Int32)?,
-            pool_empty_free_list: base.create_param("POOL_EMPTY_FREE_LIST", ParamType::Int32)?,
+            pool_pre_alloc: base.create_param("POOL_PRE_ALLOC_BUFFERS", ParamType::Int32)?,
+            pool_empty_free_list: base.create_param("POOL_EMPTY_FREELIST", ParamType::Int32)?,
             pool_poll_stats: base.create_param("POOL_POLL_STATS", ParamType::Int32)?,
             pool_num_pre_alloc_buffers: base.create_param("POOL_NUM_PRE_ALLOC_BUFFERS", ParamType::Int32)?,
 
@@ -147,19 +147,19 @@ impl NDArrayDriverParams {
             file_path_exists: base.create_param("FILE_PATH_EXISTS", ParamType::Int32)?,
             write_file: base.create_param("WRITE_FILE", ParamType::Int32)?,
             read_file: base.create_param("READ_FILE", ParamType::Int32)?,
-            file_write_mode: base.create_param("FILE_WRITE_MODE", ParamType::Int32)?,
-            file_write_status: base.create_param("FILE_WRITE_STATUS", ParamType::Int32)?,
-            file_write_message: base.create_param("FILE_WRITE_MESSAGE", ParamType::Octet)?,
+            file_write_mode: base.create_param("WRITE_MODE", ParamType::Int32)?,
+            file_write_status: base.create_param("WRITE_STATUS", ParamType::Int32)?,
+            file_write_message: base.create_param("WRITE_MESSAGE", ParamType::Octet)?,
             num_capture: base.create_param("NUM_CAPTURE", ParamType::Int32)?,
             num_captured: base.create_param("NUM_CAPTURED", ParamType::Int32)?,
             capture: base.create_param("CAPTURE", ParamType::Int32)?,
             delete_driver_file: base.create_param("DELETE_DRIVER_FILE", ParamType::Int32)?,
-            lazy_open: base.create_param("LAZY_OPEN", ParamType::Int32)?,
+            lazy_open: base.create_param("FILE_LAZY_OPEN", ParamType::Int32)?,
             create_dir: base.create_param("CREATE_DIR", ParamType::Int32)?,
-            temp_suffix: base.create_param("TEMP_SUFFIX", ParamType::Octet)?,
+            temp_suffix: base.create_param("FILE_TEMP_SUFFIX", ParamType::Octet)?,
 
             // Attributes
-            attributes_file: base.create_param("ATTRIBUTES_FILE", ParamType::Octet)?,
+            attributes_file: base.create_param("ND_ATTRIBUTES_FILE", ParamType::Octet)?,
             attributes_status: base.create_param("ND_ATTRIBUTES_STATUS", ParamType::Int32)?,
             attributes_macros: base.create_param("ND_ATTRIBUTES_MACROS", ParamType::Octet)?,
 
@@ -184,8 +184,8 @@ mod tests {
         assert!(base.find_param("ARRAY_COUNTER").is_some());
         assert!(base.find_param("FILE_PATH").is_some());
         assert!(base.find_param("POOL_MAX_MEMORY").is_some());
-        assert!(base.find_param("NDARRAY_DATA").is_some());
-        assert!(base.find_param("ATTRIBUTES_FILE").is_some());
+        assert!(base.find_param("ARRAY_DATA").is_some());
+        assert!(base.find_param("ND_ATTRIBUTES_FILE").is_some());
         assert_eq!(params.array_counter, base.find_param("ARRAY_COUNTER").unwrap());
     }
 

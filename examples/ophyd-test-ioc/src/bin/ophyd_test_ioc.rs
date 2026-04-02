@@ -21,16 +21,11 @@ use epics_base_rs::server::iocsh::registry::*;
 
 use ad_core_rs::ioc::{PluginManager, register_noop_commands};
 use ad_core_rs::plugin::channel::NDArrayOutput;
-use ad_core_rs::plugin::registry::ParamRegistry;
 
 use motor_rs::ioc::SimMotorHolder;
 
 use ophyd_test_ioc::physics::MovingDotImageConfig;
 use ophyd_test_ioc::sim_detector::driver::{MovingDotRuntime, create_moving_dot_with_config};
-use ophyd_test_ioc::sim_detector::ioc_support::{
-    MovingDotDeviceSupport,
-    build_param_registry as build_ad_registry,
-};
 
 fn env_i32(name: &str, default: i32) -> i32 {
     std::env::var(name).ok().and_then(|s| s.parse().ok()).unwrap_or(default)
@@ -41,7 +36,7 @@ fn env_u64(name: &str, default: u64) -> u64 {
 }
 
 struct AdHolder {
-    runtime: std::sync::Mutex<Option<(MovingDotRuntime, Arc<ParamRegistry>)>>,
+    runtime: std::sync::Mutex<Option<MovingDotRuntime>>,
     trace: Arc<TraceManager>,
 }
 
@@ -119,7 +114,6 @@ async fn main() -> CaResult<()> {
                     "SIM", size_x, size_y, max_mem, output, config,
                 ).map_err(|e| format!("failed to create SimDetector: {e}"))?;
 
-                let registry = Arc::new(build_ad_registry(&rt.ad_params, &rt.dot_params));
                 let port_handle = rt.port_handle().clone();
                 asyn_rs::asyn_record::register_port("SIM", port_handle, h.trace.clone());
 
@@ -130,7 +124,7 @@ async fn main() -> CaResult<()> {
                     mgr_c.wiring(),
                 )));
 
-                *h.runtime.lock().unwrap() = Some((rt, registry));
+                *h.runtime.lock().unwrap() = Some(rt);
                 println!("ophydTestAdConfig: done");
                 Ok(CommandOutcome::Continue)
             },
@@ -141,20 +135,11 @@ async fn main() -> CaResult<()> {
     app = ad_plugins_rs::ioc::register_all_plugins(app, &mgr);
     app = register_noop_commands(app);
 
-    // Device support for AD camera
-    {
-        let h = holder.clone();
-        app = app.register_device_support("asynOphydTestAd", move || {
-            let guard = h.runtime.lock().unwrap();
-            let (rt, registry) = guard.as_ref().expect("ophydTestAdConfig must be called before iocInit");
-            Box::new(MovingDotDeviceSupport::from_handle(
-                rt.port_handle().clone(), registry.clone(),
-            ))
-        });
-    }
-
-    // Plugin device support (dynamic DTYP)
-    app = mgr.register_device_support(app);
+    // Universal asyn device support (lowest priority — registered first)
+    // Handles all standard asyn DTYPs (asynInt32, asynFloat64, asynOctet, etc.)
+    // by parsing @asyn(PORT,ADDR,TIMEOUT)DRVINFO links and dispatching to the
+    // port driver.
+    app = asyn_rs::adapter::register_asyn_device_support(app);
 
     // ========================================================================
     // Motors

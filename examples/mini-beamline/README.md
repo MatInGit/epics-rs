@@ -363,10 +363,30 @@ Record  <-->  DeviceSupport  <-->  Driver
 | Layer | This IOC's instances | Trait |
 |-------|---------------------|-------|
 | Record | MotorRecord, AiRecord, AoRecord, ... | `Record` |
-| DeviceSupport | `MotorDeviceSupport`, `BeamCurrentDeviceSupport`, `PointDetectorDeviceSupport`, `MovingDotDeviceSupport` | `DeviceSupport` |
+| DeviceSupport | `AsynDeviceSupport` (universal), `MotorDeviceSupport`, `BeamCurrentDeviceSupport` | `DeviceSupport` |
 | Driver | `SimMotor`, beam current thread, `PointDetectorRuntime`, `MovingDotRuntime` | `AsynMotor`, `PortDriver`, ... |
 
 Swapping the driver changes the hardware; swapping the device support changes how records map to the driver. The record layer stays the same either way.
+
+### Universal asyn device support
+
+Records with standard asyn DTYPs (`asynInt32`, `asynFloat64`, `asynOctet`, etc.) and `@asyn(PORT,ADDR,TIMEOUT)DRVINFO` links are handled by the universal asyn device support factory. During `init()`, `drv_user_create(drvInfo)` resolves the drvInfo string to a param index via `find_param()` — matching C EPICS asyn behavior exactly. No per-driver device support or param registry is needed.
+
+### CP link separation (2-stage pattern)
+
+Records that receive values from other PVs via CP links use a 2-stage pattern matching C ADCore's `NDOverlayN.template`:
+
+```
+                    CP link                  DB PP link
+Motor RBV -------> MotorXPosLink -------> MotorXPos -------> Driver
+                   (Soft Channel)          (asynFloat64)
+```
+
+**Stage 1 — Link receiver** (`MotorXPosLink`): A Soft Channel record with `OMSL "closed_loop"` and `DOL "...RBV CP"`. Processes via DB access only (no port I/O). Forwards the value to the asyn record via `OUT "...MotorXPos PP"`.
+
+**Stage 2 — Asyn record** (`MotorXPos`): A standard `asynFloat64` record that writes to the driver port. Triggered by the PP link from the receiver, not directly by the CP link.
+
+This separation prevents CP link storms — rapid motor position updates stay in the DB access layer and don't cascade through the asyn port actor.
 
 ### Phase bridge (BeamlineHolder)
 

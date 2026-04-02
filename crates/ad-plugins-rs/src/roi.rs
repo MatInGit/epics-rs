@@ -2,8 +2,7 @@ use std::sync::Arc;
 
 use ad_core_rs::ndarray::{NDArray, NDDataBuffer, NDDataType, NDDimension};
 use ad_core_rs::ndarray_pool::NDArrayPool;
-use ad_core_rs::plugin::registry::{build_plugin_base_registry, ParamInfo, ParamRegistry};
-use ad_core_rs::plugin::runtime::{NDPluginProcess, ParamUpdate, PluginParamSnapshot, PluginRuntimeHandle, ProcessResult};
+use ad_core_rs::plugin::runtime::{NDPluginProcess, ParamUpdate, PluginParamSnapshot, ProcessResult};
 use asyn_rs::param::ParamType;
 use asyn_rs::port::PortDriverBase;
 
@@ -417,61 +416,6 @@ pub fn create_roi_runtime(
         p
     };
     (handle, params, jh)
-}
-
-/// Build a ParamRegistry that maps NDROI.template record suffixes to asyn param indices.
-pub fn build_roi_registry(h: &PluginRuntimeHandle, rp: &ROIParams) -> ParamRegistry {
-    let mut map = build_plugin_base_registry(h);
-
-    let dim_suffixes = [
-        ("X", 0),
-        ("Y", 1),
-        ("Z", 2),
-    ];
-    for (suffix, i) in &dim_suffixes {
-        let d = &rp.dims[*i];
-        let dim_idx = *i;
-        // Min
-        map.insert(format!("Min{suffix}"), ParamInfo::int32(d.min, &format!("DIM{dim_idx}_MIN")));
-        map.insert(format!("Min{suffix}_RBV"), ParamInfo::int32(d.min, &format!("DIM{dim_idx}_MIN")));
-        // Size
-        map.insert(format!("Size{suffix}"), ParamInfo::int32(d.size, &format!("DIM{dim_idx}_SIZE")));
-        map.insert(format!("Size{suffix}_RBV"), ParamInfo::int32(d.size, &format!("DIM{dim_idx}_SIZE")));
-        // Bin
-        map.insert(format!("Bin{suffix}"), ParamInfo::int32(d.bin, &format!("DIM{dim_idx}_BIN")));
-        map.insert(format!("Bin{suffix}_RBV"), ParamInfo::int32(d.bin, &format!("DIM{dim_idx}_BIN")));
-        // Reverse
-        map.insert(format!("Reverse{suffix}"), ParamInfo::int32(d.reverse, &format!("DIM{dim_idx}_REVERSE")));
-        map.insert(format!("Reverse{suffix}_RBV"), ParamInfo::int32(d.reverse, &format!("DIM{dim_idx}_REVERSE")));
-        // Enable
-        map.insert(format!("Enable{suffix}"), ParamInfo::int32(d.enable, &format!("DIM{dim_idx}_ENABLE")));
-        map.insert(format!("Enable{suffix}_RBV"), ParamInfo::int32(d.enable, &format!("DIM{dim_idx}_ENABLE")));
-        // AutoSize
-        map.insert(format!("AutoSize{suffix}"), ParamInfo::int32(d.auto_size, &format!("DIM{dim_idx}_AUTO_SIZE")));
-        map.insert(format!("AutoSize{suffix}_RBV"), ParamInfo::int32(d.auto_size, &format!("DIM{dim_idx}_AUTO_SIZE")));
-        // MaxSize (read-only)
-        map.insert(format!("MaxSize{suffix}_RBV"), ParamInfo::int32(d.max_size, &format!("DIM{dim_idx}_MAX_SIZE")));
-    }
-
-    // Scaling
-    map.insert("EnableScale".into(), ParamInfo::int32(rp.enable_scale, "ENABLE_SCALE"));
-    map.insert("EnableScale_RBV".into(), ParamInfo::int32(rp.enable_scale, "ENABLE_SCALE"));
-    map.insert("Scale".into(), ParamInfo::float64(rp.scale, "SCALE_VALUE"));
-    map.insert("Scale_RBV".into(), ParamInfo::float64(rp.scale, "SCALE_VALUE"));
-
-    // Data type
-    map.insert("DataTypeOut".into(), ParamInfo::int32(rp.data_type, "ROI_DATA_TYPE"));
-    map.insert("DataTypeOut_RBV".into(), ParamInfo::int32(rp.data_type, "ROI_DATA_TYPE"));
-
-    // CollapseDims
-    map.insert("CollapseDims".into(), ParamInfo::int32(rp.collapse_dims, "COLLAPSE_DIMS"));
-    map.insert("CollapseDims_RBV".into(), ParamInfo::int32(rp.collapse_dims, "COLLAPSE_DIMS"));
-
-    // Name
-    map.insert("Name".into(), ParamInfo::string(rp.name, "NAME"));
-    map.insert("Name_RBV".into(), ParamInfo::string(rp.name, "NAME"));
-
-    map
 }
 
 #[cfg(test)]

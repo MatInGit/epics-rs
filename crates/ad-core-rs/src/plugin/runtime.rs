@@ -114,6 +114,13 @@ pub trait NDPluginProcess: Send + 'static {
 
     /// Called when a param changes. Reason is the param index.
     fn on_param_change(&mut self, _reason: usize, _params: &PluginParamSnapshot) {}
+
+    /// Return a handle to the latest NDArray data for array reads.
+    /// Override this in plugins like NDPluginStdArrays that serve pixel data
+    /// via readInt8Array/readInt16Array/etc.
+    fn array_data_handle(&self) -> Option<Arc<parking_lot::Mutex<Option<Arc<NDArray>>>>> {
+        None
+    }
 }
 
 /// Read-only snapshot of param values available to the processing thread.
@@ -137,6 +144,8 @@ struct SharedProcessorInner<P: NDPluginProcess> {
     plugin_params: PluginBaseParams,
     port_handle: PortHandle,
     array_counter: i32,
+    /// Param index for STD_ARRAY_DATA (if this is a StdArrays plugin).
+    std_array_data_param: Option<usize>,
 }
 
 impl<P: NDPluginProcess> SharedProcessorInner<P> {
@@ -156,6 +165,38 @@ impl<P: NDPluginProcess> SharedProcessorInner<P> {
         // Use the first output array if available (reflects ROI/binning/transform),
         // otherwise fall back to the input array (for sink plugins like Stats).
         self.array_counter += 1;
+
+        // Fire array data interrupt directly (C EPICS pattern).
+        // Bypasses port actor channel to avoid dropping large array messages.
+        if let Some(param) = self.std_array_data_param {
+            let data_arr = result.output_arrays.first().map(|a| a.as_ref()).unwrap_or(array);
+            use crate::ndarray::NDDataBuffer;
+            use asyn_rs::param::ParamValue;
+            let value = match &data_arr.data {
+                NDDataBuffer::I16(v) => ParamValue::Int16Array(std::sync::Arc::from(v.as_slice())),
+                NDDataBuffer::U16(v) => ParamValue::Int16Array(std::sync::Arc::from(
+                    v.iter().map(|&x| x as i16).collect::<Vec<_>>().as_slice()
+                )),
+                NDDataBuffer::U8(v) => ParamValue::Int8Array(std::sync::Arc::from(
+                    v.iter().map(|&x| x as i8).collect::<Vec<_>>().as_slice()
+                )),
+                NDDataBuffer::I8(v) => ParamValue::Int8Array(std::sync::Arc::from(v.as_slice())),
+                NDDataBuffer::I32(v) => ParamValue::Int32Array(std::sync::Arc::from(v.as_slice())),
+                NDDataBuffer::U32(v) => ParamValue::Int32Array(std::sync::Arc::from(
+                    v.iter().map(|&x| x as i32).collect::<Vec<_>>().as_slice()
+                )),
+                NDDataBuffer::F32(v) => ParamValue::Float32Array(std::sync::Arc::from(v.as_slice())),
+                NDDataBuffer::F64(v) => ParamValue::Float64Array(std::sync::Arc::from(v.as_slice())),
+                _ => return,
+            };
+            self.port_handle.interrupts().notify(asyn_rs::interrupt::InterruptValue {
+                reason: param,
+                addr: 0,
+                value,
+                timestamp: std::time::SystemTime::now(),
+            });
+        }
+
         let report_arr = result.output_arrays.first().map(|a| a.as_ref()).unwrap_or(array);
         let info = report_arr.info();
         let color_mode = if report_arr.dims.len() <= 2 { 0 } else { 2 };
@@ -221,6 +262,10 @@ pub struct PluginPortDriver {
     ndarray_params: NDArrayDriverParams,
     plugin_params: PluginBaseParams,
     param_change_tx: tokio::sync::mpsc::Sender<(usize, i32, ParamChangeValue)>,
+    /// Optional handle to the latest NDArray for array read methods (used by StdArrays).
+    array_data: Option<Arc<parking_lot::Mutex<Option<Arc<NDArray>>>>>,
+    /// Param index for STD_ARRAY_DATA (triggers I/O Intr on ArrayData waveform).
+    std_array_data_param: Option<usize>,
 }
 
 impl PluginPortDriver {
@@ -232,6 +277,7 @@ impl PluginPortDriver {
         max_addr: usize,
         param_change_tx: tokio::sync::mpsc::Sender<(usize, i32, ParamChangeValue)>,
         processor: &mut P,
+        array_data: Option<Arc<parking_lot::Mutex<Option<Arc<NDArray>>>>>,
     ) -> AsynResult<Self> {
         let mut base = PortDriverBase::new(
             port_name,
@@ -260,6 +306,13 @@ impl PluginPortDriver {
             base.set_string_param(plugin_params.nd_array_port, 0, ndarray_port.into())?;
         }
 
+        // Create STD_ARRAY_DATA param for StdArrays plugins (triggers I/O Intr on ArrayData waveform)
+        let std_array_data_param = if array_data.is_some() {
+            Some(base.create_param("STD_ARRAY_DATA", asyn_rs::param::ParamType::GenericPointer)?)
+        } else {
+            None
+        };
+
         // Let the processor register its plugin-specific params
         processor.register_params(&mut base)?;
 
@@ -268,8 +321,79 @@ impl PluginPortDriver {
             ndarray_params,
             plugin_params,
             param_change_tx,
+            array_data,
+            std_array_data_param,
         })
     }
+}
+
+/// Copy source slice directly into destination buffer, returning elements copied.
+fn copy_direct<T: Copy>(src: &[T], dst: &mut [T]) -> usize {
+    let n = src.len().min(dst.len());
+    dst[..n].copy_from_slice(&src[..n]);
+    n
+}
+
+/// Convert and copy source slice into destination buffer element-by-element.
+fn copy_convert<S, D>(src: &[S], dst: &mut [D]) -> usize
+where
+    S: CastToF64 + Copy,
+    D: CastFromF64 + Copy,
+{
+    let n = src.len().min(dst.len());
+    for i in 0..n {
+        dst[i] = D::cast_from_f64(src[i].cast_to_f64());
+    }
+    n
+}
+
+/// Helper trait for `as f64` casts (handles lossy conversions like i64/u64).
+trait CastToF64 {
+    fn cast_to_f64(self) -> f64;
+}
+
+impl CastToF64 for i8 { fn cast_to_f64(self) -> f64 { self as f64 } }
+impl CastToF64 for u8 { fn cast_to_f64(self) -> f64 { self as f64 } }
+impl CastToF64 for i16 { fn cast_to_f64(self) -> f64 { self as f64 } }
+impl CastToF64 for u16 { fn cast_to_f64(self) -> f64 { self as f64 } }
+impl CastToF64 for i32 { fn cast_to_f64(self) -> f64 { self as f64 } }
+impl CastToF64 for u32 { fn cast_to_f64(self) -> f64 { self as f64 } }
+impl CastToF64 for i64 { fn cast_to_f64(self) -> f64 { self as f64 } }
+impl CastToF64 for u64 { fn cast_to_f64(self) -> f64 { self as f64 } }
+impl CastToF64 for f32 { fn cast_to_f64(self) -> f64 { self as f64 } }
+impl CastToF64 for f64 { fn cast_to_f64(self) -> f64 { self } }
+
+/// Helper trait for `as` casts from f64.
+trait CastFromF64 {
+    fn cast_from_f64(v: f64) -> Self;
+}
+
+impl CastFromF64 for i8 { fn cast_from_f64(v: f64) -> Self { v as i8 } }
+impl CastFromF64 for i16 { fn cast_from_f64(v: f64) -> Self { v as i16 } }
+impl CastFromF64 for i32 { fn cast_from_f64(v: f64) -> Self { v as i32 } }
+impl CastFromF64 for f32 { fn cast_from_f64(v: f64) -> Self { v as f32 } }
+impl CastFromF64 for f64 { fn cast_from_f64(v: f64) -> Self { v } }
+
+/// Copy NDArray data into the output buffer with type conversion.
+/// Returns the number of elements copied, or 0 if no data is available.
+macro_rules! impl_read_array {
+    ($self:expr, $buf:expr, $direct_variant:ident, $( $variant:ident ),*) => {{
+        use crate::ndarray::NDDataBuffer;
+        let handle = match &$self.array_data {
+            Some(h) => h,
+            None => return Ok(0),
+        };
+        let guard = handle.lock();
+        let array = match &*guard {
+            Some(a) => a,
+            None => return Ok(0),
+        };
+        let n = match &array.data {
+            NDDataBuffer::$direct_variant(v) => copy_direct(v, $buf),
+            $( NDDataBuffer::$variant(v) => copy_convert(v, $buf), )*
+        };
+        Ok(n)
+    }};
 }
 
 impl PortDriver for PluginPortDriver {
@@ -307,6 +431,26 @@ impl PortDriver for PluginPortDriver {
         self.base.call_param_callbacks(addr)?;
         let _ = self.param_change_tx.try_send((reason, addr, ParamChangeValue::Octet(s)));
         Ok(())
+    }
+
+    fn read_int8_array(&mut self, _user: &AsynUser, buf: &mut [i8]) -> AsynResult<usize> {
+        impl_read_array!(self, buf, I8, U8, I16, U16, I32, U32, I64, U64, F32, F64)
+    }
+
+    fn read_int16_array(&mut self, _user: &AsynUser, buf: &mut [i16]) -> AsynResult<usize> {
+        impl_read_array!(self, buf, I16, I8, U8, U16, I32, U32, I64, U64, F32, F64)
+    }
+
+    fn read_int32_array(&mut self, _user: &AsynUser, buf: &mut [i32]) -> AsynResult<usize> {
+        impl_read_array!(self, buf, I32, I8, U8, I16, U16, U32, I64, U64, F32, F64)
+    }
+
+    fn read_float32_array(&mut self, _user: &AsynUser, buf: &mut [f32]) -> AsynResult<usize> {
+        impl_read_array!(self, buf, F32, I8, U8, I16, U16, I32, U32, I64, U64, F64)
+    }
+
+    fn read_float64_array(&mut self, _user: &AsynUser, buf: &mut [f64]) -> AsynResult<usize> {
+        impl_read_array!(self, buf, F64, I8, U8, I16, U16, I32, U32, I64, U64, F32)
     }
 }
 
@@ -371,17 +515,19 @@ pub fn create_plugin_runtime_multi_addr<P: NDPluginProcess>(
     // Param change channel (control plane -> data plane)
     let (param_tx, param_rx) = tokio::sync::mpsc::channel::<(usize, i32, ParamChangeValue)>(64);
 
-    // Capture plugin type before mutable borrow
+    // Capture plugin type and array data handle before mutable borrow
     let plugin_type_name = processor.plugin_type().to_string();
+    let array_data = processor.array_data_handle();
 
     // Create the port driver for control plane
-    let driver = PluginPortDriver::new(port_name, &plugin_type_name, queue_size, ndarray_port, max_addr, param_tx, &mut processor)
+    let driver = PluginPortDriver::new(port_name, &plugin_type_name, queue_size, ndarray_port, max_addr, param_tx, &mut processor, array_data)
         .expect("failed to create plugin port driver");
 
     let enable_callbacks_reason = driver.plugin_params.enable_callbacks;
     let blocking_callbacks_reason = driver.plugin_params.blocking_callbacks;
     let ndarray_params = driver.ndarray_params;
     let plugin_params = driver.plugin_params;
+    let std_array_data_param = driver.std_array_data_param;
 
     // Create port runtime (actor thread for param I/O)
     let (port_runtime, _actor_jh) =
@@ -408,6 +554,7 @@ pub fn create_plugin_runtime_multi_addr<P: NDPluginProcess>(
         plugin_params,
         port_handle,
         array_counter: 0,
+        std_array_data_param,
     }));
 
     // Type-erased handle for blocking mode
@@ -544,13 +691,15 @@ pub fn create_plugin_runtime_with_output<P: NDPluginProcess>(
     let (param_tx, param_rx) = tokio::sync::mpsc::channel::<(usize, i32, ParamChangeValue)>(64);
 
     let plugin_type_name = processor.plugin_type().to_string();
-    let driver = PluginPortDriver::new(port_name, &plugin_type_name, queue_size, ndarray_port, 1, param_tx, &mut processor)
+    let array_data = processor.array_data_handle();
+    let driver = PluginPortDriver::new(port_name, &plugin_type_name, queue_size, ndarray_port, 1, param_tx, &mut processor, array_data)
         .expect("failed to create plugin port driver");
 
     let enable_callbacks_reason = driver.plugin_params.enable_callbacks;
     let blocking_callbacks_reason = driver.plugin_params.blocking_callbacks;
     let ndarray_params = driver.ndarray_params;
     let plugin_params = driver.plugin_params;
+    let std_array_data_param = driver.std_array_data_param;
 
     let (port_runtime, _actor_jh) =
         create_port_runtime(driver, RuntimeConfig::default());
@@ -572,6 +721,7 @@ pub fn create_plugin_runtime_with_output<P: NDPluginProcess>(
         plugin_params,
         port_handle,
         array_counter: 0,
+        std_array_data_param,
     }));
 
     let bp: Arc<dyn BlockingProcessFn> = Arc::new(BlockingProcessorHandle {

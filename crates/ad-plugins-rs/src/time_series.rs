@@ -1,4 +1,3 @@
-use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::Instant;
 
@@ -9,7 +8,6 @@ use asyn_rs::runtime::config::RuntimeConfig;
 use asyn_rs::runtime::port::{PortRuntimeHandle, create_port_runtime};
 use parking_lot::Mutex;
 
-use ad_core_rs::plugin::registry::{ParamInfo, ParamRegistry};
 
 // ===== Stats-specific channel definitions =====
 
@@ -463,40 +461,6 @@ pub fn create_ts_port_runtime(
     (runtime_handle, ts_params, actor_jh, data_jh)
 }
 
-/// Build a parameter registry for the TS port.
-///
-/// The channel names from `TSParams` are used as record suffix keys.
-pub fn build_ts_registry(tp: &TSParams) -> ParamRegistry {
-    let mut map: ParamRegistry = HashMap::new();
-
-    // Control params
-    map.insert("TSAcquire".into(), ParamInfo::int32(tp.ts_acquire, "TS_ACQUIRE"));
-    map.insert("TSAcquiring".into(), ParamInfo::int32(tp.ts_acquire, "TS_ACQUIRE"));
-    map.insert("TSRead".into(), ParamInfo::int32(tp.ts_read, "TS_READ"));
-    map.insert("TSNumPoints".into(), ParamInfo::int32(tp.ts_num_points, "TS_NUM_POINTS"));
-    map.insert("TSNumPoints_RBV".into(), ParamInfo::int32(tp.ts_num_points, "TS_NUM_POINTS"));
-    map.insert("TSCurrentPoint".into(), ParamInfo::int32(tp.ts_current_point, "TS_CURRENT_POINT"));
-    map.insert("TSTimePerPoint".into(), ParamInfo::float64(tp.ts_time_per_point, "TS_TIME_PER_POINT"));
-    map.insert("TSTimePerPoint_RBV".into(), ParamInfo::float64(tp.ts_time_per_point, "TS_TIME_PER_POINT"));
-    map.insert("TSAveragingTime".into(), ParamInfo::float64(tp.ts_averaging_time, "TS_AVERAGING_TIME"));
-    map.insert("TSAveragingTime_RBV".into(), ParamInfo::float64(tp.ts_averaging_time, "TS_AVERAGING_TIME"));
-    map.insert("TSNumAverage".into(), ParamInfo::int32(tp.ts_num_average, "TS_NUM_AVERAGE"));
-    map.insert("TSElapsedTime".into(), ParamInfo::float64(tp.ts_elapsed_time, "TS_ELAPSED_TIME"));
-    map.insert("TSAcquireMode".into(), ParamInfo::int32(tp.ts_acquire_mode, "TS_ACQUIRE_MODE"));
-    map.insert("TSAcquireMode_RBV".into(), ParamInfo::int32(tp.ts_acquire_mode, "TS_ACQUIRE_MODE"));
-
-    // Time axis waveform
-    map.insert("TSTimeAxis".into(), ParamInfo::float64_array(tp.ts_time_axis, "TS_TIME_AXIS"));
-
-    // Per-channel waveforms (names come from the channel_names passed at creation)
-    for (i, name) in tp.channel_names.iter().enumerate() {
-        let drv_info = format!("TS_CHAN_{name}");
-        map.insert(name.clone(), ParamInfo::float64_array(tp.ts_channels[i], &drv_info));
-    }
-
-    map
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -718,42 +682,6 @@ mod tests {
 
         let state = shared.lock();
         assert_eq!(state.buffers[0].count(), 0);
-    }
-
-    #[test]
-    fn test_build_ts_registry() {
-        let shared = Arc::new(Mutex::new(SharedTsState::new(3, 10)));
-        let driver = TimeSeriesPortDriver::new("TEST_TS", &TEST_CHANNELS, 10, shared);
-        let registry = build_ts_registry(&driver.params);
-
-        // Check control params
-        assert!(registry.contains_key("TSAcquire"));
-        assert!(registry.contains_key("TSAcquiring"));
-        assert!(registry.contains_key("TSRead"));
-        assert!(registry.contains_key("TSNumPoints"));
-        assert!(registry.contains_key("TSCurrentPoint"));
-        assert!(registry.contains_key("TSAcquireMode"));
-
-        // Check channel waveforms
-        assert!(registry.contains_key("ChA"));
-        assert!(registry.contains_key("ChB"));
-        assert!(registry.contains_key("ChC"));
-        assert!(registry.contains_key("TSTimeAxis"));
-
-        // 14 control + 1 time axis + 3 channels = 18
-        assert_eq!(registry.len(), 18);
-    }
-
-    #[test]
-    fn test_build_ts_registry_stats_channels() {
-        let shared = Arc::new(Mutex::new(SharedTsState::new(NUM_STATS_TS_CHANNELS, 10)));
-        let driver = TimeSeriesPortDriver::new("STATS_TS", &STATS_TS_CHANNEL_NAMES, 10, shared);
-        let registry = build_ts_registry(&driver.params);
-
-        // 14 control + 1 time axis + 23 channels = 38
-        assert_eq!(registry.len(), 38);
-        assert!(registry.contains_key("TSMinValue"));
-        assert!(registry.contains_key("TSTimestamp"));
     }
 
     #[test]

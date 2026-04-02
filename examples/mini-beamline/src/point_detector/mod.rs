@@ -1,8 +1,5 @@
 pub mod params;
 
-#[cfg(feature = "ioc")]
-pub mod ioc_support;
-
 use asyn_rs::error::AsynResult;
 use asyn_rs::port::{PortDriver, PortDriverBase, PortFlags};
 use asyn_rs::runtime::config::RuntimeConfig;

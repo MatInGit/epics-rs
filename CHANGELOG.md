@@ -1,25 +1,41 @@
 # Changelog
 
+## v0.7.8
+
+### Universal Asyn Device Support (C EPICS pattern)
+- **`universal_asyn_factory`**: single factory handles all standard asyn DTYPs (`asynInt32`, `asynFloat64`, `asynOctet`, all array types) by parsing `@asyn(PORT,ADDR,TIMEOUT)DRVINFO` links and resolving params via `drv_user_create` → `find_param`, matching C EPICS asyn behavior exactly
+- **All custom device support eliminated**: `MovingDotDeviceSupport`, `PointDetectorDeviceSupport`, `SimDeviceSupport`, `ScopeDeviceSupport`, `PluginDeviceSupport` — replaced by universal factory (~1,800 lines removed)
+- **`ParamRegistry` infrastructure removed**: `ParamRegistry`, `ParamInfo`, `RegistryParamType`, all `build_param_registry` functions — `drv_user_create`/`find_param` replaces them
+- **Plugin dynamic factory removed**: `PluginManager` no longer provides device support dispatch — only manages lifecycle, port registration, and NDArray wiring
+
+### Template Migration
+- All templates converted from `$(DTYP)` to standard asyn DTYPs with `@asyn(PORT,...)DRVINFO` links
+- CP-linked records use 2-stage pattern (C ADCore `NDOverlayN` pattern): Soft Channel link receiver → asyn record via `OUT PP`
+- `commonPlugins_settings.req` aligned with C ADCore (added StdArrays, Scatter/Gather, AttributeN, file-type-specific .req)
+
+### Array Data (C EPICS pattern)
+- Full array type support: `Int8`, `Int16`, `Int32`, `Int64`, `Float32`, `Float64` (read + write)
+- `PluginPortDriver::read_*_array` overrides serve pixel data from NDArray (matching C `NDPluginStdArrays::readArray`)
+- Array data pushed via direct interrupt (bypasses port actor channel), matching C `arrayInterruptCallback` pattern
+- `param_value_to_epics_value` handles all array `ParamValue` variants
+
+### Param Names (C ADCore alignment)
+- All `create_param` names aligned with C ADCore `#define` strings: `ACQ_TIME`, `ACQ_PERIOD`, `NIMAGES`, `STATUS`, `ENABLE_CALLBACKS`, `ARRAY_NDIMENSIONS`, etc.
+- Added missing `NDPluginDriver` params: `MAX_THREADS`, `NUM_THREADS`, `SORT_MODE`, `SORT_TIME`, `SORT_SIZE`, `SORT_FREE`, `DISORDERED_ARRAYS`, `DROPPED_OUTPUT_ARRAYS`, `PROCESS_PLUGIN`, `MIN_CALLBACK_TIME`, `MAX_BYTE_RATE`
+
+### Other
+- Per-parameter callback flush (`call_param_callback`) to avoid unintended side-flush
+- `normalize_asyn_dtyp`: strips direction suffixes (`asynOctetRead` → `asynOctet`, `asynFloat64ArrayIn` → `asynFloat64Array`)
+- Graceful `drv_user_create` failure: silently disables device support for records without matching driver param
+- MovingDot: binning support (BinX/BinY), fix NDArray dims order
+- Autosave for MovingDot cam1, `commonPlugins_settings.req` fixes
+- `PvDatabase::get_pv_blocking` for sync access from std::threads
+- `AdIoc::keep_alive` for driver runtime lifetime management
+- Add ophyd-test-ioc README
+
 ## v0.7.7
 
-### asyn-rs
-- Add `PortDriverBase::call_param_callback(addr, reason)` for per-parameter callback flush, avoiding unintended side-flush of unrelated dirty params
-- Add `ParamSet::take_changed_single(index, addr)` to clear a single param's changed flag
-- Add `Int32Array` variant to `RegistryParamType` with `ParamInfo::int32_array()` constructor
-- Add `array_dimensions` field to `NDArrayDriverParams` (`ParamType::Int32Array`)
-
-### areaDetector
-- Fix `Dimensions`/`Dimensions_RBV` waveform records missing from param registry — resolves "no param mapping for suffix 'Dimensions'" warnings
-- Add `asynInt32Array` interface mapping in `PluginDeviceSupport`
-- Fix RBV records not updating on write (AcquireTime, AcquirePeriod, ShutterOpen, etc.) — use per-reason `call_param_callback` for user-settable params while skipping CP-linked params (MotorXPos, MotorYPos, BeamCurrent) to prevent re-entrant message storms
-- Apply per-reason callback pattern to all example drivers (mini-beamline, sim-detector, ophyd-test-ioc, scope-ioc)
-- Fix sim-detector `Dimensions`/`Dimensions_RBV` mapping from incorrect `int32` to `int32_array`
-
-### Mini-beamline
-- Add autosave for MovingDot cam1 camera (ADBase + commonPlugins settings)
-- Add `dbpf` to enable `image1:EnableCallbacks` at startup
-- Add `KohzuModeBO` Auto mode step to README Verify section
-- Remove unused `sseq_settings.req` references from `NDStats_settings.req`
+_Superseded by v0.7.8 — v0.7.7 was an intermediate release._
 
 ## v0.7.6
 

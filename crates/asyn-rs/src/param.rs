@@ -644,6 +644,14 @@ impl ParamList {
         Ok(was_changed)
     }
 
+    /// Mark a parameter as changed without modifying its value.
+    /// Useful for triggering I/O Intr on params whose data is served via
+    /// read_*_array overrides rather than the param cache.
+    pub fn mark_changed(&mut self, index: usize, addr: i32) -> AsynResult<()> {
+        self.get_entry_mut(index, addr)?.value_changed = true;
+        Ok(())
+    }
+
     /// Returns indices of parameters whose values changed since last call, then clears flags.
     pub fn take_changed(&mut self, addr: i32) -> AsynResult<Vec<usize>> {
         let a = self.validate_addr(addr)?;

@@ -8,7 +8,6 @@ use std::sync::Arc;
 
 use ad_core_rs::ndarray::{NDArray, NDDataBuffer};
 use ad_core_rs::ndarray_pool::NDArrayPool;
-use ad_core_rs::plugin::registry::{build_plugin_base_registry, ParamInfo, ParamRegistry};
 use ad_core_rs::plugin::runtime::{
     NDPluginProcess, ParamUpdate, PluginParamSnapshot, PluginRuntimeHandle, ProcessResult,
 };
@@ -515,50 +514,6 @@ pub fn create_roi_stat_runtime(
     let roi_stat_params = *params_handle.lock();
 
     (handle, roi_stat_params, jh)
-}
-
-/// Build a ParamRegistry that maps NDROIStat template record suffixes to asyn param indices.
-pub fn build_roi_stat_registry(h: &PluginRuntimeHandle, rp: &ROIStatParams) -> ParamRegistry {
-    let mut map = build_plugin_base_registry(h);
-
-    // Global params
-    map.insert("ResetAll".into(), ParamInfo::int32(rp.reset_all, "ROISTAT_RESETALL"));
-    map.insert("TSControl".into(), ParamInfo::int32(rp.ts_control, "ROISTAT_TS_CONTROL"));
-    map.insert("TSControl_RBV".into(), ParamInfo::int32(rp.ts_control, "ROISTAT_TS_CONTROL"));
-    map.insert("TSNumPoints".into(), ParamInfo::int32(rp.ts_num_points, "ROISTAT_TS_NUM_POINTS"));
-    map.insert("TSNumPoints_RBV".into(), ParamInfo::int32(rp.ts_num_points, "ROISTAT_TS_NUM_POINTS"));
-    map.insert("TSCurrentPoint".into(), ParamInfo::int32(rp.ts_current_point, "ROISTAT_TS_CURRENT_POINT"));
-    map.insert("TSAcquiring".into(), ParamInfo::int32(rp.ts_acquiring, "ROISTAT_TS_ACQUIRING"));
-
-    // Per-ROI params (same indices for all addrs — addr is resolved via the link)
-    map.insert("Use".into(), ParamInfo::int32(rp.use_, "ROISTAT_USE"));
-    map.insert("Use_RBV".into(), ParamInfo::int32(rp.use_, "ROISTAT_USE"));
-    map.insert("Name".into(), ParamInfo::string(rp.name, "ROISTAT_NAME"));
-    map.insert("Name_RBV".into(), ParamInfo::string(rp.name, "ROISTAT_NAME"));
-    map.insert("Reset".into(), ParamInfo::int32(rp.reset, "ROISTAT_RESET"));
-    map.insert("BgdWidth".into(), ParamInfo::int32(rp.bgd_width, "ROISTAT_BGD_WIDTH"));
-    map.insert("BgdWidth_RBV".into(), ParamInfo::int32(rp.bgd_width, "ROISTAT_BGD_WIDTH"));
-
-    // ROI geometry
-    map.insert("MinX".into(), ParamInfo::int32(rp.dim0_min, "ROISTAT_DIM0_MIN"));
-    map.insert("MinX_RBV".into(), ParamInfo::int32(rp.dim0_min, "ROISTAT_DIM0_MIN"));
-    map.insert("MinY".into(), ParamInfo::int32(rp.dim1_min, "ROISTAT_DIM1_MIN"));
-    map.insert("MinY_RBV".into(), ParamInfo::int32(rp.dim1_min, "ROISTAT_DIM1_MIN"));
-    map.insert("SizeX".into(), ParamInfo::int32(rp.dim0_size, "ROISTAT_DIM0_SIZE"));
-    map.insert("SizeX_RBV".into(), ParamInfo::int32(rp.dim0_size, "ROISTAT_DIM0_SIZE"));
-    map.insert("SizeY".into(), ParamInfo::int32(rp.dim1_size, "ROISTAT_DIM1_SIZE"));
-    map.insert("SizeY_RBV".into(), ParamInfo::int32(rp.dim1_size, "ROISTAT_DIM1_SIZE"));
-    map.insert("MaxSizeX_RBV".into(), ParamInfo::int32(rp.dim0_max_size, "ROISTAT_DIM0_MAX_SIZE"));
-    map.insert("MaxSizeY_RBV".into(), ParamInfo::int32(rp.dim1_max_size, "ROISTAT_DIM1_MAX_SIZE"));
-
-    // Statistics readbacks
-    map.insert("MinValue_RBV".into(), ParamInfo::float64(rp.min_value, "ROISTAT_MIN_VALUE"));
-    map.insert("MaxValue_RBV".into(), ParamInfo::float64(rp.max_value, "ROISTAT_MAX_VALUE"));
-    map.insert("MeanValue_RBV".into(), ParamInfo::float64(rp.mean_value, "ROISTAT_MEAN_VALUE"));
-    map.insert("Total_RBV".into(), ParamInfo::float64(rp.total, "ROISTAT_TOTAL"));
-    map.insert("Net_RBV".into(), ParamInfo::float64(rp.net, "ROISTAT_NET"));
-
-    map
 }
 
 #[cfg(test)]

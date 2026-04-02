@@ -7,6 +7,23 @@ use crate::types::EpicsValue;
 use super::PvDatabase;
 
 impl PvDatabase {
+    /// Get a PV value synchronously from a blocking thread.
+    ///
+    /// Uses `block_in_place` + `Handle::block_on` to bridge the async
+    /// `get_pv` call. Safe to call from std::threads spawned within
+    /// a tokio runtime context.
+    pub fn get_pv_blocking(&self, name: &str) -> CaResult<EpicsValue> {
+        let db = self.clone();
+        let name = name.to_string();
+        if crate::runtime::task::RuntimeHandle::try_current().is_ok() {
+            crate::__tokio::task::block_in_place(|| {
+                crate::runtime::task::RuntimeHandle::current().block_on(db.get_pv(&name))
+            })
+        } else {
+            Err(CaError::InvalidValue("no runtime for get_pv_blocking".into()))
+        }
+    }
+
     /// Get the current value of a PV or record field.
     /// Uses resolve_field for records (3-level priority).
     pub async fn get_pv(&self, name: &str) -> CaResult<EpicsValue> {

@@ -40,6 +40,10 @@ impl NDPluginProcess for StdArraysProcessor {
     fn plugin_type(&self) -> &str {
         "NDPluginStdArrays"
     }
+
+    fn array_data_handle(&self) -> Option<Arc<Mutex<Option<Arc<NDArray>>>>> {
+        Some(self.latest_data.clone())
+    }
 }
 
 /// Create a StdArrays plugin runtime.

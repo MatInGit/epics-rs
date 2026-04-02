@@ -1,5 +1,5 @@
 # MovingDot area detector template
-# Macros: P, R, PORT, DTYP, IOC
+# Macros: P, R, PORT, IOC
 # IOC is the top-level IOC prefix for cross-namespace CP links (e.g. beam current).
 #
 # Includes the full ADBase (NDArrayBase → ADBase) record set for standard
@@ -9,56 +9,82 @@
 include "ADBase.template"
 
 # ===== MovingDot-specific: Motor positions + beam current + shutter =====
+# CP link receivers are Soft Channel — DB access only, no asyn round-trip.
+# They forward to asyn records via OUT PP, matching C ADCore NDOverlayN pattern.
 
-record(ao, "$(P)$(R)MotorXPos") {
-    field(DTYP, "$(DTYP)")
+record(ao, "$(P)$(R)MotorXPosLink") {
     field(OMSL, "closed_loop")
     field(DOL,  "$(P)mtrx.RBV CP")
+    field(OUT,  "$(P)$(R)MotorXPos PP")
+    field(PREC, "4")
+}
+
+record(ao, "$(P)$(R)MotorXPos") {
+    field(DTYP, "asynFloat64")
+    field(OUT,  "@asyn($(PORT),$(ADDR=0),$(TIMEOUT=1))DOT_MOTOR_X_POS")
     field(PREC, "4")
 }
 
 record(ai, "$(P)$(R)MotorXPos_RBV") {
-    field(DTYP, "$(DTYP)")
+    field(DTYP, "asynFloat64")
+    field(INP,  "@asyn($(PORT),$(ADDR=0),$(TIMEOUT=1))DOT_MOTOR_X_POS")
     field(SCAN, "I/O Intr")
+    field(PREC, "4")
+}
+
+record(ao, "$(P)$(R)MotorYPosLink") {
+    field(OMSL, "closed_loop")
+    field(DOL,  "$(P)mtry.RBV CP")
+    field(OUT,  "$(P)$(R)MotorYPos PP")
     field(PREC, "4")
 }
 
 record(ao, "$(P)$(R)MotorYPos") {
-    field(DTYP, "$(DTYP)")
-    field(OMSL, "closed_loop")
-    field(DOL,  "$(P)mtry.RBV CP")
+    field(DTYP, "asynFloat64")
+    field(OUT,  "@asyn($(PORT),$(ADDR=0),$(TIMEOUT=1))DOT_MOTOR_Y_POS")
     field(PREC, "4")
 }
 
 record(ai, "$(P)$(R)MotorYPos_RBV") {
-    field(DTYP, "$(DTYP)")
+    field(DTYP, "asynFloat64")
+    field(INP,  "@asyn($(PORT),$(ADDR=0),$(TIMEOUT=1))DOT_MOTOR_Y_POS")
     field(SCAN, "I/O Intr")
     field(PREC, "4")
 }
 
-record(ao, "$(P)$(R)BeamCurrent") {
-    field(DTYP, "$(DTYP)")
+record(ao, "$(P)$(R)BeamCurrentLink") {
     field(OMSL, "closed_loop")
     field(DOL,  "$(IOC)current CP")
+    field(OUT,  "$(P)$(R)BeamCurrent PP")
+    field(EGU,  "mA")
+    field(PREC, "2")
+}
+
+record(ao, "$(P)$(R)BeamCurrent") {
+    field(DTYP, "asynFloat64")
+    field(OUT,  "@asyn($(PORT),$(ADDR=0),$(TIMEOUT=1))DOT_BEAM_CURRENT")
     field(EGU,  "mA")
     field(PREC, "2")
 }
 
 record(ai, "$(P)$(R)BeamCurrent_RBV") {
-    field(DTYP, "$(DTYP)")
+    field(DTYP, "asynFloat64")
+    field(INP,  "@asyn($(PORT),$(ADDR=0),$(TIMEOUT=1))DOT_BEAM_CURRENT")
     field(SCAN, "I/O Intr")
     field(EGU,  "mA")
     field(PREC, "2")
 }
 
 record(bo, "$(P)$(R)ShutterOpen") {
-    field(DTYP, "$(DTYP)")
+    field(DTYP, "asynInt32")
+    field(OUT,  "@asyn($(PORT),$(ADDR=0),$(TIMEOUT=1))DOT_SHUTTER_OPEN")
     field(ZNAM, "Closed")
     field(ONAM, "Open")
 }
 
 record(bi, "$(P)$(R)ShutterOpen_RBV") {
-    field(DTYP, "$(DTYP)")
+    field(DTYP, "asynInt32")
+    field(INP,  "@asyn($(PORT),$(ADDR=0),$(TIMEOUT=1))DOT_SHUTTER_OPEN")
     field(SCAN, "I/O Intr")
     field(ZNAM, "Closed")
     field(ONAM, "Open")
@@ -67,52 +93,60 @@ record(bi, "$(P)$(R)ShutterOpen_RBV") {
 # ===== Slit aperture (pixel units) =====
 
 record(ao, "$(P)$(R)SlitLeft") {
-    field(DTYP, "$(DTYP)")
+    field(DTYP, "asynFloat64")
+    field(OUT,  "@asyn($(PORT),$(ADDR=0),$(TIMEOUT=1))DOT_SLIT_LEFT")
     field(PREC, "1")
     field(EGU,  "px")
 }
 
 record(ai, "$(P)$(R)SlitLeft_RBV") {
-    field(DTYP, "$(DTYP)")
+    field(DTYP, "asynFloat64")
+    field(INP,  "@asyn($(PORT),$(ADDR=0),$(TIMEOUT=1))DOT_SLIT_LEFT")
     field(SCAN, "I/O Intr")
     field(PREC, "1")
     field(EGU,  "px")
 }
 
 record(ao, "$(P)$(R)SlitRight") {
-    field(DTYP, "$(DTYP)")
+    field(DTYP, "asynFloat64")
+    field(OUT,  "@asyn($(PORT),$(ADDR=0),$(TIMEOUT=1))DOT_SLIT_RIGHT")
     field(PREC, "1")
     field(EGU,  "px")
 }
 
 record(ai, "$(P)$(R)SlitRight_RBV") {
-    field(DTYP, "$(DTYP)")
+    field(DTYP, "asynFloat64")
+    field(INP,  "@asyn($(PORT),$(ADDR=0),$(TIMEOUT=1))DOT_SLIT_RIGHT")
     field(SCAN, "I/O Intr")
     field(PREC, "1")
     field(EGU,  "px")
 }
 
 record(ao, "$(P)$(R)SlitTop") {
-    field(DTYP, "$(DTYP)")
+    field(DTYP, "asynFloat64")
+    field(OUT,  "@asyn($(PORT),$(ADDR=0),$(TIMEOUT=1))DOT_SLIT_TOP")
     field(PREC, "1")
     field(EGU,  "px")
 }
 
 record(ai, "$(P)$(R)SlitTop_RBV") {
-    field(DTYP, "$(DTYP)")
+    field(DTYP, "asynFloat64")
+    field(INP,  "@asyn($(PORT),$(ADDR=0),$(TIMEOUT=1))DOT_SLIT_TOP")
     field(SCAN, "I/O Intr")
     field(PREC, "1")
     field(EGU,  "px")
 }
 
 record(ao, "$(P)$(R)SlitBottom") {
-    field(DTYP, "$(DTYP)")
+    field(DTYP, "asynFloat64")
+    field(OUT,  "@asyn($(PORT),$(ADDR=0),$(TIMEOUT=1))DOT_SLIT_BOTTOM")
     field(PREC, "1")
     field(EGU,  "px")
 }
 
 record(ai, "$(P)$(R)SlitBottom_RBV") {
-    field(DTYP, "$(DTYP)")
+    field(DTYP, "asynFloat64")
+    field(INP,  "@asyn($(PORT),$(ADDR=0),$(TIMEOUT=1))DOT_SLIT_BOTTOM")
     field(SCAN, "I/O Intr")
     field(PREC, "1")
     field(EGU,  "px")

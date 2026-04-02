@@ -59,9 +59,9 @@ dbLoadRecords("$(OPTICS)/db/kohzuSeq.db", "P=$(PREFIX),M_THETA=dcm:theta,M_Y=dcm
 dbLoadRecords("$(MINI_BEAMLINE)/db/beam_current.template", "P=$(PREFIX)")
 
 # Load point detectors
-dbLoadRecords("$(MINI_BEAMLINE)/db/point_detector.template", "P=$(PREFIX),R=ph:,MTR=ph:mtr,DTYP=asynPointDet_PH")
-dbLoadRecords("$(MINI_BEAMLINE)/db/point_detector.template", "P=$(PREFIX),R=edge:,MTR=edge:mtr,DTYP=asynPointDet_EDGE")
-dbLoadRecords("$(MINI_BEAMLINE)/db/point_detector.template", "P=$(PREFIX),R=slit:,MTR=slit:mtr,DTYP=asynPointDet_SLIT")
+dbLoadRecords("$(MINI_BEAMLINE)/db/point_detector.template", "P=$(PREFIX),R=ph:,MTR=ph:mtr,PORT=PD_PH")
+dbLoadRecords("$(MINI_BEAMLINE)/db/point_detector.template", "P=$(PREFIX),R=edge:,MTR=edge:mtr,PORT=PD_EDGE")
+dbLoadRecords("$(MINI_BEAMLINE)/db/point_detector.template", "P=$(PREFIX),R=slit:,MTR=slit:mtr,PORT=PD_SLIT")
 
 # ===== MovingDot area detector (AD convention: P=detector prefix, R=cam1:) =====
 epicsEnvSet("PREFIX", "mini:dot:")
@@ -75,13 +75,10 @@ epicsEnvSet("NELEMENTS",  "307200")
 epicsEnvSet("FTVL",       "SHORT")
 epicsEnvSet("TYPE",       "Int16")
 epicsEnvSet("EPICS_DB_INCLUDE_PATH", "$(MINI_BEAMLINE)/db:$(ADCORE)/db")
-dbLoadRecords("$(MINI_BEAMLINE)/db/moving_dot.template", "P=$(PREFIX),R=cam1:,IOC=mini:,PORT=DOT,DTYP=asynMovingDot")
+dbLoadRecords("$(MINI_BEAMLINE)/db/moving_dot.template", "P=$(PREFIX),R=cam1:,IOC=mini:,PORT=DOT")
 
 # Load standard areaDetector plugins for MovingDot
 < $(ADCORE)/ioc/commonPlugins.cmd
-
-# Enable image plugin callbacks by default
-dbpf("mini:dot:image1:EnableCallbacks", "1")
 
 # Restore top-level prefix
 epicsEnvSet("PREFIX", "mini:")

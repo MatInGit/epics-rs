@@ -43,6 +43,22 @@ pub enum RequestOp {
     Float64ArrayRead { max_elements: usize },
     /// Write an f64 array.
     Float64ArrayWrite { data: Vec<f64> },
+    /// Read an i8 array.
+    Int8ArrayRead { max_elements: usize },
+    /// Write an i8 array.
+    Int8ArrayWrite { data: Vec<i8> },
+    /// Read an i16 array.
+    Int16ArrayRead { max_elements: usize },
+    /// Write an i16 array.
+    Int16ArrayWrite { data: Vec<i16> },
+    /// Read an i64 array.
+    Int64ArrayRead { max_elements: usize },
+    /// Write an i64 array.
+    Int64ArrayWrite { data: Vec<i64> },
+    /// Read an f32 array.
+    Float32ArrayRead { max_elements: usize },
+    /// Write an f32 array.
+    Float32ArrayWrite { data: Vec<f32> },
     /// Flush changed parameters as interrupt notifications (callParamCallbacks).
     CallParamCallbacks { addr: i32 },
     /// Get a port/driver option by key.
@@ -70,6 +86,14 @@ pub struct RequestResult {
     pub int32_array: Option<Vec<i32>>,
     /// f64 array data (from Float64ArrayRead).
     pub float64_array: Option<Vec<f64>>,
+    /// i8 array data (from Int8ArrayRead).
+    pub int8_array: Option<Vec<i8>>,
+    /// i16 array data (from Int16ArrayRead).
+    pub int16_array: Option<Vec<i16>>,
+    /// i64 array data (from Int64ArrayRead).
+    pub int64_array: Option<Vec<i64>>,
+    /// f32 array data (from Float32ArrayRead).
+    pub float32_array: Option<Vec<f32>>,
     /// Alarm status from the driver param store (populated on reads).
     pub alarm_status: u16,
     /// Alarm severity from the driver param store (populated on reads).
@@ -95,6 +119,10 @@ impl RequestResult {
             enum_index: None,
             int32_array: None,
             float64_array: None,
+            int8_array: None,
+            int16_array: None,
+            int64_array: None,
+            float32_array: None,
             alarm_status: 0,
             alarm_severity: 0,
             timestamp: None,
@@ -140,6 +168,22 @@ impl RequestResult {
 
     pub fn float64_array_read(data: Vec<f64>) -> Self {
         Self { float64_array: Some(data), ..Self::base() }
+    }
+
+    pub fn int8_array_read(data: Vec<i8>) -> Self {
+        Self { int8_array: Some(data), ..Self::base() }
+    }
+
+    pub fn int16_array_read(data: Vec<i16>) -> Self {
+        Self { int16_array: Some(data), ..Self::base() }
+    }
+
+    pub fn int64_array_read(data: Vec<i64>) -> Self {
+        Self { int64_array: Some(data), ..Self::base() }
+    }
+
+    pub fn float32_array_read(data: Vec<f32>) -> Self {
+        Self { float32_array: Some(data), ..Self::base() }
     }
 
     pub fn option_read(value: String) -> Self {

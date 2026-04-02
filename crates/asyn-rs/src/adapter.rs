@@ -166,6 +166,9 @@ pub struct AsynDeviceSupport {
     last_ts: Option<SystemTime>,
     record_name: String,
     scan: ScanType,
+    /// Maximum number of array elements for array read operations.
+    /// Default: 307200 (enough for 640x480 images).
+    max_array_elements: usize,
     /// If true, read back the current driver value during init (for output records).
     initial_readback: bool,
     /// RAII interrupt subscription — dropping unsubscribes.
@@ -196,6 +199,7 @@ impl AsynDeviceSupport {
             iface_type: iface_type.to_string(),
             iface,
             mask: 0xFFFFFFFF,
+            max_array_elements: 307200,
             last_alarm_status: 0,
             last_alarm_severity: 0,
             last_ts: None,
@@ -286,6 +290,12 @@ fn param_value_to_epics_value(pv: &crate::param::ParamValue) -> Option<EpicsValu
         ParamValue::Octet(s) => Some(EpicsValue::String(s.clone())),
         ParamValue::UInt32Digital(v) => Some(EpicsValue::Long(*v as i32)),
         ParamValue::Enum { index, .. } => Some(EpicsValue::Enum(*index as u16)),
+        ParamValue::Int8Array(a) => Some(EpicsValue::CharArray(a.iter().map(|&x| x as u8).collect())),
+        ParamValue::Int16Array(a) => Some(EpicsValue::ShortArray(a.to_vec())),
+        ParamValue::Int32Array(a) => Some(EpicsValue::LongArray(a.to_vec())),
+        ParamValue::Int64Array(a) => Some(EpicsValue::LongArray(a.iter().map(|&x| x as i32).collect())),
+        ParamValue::Float32Array(a) => Some(EpicsValue::FloatArray(a.to_vec())),
+        ParamValue::Float64Array(a) => Some(EpicsValue::DoubleArray(a.to_vec())),
         _ => None,
     }
 }
@@ -318,8 +328,12 @@ impl AsynDeviceSupport {
             "asynOctet" => Some(RequestOp::OctetRead { buf_size: 256 }),
             "asynUInt32Digital" => Some(RequestOp::UInt32DigitalRead { mask: self.mask }),
             "asynEnum" => Some(RequestOp::EnumRead),
-            "asynInt32Array" => Some(RequestOp::Int32ArrayRead { max_elements: 4096 }),
-            "asynFloat64Array" => Some(RequestOp::Float64ArrayRead { max_elements: 4096 }),
+            "asynInt8Array" => Some(RequestOp::Int8ArrayRead { max_elements: self.max_array_elements }),
+            "asynInt16Array" => Some(RequestOp::Int16ArrayRead { max_elements: self.max_array_elements }),
+            "asynInt32Array" => Some(RequestOp::Int32ArrayRead { max_elements: self.max_array_elements }),
+            "asynInt64Array" => Some(RequestOp::Int64ArrayRead { max_elements: self.max_array_elements }),
+            "asynFloat32Array" => Some(RequestOp::Float32ArrayRead { max_elements: self.max_array_elements }),
+            "asynFloat64Array" => Some(RequestOp::Float64ArrayRead { max_elements: self.max_array_elements }),
             _ => None,
         }
     }
@@ -336,7 +350,11 @@ impl AsynDeviceSupport {
             }),
             "asynUInt32Digital" => result.uint_val.map(|v| EpicsValue::Long(v as i32)),
             "asynEnum" => result.enum_index.map(|v| EpicsValue::Long(v as i32)),
+            "asynInt8Array" => result.int8_array.clone().map(|v| EpicsValue::CharArray(v.iter().map(|&x| x as u8).collect())),
+            "asynInt16Array" => result.int16_array.clone().map(EpicsValue::ShortArray),
             "asynInt32Array" => result.int32_array.clone().map(EpicsValue::LongArray),
+            "asynInt64Array" => result.int64_array.clone().map(|v| EpicsValue::LongArray(v.iter().map(|&x| x as i32).collect())),
+            "asynFloat32Array" => result.float32_array.clone().map(EpicsValue::FloatArray),
             "asynFloat64Array" => result.float64_array.clone().map(EpicsValue::DoubleArray),
             _ => None,
         }
@@ -358,8 +376,20 @@ impl AsynDeviceSupport {
                 mask: self.mask,
             }),
             ("asynEnum", EpicsValue::Long(v)) => Some(RequestOp::EnumWrite { index: *v as usize }),
+            ("asynInt8Array", EpicsValue::CharArray(data)) => {
+                Some(RequestOp::Int8ArrayWrite { data: data.iter().map(|&x| x as i8).collect() })
+            }
+            ("asynInt16Array", EpicsValue::ShortArray(data)) => {
+                Some(RequestOp::Int16ArrayWrite { data: data.clone() })
+            }
             ("asynInt32Array", EpicsValue::LongArray(data)) => {
                 Some(RequestOp::Int32ArrayWrite { data: data.clone() })
+            }
+            ("asynInt64Array", EpicsValue::LongArray(data)) => {
+                Some(RequestOp::Int64ArrayWrite { data: data.iter().map(|&x| x as i64).collect() })
+            }
+            ("asynFloat32Array", EpicsValue::FloatArray(data)) => {
+                Some(RequestOp::Float32ArrayWrite { data: data.clone() })
             }
             ("asynFloat64Array", EpicsValue::DoubleArray(data)) => {
                 Some(RequestOp::Float64ArrayWrite { data: data.clone() })
@@ -373,9 +403,23 @@ impl AsynDeviceSupport {
 impl DeviceSupport for AsynDeviceSupport {
     fn init(&mut self, record: &mut dyn Record) -> CaResult<()> {
         if !self.reason_set {
-            self.reason = self.handle
-                .drv_user_create_blocking(&self.drv_info)
-                .map_err(asyn_to_ca_error)?;
+            match self.handle.drv_user_create_blocking(&self.drv_info) {
+                Ok(reason) => self.reason = reason,
+                Err(_) => {
+                    // Param not found — this record has no corresponding driver param.
+                    // Silently disable this device support (no-op reads/writes).
+                    self.reason_set = false;
+                    return Ok(());
+                }
+            }
+            self.reason_set = true;
+        }
+
+        // Read NELM from the record to set max_array_elements for array reads.
+        if let Some(EpicsValue::Long(nelm)) = record.get_field("NELM") {
+            if nelm > 0 {
+                self.max_array_elements = nelm as usize;
+            }
         }
 
         if self.initial_readback {
@@ -394,6 +438,9 @@ impl DeviceSupport for AsynDeviceSupport {
     }
 
     fn read(&mut self, record: &mut dyn Record) -> CaResult<DeviceReadOutcome> {
+        // No-op if drv_user_create failed (no matching param in driver)
+        if !self.reason_set { return Ok(DeviceReadOutcome::ok()); }
+
         // For I/O Intr records, use the cached interrupt value instead of
         // sending a blocking read to the port. This matches C EPICS behavior
         // where the interrupt callback directly provides the new value.
@@ -401,34 +448,31 @@ impl DeviceSupport for AsynDeviceSupport {
             let cached = self.interrupt_cache.lock().unwrap().take();
             if let Some(pv) = cached {
                 if let Some(val) = param_value_to_epics_value(&pv) {
-                    record.set_val(val)?;
+                    let _ = record.set_val(val);
                 }
                 return Ok(DeviceReadOutcome::ok());
             }
-            // No cached value — skip this cycle. The next interrupt will
-            // provide the value. Falling through to a blocking read here
-            // causes timeouts at startup when the driver hasn't produced
-            // its first value yet.
             return Ok(DeviceReadOutcome::ok());
         }
 
-        let op = self.read_op().ok_or_else(|| {
-            CaError::Protocol(format!("unsupported interface type for read: {}", self.iface_type))
-        })?;
-        let user = AsynUser::new(self.reason)
-            .with_addr(self.addr)
-            .with_timeout(self.timeout);
-        let result = self.handle.submit_blocking(op, user).map_err(asyn_to_ca_error)?;
-        if let Some(val) = self.result_to_value(&result) {
-            record.set_val(val)?;
+        if let Some(op) = self.read_op() {
+            let user = AsynUser::new(self.reason)
+                .with_addr(self.addr)
+                .with_timeout(self.timeout);
+            if let Ok(result) = self.handle.submit_blocking(op, user) {
+                if let Some(val) = self.result_to_value(&result) {
+                    let _ = record.set_val(val);
+                }
+                self.last_alarm_status = result.alarm_status;
+                self.last_alarm_severity = result.alarm_severity;
+                self.last_ts = result.timestamp;
+            }
         }
-        self.last_alarm_status = result.alarm_status;
-        self.last_alarm_severity = result.alarm_severity;
-        self.last_ts = result.timestamp;
         Ok(DeviceReadOutcome::ok())
     }
 
     fn write(&mut self, record: &mut dyn Record) -> CaResult<()> {
+        if !self.reason_set { return Ok(()); }
         if let Some(val) = record.val() {
             if let Some(op) = self.write_op(&val) {
                 let user = AsynUser::new(self.reason)
@@ -480,7 +524,7 @@ impl DeviceSupport for AsynDeviceSupport {
     }
 
     fn io_intr_receiver(&mut self) -> Option<tokio::sync::mpsc::Receiver<()>> {
-        if self.scan != ScanType::IoIntr {
+        if self.scan != ScanType::IoIntr || !self.reason_set {
             return None;
         }
 
@@ -508,6 +552,114 @@ impl DeviceSupport for AsynDeviceSupport {
         });
         Some(rx)
     }
+}
+
+// ===== Universal asyn device support =====
+
+/// Normalize array DTYP names by stripping "In"/"Out" direction suffixes.
+///
+/// C EPICS uses distinct DTYPs for input vs output array records
+/// (e.g. `asynFloat64ArrayIn`, `asynFloat64ArrayOut`), but the underlying
+/// asyn interface name is just `asynFloat64Array`. This function strips
+/// the direction suffix so the adapter's `read_op()`/`write_op()` matchers
+/// can find the correct interface.
+/// Normalize asyn DTYP names to their base interface type.
+///
+/// C EPICS uses direction-specific DTYPs for some interfaces:
+/// - `asynFloat64ArrayIn` / `asynFloat64ArrayOut` → `asynFloat64Array`
+/// - `asynOctetRead` / `asynOctetWrite` → `asynOctet`
+///
+/// The underlying asyn interface is direction-agnostic.
+fn normalize_asyn_dtyp(dtyp: &str) -> String {
+    // Array direction suffixes: asynXxxArrayIn/Out → asynXxxArray
+    if let Some(base) = dtyp.strip_suffix("In").or_else(|| dtyp.strip_suffix("Out")) {
+        if base.ends_with("Array") {
+            return base.to_string();
+        }
+    }
+    // Octet direction suffixes: asynOctetRead/Write → asynOctet
+    if dtyp == "asynOctetRead" || dtyp == "asynOctetWrite" {
+        return "asynOctet".to_string();
+    }
+    dtyp.to_string()
+}
+
+/// Create a universal asyn device support factory.
+///
+/// Handles all standard asyn DTYPs (`asynInt32`, `asynFloat64`, `asynOctet`,
+/// array types, etc.) by parsing `@asyn(PORT,ADDR,TIMEOUT)DRVINFO` links
+/// and dispatching to the appropriate port driver.
+///
+/// During `init()`, `drv_user_create(drvInfo)` is called on the port, which
+/// resolves the drvInfo string to a param index via `find_param()`. This
+/// matches the C EPICS asyn device support behavior exactly.
+///
+/// Handles all records with `@asyn(PORT,...)` links. Register via
+/// `register_asyn_device_support(app)` or `AdIoc` (which registers it
+/// automatically).
+///
+/// ```ignore
+/// app = asyn_rs::adapter::register_asyn_device_support(app);
+/// ```
+pub fn universal_asyn_factory(
+    ctx: &epics_base_rs::server::ioc_app::DeviceSupportContext,
+) -> Option<Box<dyn DeviceSupport>> {
+    // Try @asyn() link in INP or OUT
+    let (link_str, is_output) = if ctx.out.contains("@asyn") || ctx.out.contains("@asynMask") {
+        (ctx.out, true)
+    } else if ctx.inp.contains("@asyn") || ctx.inp.contains("@asynMask") {
+        (ctx.inp, false)
+    } else {
+        return None;
+    };
+
+    // Parse the link
+    let link = if link_str.contains("@asynMask") {
+        let ml = parse_asyn_mask_link(link_str).ok()?;
+        AsynLink {
+            port_name: ml.port_name,
+            addr: ml.addr,
+            timeout: ml.timeout,
+            drv_info: ml.drv_info,
+        }
+    } else {
+        parse_asyn_link(link_str).ok()?
+    };
+
+    // Look up port in global registry
+    let entry = crate::asyn_record::get_port(&link.port_name)?;
+
+    // Normalize DTYP: strip "In"/"Out" suffixes from array types.
+    // C EPICS uses DTYPs like "asynFloat64ArrayIn" / "asynFloat64ArrayOut"
+    // but the underlying asyn interface is "asynFloat64Array".
+    let dtyp = normalize_asyn_dtyp(ctx.dtyp);
+
+    let mut adapter = AsynDeviceSupport::from_handle(entry.handle, link, &dtyp);
+
+    // Output records: read back current driver value on init
+    if is_output {
+        adapter = adapter.with_initial_readback();
+    }
+
+    // UInt32Digital: apply mask
+    if link_str.contains("@asynMask") {
+        if let Ok(ml) = parse_asyn_mask_link(link_str) {
+            adapter = adapter.with_mask(ml.mask);
+        }
+    }
+
+    Some(Box::new(adapter))
+}
+
+/// Register universal asyn device support on an IocApplication.
+///
+/// This is the Rust equivalent of C EPICS's standard asyn device support
+/// registration. Call this BEFORE registering plugin or driver-specific
+/// factories so they take precedence (dynamic factories chain last-registered-first).
+pub fn register_asyn_device_support(
+    app: epics_base_rs::server::ioc_app::IocApplication,
+) -> epics_base_rs::server::ioc_app::IocApplication {
+    app.register_dynamic_device_support(universal_asyn_factory)
 }
 
 #[cfg(test)]
@@ -674,9 +826,13 @@ mod tests {
         assert!(ads.io_intr_receiver().is_none());
     }
 
-    #[tokio::test]
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn test_io_intr_receiver_some_when_io_intr() {
         let mut ads = make_adapter(ScanType::IoIntr);
+        // init() resolves drv_user_create → sets reason_set = true
+        use epics_base_rs::server::records::longin::LonginRecord;
+        let mut rec = LonginRecord::new(0);
+        ads.init(&mut rec).unwrap();
         let rx = ads.io_intr_receiver();
         assert!(rx.is_some());
     }

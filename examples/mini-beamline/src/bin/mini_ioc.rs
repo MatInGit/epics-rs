@@ -23,7 +23,6 @@ use epics_base_rs::server::iocsh::registry::*;
 
 use ad_core_rs::ioc::{PluginManager, register_noop_commands};
 use ad_core_rs::plugin::channel::NDArrayOutput;
-use ad_core_rs::plugin::registry::ParamRegistry;
 
 use motor_rs::ioc::SimMotorHolder;
 
@@ -31,15 +30,7 @@ use mini_beamline::beam_current::{self, BeamCurrentValue};
 use mini_beamline::beam_current::ioc_support::BeamCurrentDeviceSupport;
 use mini_beamline::physics::{DetectorMode, BeamCurrentConfig, MovingDotImageConfig};
 use mini_beamline::point_detector::{self, PointDetectorRuntime};
-use mini_beamline::point_detector::ioc_support::{
-    PointDetectorDeviceSupport,
-    build_param_registry as build_pd_registry,
-};
 use mini_beamline::moving_dot::driver::{MovingDotRuntime, create_moving_dot_with_config};
-use mini_beamline::moving_dot::ioc_support::{
-    MovingDotDeviceSupport,
-    build_param_registry as build_md_registry,
-};
 
 // ============================================================================
 // Environment helpers
@@ -72,8 +63,8 @@ fn env_i32(name: &str, default: i32) -> i32 {
 struct BeamlineHolder {
     beam_value: Arc<BeamCurrentValue>,
     beam_rx: std::sync::Mutex<Option<std::sync::mpsc::Receiver<()>>>,
-    pd_runtimes: std::sync::Mutex<HashMap<String, (PointDetectorRuntime, Arc<ParamRegistry>)>>,
-    md_runtime: std::sync::Mutex<Option<(MovingDotRuntime, Arc<ParamRegistry>)>>,
+    pd_runtimes: std::sync::Mutex<HashMap<String, PointDetectorRuntime>>,
+    md_runtime: std::sync::Mutex<Option<MovingDotRuntime>>,
     trace: Arc<TraceManager>,
 }
 
@@ -190,10 +181,9 @@ async fn main() -> CaResult<()> {
                 for (port, mode) in &pd_configs {
                     let rt = point_detector::create_point_detector(port, *mode)
                         .map_err(|e| format!("failed to create PointDetector {port}: {e}"))?;
-                    let registry = Arc::new(build_pd_registry(&rt.params));
                     let port_handle = rt.port_handle().clone();
                     asyn_rs::asyn_record::register_port(port, port_handle, h.trace.clone());
-                    h.pd_runtimes.lock().unwrap().insert(port.to_string(), (rt, registry));
+                    h.pd_runtimes.lock().unwrap().insert(port.to_string(), rt);
                     println!("  PointDetector '{port}' created");
                 }
 
@@ -216,7 +206,6 @@ async fn main() -> CaResult<()> {
                 let dot_rt = create_moving_dot_with_config(
                     "DOT", dot_size_x, dot_size_y, dot_max_mem, dot_output, dot_image_config,
                 ).map_err(|e| format!("failed to create MovingDot: {e}"))?;
-                let dot_registry = Arc::new(build_md_registry(&dot_rt.ad_params, &dot_rt.dot_params));
                 let dot_handle = dot_rt.port_handle().clone();
                 asyn_rs::asyn_record::register_port("DOT", dot_handle, h.trace.clone());
 
@@ -231,7 +220,7 @@ async fn main() -> CaResult<()> {
                     mgr_c.wiring(),
                 )));
 
-                *h.md_runtime.lock().unwrap() = Some((dot_rt, dot_registry));
+                *h.md_runtime.lock().unwrap() = Some(dot_rt);
                 println!("  MovingDot detector created");
 
                 println!("miniBeamlineConfig: done");
@@ -252,6 +241,17 @@ async fn main() -> CaResult<()> {
     app = register_noop_commands(app);
 
     // ========================================================================
+    // Universal asyn device support (lowest priority — registered first)
+    //
+    // Handles all standard asyn DTYPs (asynInt32, asynFloat64, asynOctet, etc.)
+    // by parsing @asyn(PORT,ADDR,TIMEOUT)DRVINFO links and dispatching to the
+    // port driver. This is the Rust equivalent of C EPICS's standard asyn
+    // device support.
+    // ========================================================================
+
+    app = asyn_rs::adapter::register_asyn_device_support(app);
+
+    // ========================================================================
     // Device support factories
     //
     // Each factory maps a DTYP string to a DeviceSupport constructor.
@@ -261,10 +261,7 @@ async fn main() -> CaResult<()> {
     //
     // DTYP mapping:
     //   "miniBeamCurrent"   → BeamCurrentDeviceSupport (ai record)
-    //   "asynPointDet_PH"   → PointDetectorDeviceSupport for PinHole port
-    //   "asynPointDet_EDGE" → PointDetectorDeviceSupport for Edge port
-    //   "asynPointDet_SLIT" → PointDetectorDeviceSupport for Slit port
-    //   "asynMovingDot"     → MovingDotDeviceSupport for DOT port
+    //   "asynFloat64" etc.  → universal asyn factory (all asyn port records)
     // ========================================================================
 
     {
@@ -275,57 +272,13 @@ async fn main() -> CaResult<()> {
             Box::new(BeamCurrentDeviceSupport::new(h.beam_value.clone(), rx))
         });
     }
-    {
-        let h = holder.clone();
-        app = app.register_device_support("asynPointDet_PH", move || {
-            let runtimes = h.pd_runtimes.lock().unwrap();
-            let (rt, registry) = runtimes.get("PD_PH").expect("PD_PH not configured");
-            Box::new(PointDetectorDeviceSupport::from_handle(
-                rt.port_handle().clone(), registry.clone(), "asynPointDet_PH",
-            ))
-        });
-    }
-    {
-        let h = holder.clone();
-        app = app.register_device_support("asynPointDet_EDGE", move || {
-            let runtimes = h.pd_runtimes.lock().unwrap();
-            let (rt, registry) = runtimes.get("PD_EDGE").expect("PD_EDGE not configured");
-            Box::new(PointDetectorDeviceSupport::from_handle(
-                rt.port_handle().clone(), registry.clone(), "asynPointDet_EDGE",
-            ))
-        });
-    }
-    {
-        let h = holder.clone();
-        app = app.register_device_support("asynPointDet_SLIT", move || {
-            let runtimes = h.pd_runtimes.lock().unwrap();
-            let (rt, registry) = runtimes.get("PD_SLIT").expect("PD_SLIT not configured");
-            Box::new(PointDetectorDeviceSupport::from_handle(
-                rt.port_handle().clone(), registry.clone(), "asynPointDet_SLIT",
-            ))
-        });
-    }
-    {
-        let h = holder.clone();
-        app = app.register_device_support("asynMovingDot", move || {
-            let guard = h.md_runtime.lock().unwrap();
-            let (rt, registry) = guard.as_ref().expect("MovingDot not configured");
-            Box::new(MovingDotDeviceSupport::from_handle(
-                rt.port_handle().clone(), registry.clone(),
-            ))
-        });
-    }
+    // PointDetector and MovingDot records now use standard asyn DTYPs
+    // (asynFloat64, asynInt32) with @asyn(PORT,...) links. The universal
+    // asyn factory handles them via drv_user_create → find_param.
 
-    // ========================================================================
-    // Plugin device support (dynamic DTYP dispatch)
-    //
-    // AD plugins (Stats, ROI, StdArrays, etc.) are configured dynamically
-    // via st.cmd commands like NDStatsConfigure. Their DTYP names are not
-    // known at compile time, so PluginManager provides a dynamic factory
-    // that resolves DTYP → DeviceSupport at iocInit time.
-    // ========================================================================
-
-    app = mgr.register_device_support(app);
+    // Plugin ports are registered in the global asyn port registry by
+    // PluginManager::add_plugin(). The universal asyn factory handles all
+    // plugin records via @asyn(PORT,...) links — no plugin-specific factory needed.
 
     // ========================================================================
     // Simulated motors (st.cmd driven)

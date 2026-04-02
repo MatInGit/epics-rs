@@ -41,7 +41,8 @@ dbLoadRecords("$(OPHYD_TEST_IOC)/db/sensor.template", "P=XF:31IDA-BI{Dev:6},R=E-
 ophydTestAdConfig()
 
 # Load camera records (MovingDot-based sim detector)
-dbLoadRecords("$(OPHYD_TEST_IOC)/db/sim_cam.template", "P=XF:31IDA-BI{Cam:Tbl}:,R=cam1:,PORT=SIM,DTYP=asynOphydTestAd")
+epicsEnvSet("EPICS_DB_INCLUDE_PATH", "$(OPHYD_TEST_IOC)/db:$(ADCORE)/db")
+dbLoadRecords("$(OPHYD_TEST_IOC)/db/sim_cam.template", "P=XF:31IDA-BI{Cam:Tbl}:,R=cam1:,PORT=SIM,IOC=XF:31IDA-BI{Cam:Tbl}:")
 
 # Load standard areaDetector plugins
 epicsEnvSet("PREFIX", "XF:31IDA-BI{Cam:Tbl}:")
@@ -51,7 +52,6 @@ epicsEnvSet("XSIZE",  "640")
 epicsEnvSet("YSIZE",  "480")
 epicsEnvSet("NCHANS", "2048")
 epicsEnvSet("CBUFFS", "500")
-epicsEnvSet("EPICS_DB_INCLUDE_PATH", "$(ADCORE)/db")
 < $(ADCORE)/ioc/commonPlugins.cmd
 
 # Also load with ADSIM: prefix for fallback

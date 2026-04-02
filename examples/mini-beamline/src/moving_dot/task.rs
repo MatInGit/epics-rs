@@ -152,14 +152,37 @@ fn acquisition_loop(ctx: AcquisitionContext) {
                 }
             }
 
+            // Apply binning: sum bin_x × bin_y pixel blocks
+            let bx = config.bin_x;
+            let by = config.bin_y;
+            let (out_data, out_w, out_h) = if bx > 1 || by > 1 {
+                let bw = width / bx;
+                let bh = height / by;
+                let mut binned = vec![0.0f64; bw * bh];
+                for row in 0..bh {
+                    for col in 0..bw {
+                        let mut sum = 0.0;
+                        for dy in 0..by {
+                            for dx in 0..bx {
+                                sum += img_data[(row * by + dy) * width + col * bx + dx];
+                            }
+                        }
+                        binned[row * bw + col] = sum;
+                    }
+                }
+                (binned, bw, bh)
+            } else {
+                (img_data, width, height)
+            };
+
             // Convert f64 photon counts to u16 (clamp to 0..65535)
-            let u16_data: Vec<u16> = img_data.iter()
+            let u16_data: Vec<u16> = out_data.iter()
                 .map(|&v| v.round().clamp(0.0, 65535.0) as u16)
                 .collect();
 
             let dims = vec![
-                NDDimension::new(height),
-                NDDimension::new(width),
+                NDDimension::new(out_w),
+                NDDimension::new(out_h),
             ];
             let mut frame = NDArray {
                 unique_id: 0,

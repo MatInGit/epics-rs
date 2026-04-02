@@ -1,33 +1,48 @@
 # Point detector template
-# Macros: P, R, MTR, DTYP
+# Macros: P, R, PORT, MTR
 
-# Motor position fed from motor RBV via CP link
-record(ao, "$(P)$(R)MotorPos") {
-    field(DTYP, "$(DTYP)")
+# Motor position: CP link receiver (Soft Channel) → asyn record (DB PP)
+record(ao, "$(P)$(R)MotorPosLink") {
     field(OMSL, "closed_loop")
     field(DOL,  "$(P)$(MTR).RBV CP")
+    field(OUT,  "$(P)$(R)MotorPos PP")
     field(PREC, "4")
 }
 
-# Beam current fed via CP link
-record(ao, "$(P)$(R)BeamCurrent") {
-    field(DTYP, "$(DTYP)")
+record(ao, "$(P)$(R)MotorPos") {
+    field(DTYP, "asynFloat64")
+    field(OUT,  "@asyn($(PORT),$(ADDR=0),$(TIMEOUT=1))MOTOR_POS")
+    field(PREC, "4")
+}
+
+# Beam current: CP link receiver (Soft Channel) → asyn record (DB PP)
+record(ao, "$(P)$(R)BeamCurrentLink") {
     field(OMSL, "closed_loop")
     field(DOL,  "$(P)current CP")
+    field(OUT,  "$(P)$(R)BeamCurrent PP")
+    field(EGU,  "mA")
+    field(PREC, "2")
+}
+
+record(ao, "$(P)$(R)BeamCurrent") {
+    field(DTYP, "asynFloat64")
+    field(OUT,  "@asyn($(PORT),$(ADDR=0),$(TIMEOUT=1))BEAM_CURRENT")
     field(EGU,  "mA")
     field(PREC, "2")
 }
 
 # User-settable exposure time
 record(ao, "$(P)$(R)ExposureTime") {
-    field(DTYP, "$(DTYP)")
+    field(DTYP, "asynFloat64")
+    field(OUT,  "@asyn($(PORT),$(ADDR=0),$(TIMEOUT=1))EXPOSURE_TIME")
     field(VAL,  "1.0")
     field(PREC, "3")
     field(EGU,  "s")
 }
 
 record(ai, "$(P)$(R)ExposureTime_RBV") {
-    field(DTYP, "$(DTYP)")
+    field(DTYP, "asynFloat64")
+    field(INP,  "@asyn($(PORT),$(ADDR=0),$(TIMEOUT=1))EXPOSURE_TIME")
     field(SCAN, "I/O Intr")
     field(PREC, "3")
     field(EGU,  "s")
@@ -35,31 +50,36 @@ record(ai, "$(P)$(R)ExposureTime_RBV") {
 
 # Computed detector value (read-only, I/O Intr)
 record(ai, "$(P)$(R)DetValue_RBV") {
-    field(DTYP, "$(DTYP)")
+    field(DTYP, "asynFloat64")
+    field(INP,  "@asyn($(PORT),$(ADDR=0),$(TIMEOUT=1))DET_VALUE")
     field(SCAN, "I/O Intr")
     field(PREC, "2")
 }
 
 # Detector sigma (configurable)
 record(ao, "$(P)$(R)DetSigma") {
-    field(DTYP, "$(DTYP)")
+    field(DTYP, "asynFloat64")
+    field(OUT,  "@asyn($(PORT),$(ADDR=0),$(TIMEOUT=1))DET_SIGMA")
     field(PREC, "3")
 }
 
 record(ai, "$(P)$(R)DetSigma_RBV") {
-    field(DTYP, "$(DTYP)")
+    field(DTYP, "asynFloat64")
+    field(INP,  "@asyn($(PORT),$(ADDR=0),$(TIMEOUT=1))DET_SIGMA")
     field(SCAN, "I/O Intr")
     field(PREC, "3")
 }
 
 # Detector center (configurable)
 record(ao, "$(P)$(R)DetCenter") {
-    field(DTYP, "$(DTYP)")
+    field(DTYP, "asynFloat64")
+    field(OUT,  "@asyn($(PORT),$(ADDR=0),$(TIMEOUT=1))DET_CENTER")
     field(PREC, "3")
 }
 
 record(ai, "$(P)$(R)DetCenter_RBV") {
-    field(DTYP, "$(DTYP)")
+    field(DTYP, "asynFloat64")
+    field(INP,  "@asyn($(PORT),$(ADDR=0),$(TIMEOUT=1))DET_CENTER")
     field(SCAN, "I/O Intr")
     field(PREC, "3")
 }

@@ -244,6 +244,10 @@ impl PortActor {
                 | RequestOp::EnumRead
                 | RequestOp::Int32ArrayRead { .. }
                 | RequestOp::Float64ArrayRead { .. }
+                | RequestOp::Int8ArrayRead { .. }
+                | RequestOp::Int16ArrayRead { .. }
+                | RequestOp::Int64ArrayRead { .. }
+                | RequestOp::Float32ArrayRead { .. }
         );
 
         let result = match op {
@@ -351,6 +355,46 @@ impl PortActor {
             }
             RequestOp::Float64ArrayWrite { data } => {
                 self.driver.write_float64_array(user, data)?;
+                Ok(RequestResult::write_ok())
+            }
+            RequestOp::Int8ArrayRead { max_elements } => {
+                let mut buf = vec![0i8; *max_elements];
+                let n = self.driver.read_int8_array(user, &mut buf)?;
+                buf.truncate(n);
+                Ok(RequestResult::int8_array_read(buf))
+            }
+            RequestOp::Int8ArrayWrite { data } => {
+                self.driver.write_int8_array(user, data)?;
+                Ok(RequestResult::write_ok())
+            }
+            RequestOp::Int16ArrayRead { max_elements } => {
+                let mut buf = vec![0i16; *max_elements];
+                let n = self.driver.read_int16_array(user, &mut buf)?;
+                buf.truncate(n);
+                Ok(RequestResult::int16_array_read(buf))
+            }
+            RequestOp::Int16ArrayWrite { data } => {
+                self.driver.write_int16_array(user, data)?;
+                Ok(RequestResult::write_ok())
+            }
+            RequestOp::Int64ArrayRead { max_elements } => {
+                let mut buf = vec![0i64; *max_elements];
+                let n = self.driver.read_int64_array(user, &mut buf)?;
+                buf.truncate(n);
+                Ok(RequestResult::int64_array_read(buf))
+            }
+            RequestOp::Int64ArrayWrite { data } => {
+                self.driver.write_int64_array(user, data)?;
+                Ok(RequestResult::write_ok())
+            }
+            RequestOp::Float32ArrayRead { max_elements } => {
+                let mut buf = vec![0f32; *max_elements];
+                let n = self.driver.read_float32_array(user, &mut buf)?;
+                buf.truncate(n);
+                Ok(RequestResult::float32_array_read(buf))
+            }
+            RequestOp::Float32ArrayWrite { data } => {
+                self.driver.write_float32_array(user, data)?;
                 Ok(RequestResult::write_ok())
             }
             RequestOp::CallParamCallbacks { addr } => {

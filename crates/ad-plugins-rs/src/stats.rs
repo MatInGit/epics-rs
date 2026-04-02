@@ -7,7 +7,6 @@ use crate::par_util;
 
 use ad_core_rs::ndarray::{NDArray, NDDataBuffer};
 use ad_core_rs::ndarray_pool::NDArrayPool;
-use ad_core_rs::plugin::registry::{build_plugin_base_registry, ParamInfo, ParamRegistry};
 use ad_core_rs::plugin::runtime::{NDPluginProcess, ParamUpdate, PluginParamSnapshot, PluginRuntimeHandle, ProcessResult};
 use ad_core_rs::plugin::wiring::WiringRegistry;
 use asyn_rs::param::ParamType;
@@ -961,74 +960,6 @@ impl NDPluginProcess for StatsProcessor {
             self.hist_max = snapshot.value.as_f64();
         }
     }
-}
-
-/// Build a parameter registry for NDStats plugins, extending the base with stats-specific params.
-pub fn build_stats_registry(h: &PluginRuntimeHandle, sp: &NDStatsParams) -> ParamRegistry {
-    let mut map = build_plugin_base_registry(h);
-
-    // Control params (read/write)
-    map.insert("ComputeStatistics".into(), ParamInfo::int32(sp.compute_statistics, "COMPUTE_STATISTICS"));
-    map.insert("ComputeStatistics_RBV".into(), ParamInfo::int32(sp.compute_statistics, "COMPUTE_STATISTICS"));
-    map.insert("BgdWidth".into(), ParamInfo::int32(sp.bgd_width, "BGD_WIDTH"));
-    map.insert("BgdWidth_RBV".into(), ParamInfo::int32(sp.bgd_width, "BGD_WIDTH"));
-    map.insert("ComputeCentroid".into(), ParamInfo::int32(sp.compute_centroid, "COMPUTE_CENTROID"));
-    map.insert("ComputeCentroid_RBV".into(), ParamInfo::int32(sp.compute_centroid, "COMPUTE_CENTROID"));
-    map.insert("CentroidThreshold".into(), ParamInfo::float64(sp.centroid_threshold, "CENTROID_THRESHOLD"));
-    map.insert("CentroidThreshold_RBV".into(), ParamInfo::float64(sp.centroid_threshold, "CENTROID_THRESHOLD"));
-
-    // Statistics readback params
-    map.insert("MinValue_RBV".into(), ParamInfo::float64(sp.min_value, "MIN_VALUE"));
-    map.insert("MaxValue_RBV".into(), ParamInfo::float64(sp.max_value, "MAX_VALUE"));
-    map.insert("MeanValue_RBV".into(), ParamInfo::float64(sp.mean_value, "MEAN_VALUE"));
-    map.insert("Sigma_RBV".into(), ParamInfo::float64(sp.sigma_value, "SIGMA_VALUE"));
-    map.insert("Total_RBV".into(), ParamInfo::float64(sp.total, "TOTAL"));
-    map.insert("Net_RBV".into(), ParamInfo::float64(sp.net, "NET"));
-
-    // Min/Max position readbacks
-    map.insert("MinX_RBV".into(), ParamInfo::float64(sp.min_x, "MIN_X"));
-    map.insert("MinY_RBV".into(), ParamInfo::float64(sp.min_y, "MIN_Y"));
-    map.insert("MaxX_RBV".into(), ParamInfo::float64(sp.max_x, "MAX_X"));
-    map.insert("MaxY_RBV".into(), ParamInfo::float64(sp.max_y, "MAX_Y"));
-
-    // Centroid readbacks
-    map.insert("CentroidTotal_RBV".into(), ParamInfo::float64(sp.centroid_total, "CENTROID_TOTAL"));
-    map.insert("CentroidX_RBV".into(), ParamInfo::float64(sp.centroid_x, "CENTROIDX_VALUE"));
-    map.insert("CentroidY_RBV".into(), ParamInfo::float64(sp.centroid_y, "CENTROIDY_VALUE"));
-    map.insert("SigmaX_RBV".into(), ParamInfo::float64(sp.sigma_x, "SIGMAX_VALUE"));
-    map.insert("SigmaY_RBV".into(), ParamInfo::float64(sp.sigma_y, "SIGMAY_VALUE"));
-    map.insert("SigmaXY_RBV".into(), ParamInfo::float64(sp.sigma_xy, "SIGMAXY_VALUE"));
-
-    // Higher-order moment readbacks
-    map.insert("SkewnessX_RBV".into(), ParamInfo::float64(sp.skewness_x, "SKEWNESSX_VALUE"));
-    map.insert("SkewnessY_RBV".into(), ParamInfo::float64(sp.skewness_y, "SKEWNESSY_VALUE"));
-    map.insert("KurtosisX_RBV".into(), ParamInfo::float64(sp.kurtosis_x, "KURTOSISX_VALUE"));
-    map.insert("KurtosisY_RBV".into(), ParamInfo::float64(sp.kurtosis_y, "KURTOSISY_VALUE"));
-    map.insert("Eccentricity_RBV".into(), ParamInfo::float64(sp.eccentricity, "ECCENTRICITY_VALUE"));
-    map.insert("Orientation_RBV".into(), ParamInfo::float64(sp.orientation, "ORIENTATION_VALUE"));
-
-    // Histogram params
-    map.insert("ComputeHistogram".into(), ParamInfo::int32(sp.compute_histogram, "COMPUTE_HISTOGRAM"));
-    map.insert("ComputeHistogram_RBV".into(), ParamInfo::int32(sp.compute_histogram, "COMPUTE_HISTOGRAM"));
-    map.insert("HistSize".into(), ParamInfo::int32(sp.hist_size, "HIST_SIZE"));
-    map.insert("HistSize_RBV".into(), ParamInfo::int32(sp.hist_size, "HIST_SIZE"));
-    map.insert("HistMin".into(), ParamInfo::float64(sp.hist_min, "HIST_MIN"));
-    map.insert("HistMin_RBV".into(), ParamInfo::float64(sp.hist_min, "HIST_MIN"));
-    map.insert("HistMax".into(), ParamInfo::float64(sp.hist_max, "HIST_MAX"));
-    map.insert("HistMax_RBV".into(), ParamInfo::float64(sp.hist_max, "HIST_MAX"));
-    map.insert("HistBelow_RBV".into(), ParamInfo::float64(sp.hist_below, "HIST_BELOW"));
-    map.insert("HistAbove_RBV".into(), ParamInfo::float64(sp.hist_above, "HIST_ABOVE"));
-    map.insert("HistEntropy_RBV".into(), ParamInfo::float64(sp.hist_entropy, "HIST_ENTROPY"));
-
-    // Profile params
-    map.insert("ComputeProfiles".into(), ParamInfo::int32(sp.compute_profiles, "COMPUTE_PROFILES"));
-    map.insert("ComputeProfiles_RBV".into(), ParamInfo::int32(sp.compute_profiles, "COMPUTE_PROFILES"));
-    map.insert("CursorX".into(), ParamInfo::int32(sp.cursor_x, "CURSOR_X"));
-    map.insert("CursorX_RBV".into(), ParamInfo::int32(sp.cursor_x, "CURSOR_X"));
-    map.insert("CursorY".into(), ParamInfo::int32(sp.cursor_y, "CURSOR_Y"));
-    map.insert("CursorY_RBV".into(), ParamInfo::int32(sp.cursor_y, "CURSOR_Y"));
-
-    map
 }
 
 /// Create a stats plugin runtime with an integrated time series port.

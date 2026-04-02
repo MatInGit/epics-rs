@@ -37,9 +37,9 @@ pub fn register_all_plugins(
                 let dtyp = dtyp_from_port(&port_name);
                 let drv = m.driver()?;
                 let pool = drv.pool();
-                let (handle, data, _jh) =
+                let (handle, _data, _jh) =
                     crate::std_arrays::create_std_arrays_runtime(&port_name, pool, &ndarray_port, m.wiring().clone());
-                m.add_plugin(&dtyp, &handle, Some(data));
+                m.add_plugin(&dtyp, &handle);
                 if let Err(e) = m.wiring().rewire(handle.array_sender(), "", &ndarray_port) {
                     eprintln!("NDStdArraysConfigure: wiring failed: {e}");
                 }
@@ -61,12 +61,11 @@ pub fn register_all_plugins(
                 let dtyp = dtyp_from_port(&port_name);
                 let drv = m.driver()?;
                 let pool = drv.pool();
-                let (handle, _stats, stats_params, ts_runtime, ts_params, _jh, _ts_actor_jh, _ts_data_jh) =
+                let (handle, _stats, _stats_params, ts_runtime, _ts_params, _jh, _ts_actor_jh, _ts_data_jh) =
                     crate::stats::create_stats_runtime(&port_name, pool, queue_size, &ndarray_port, m.wiring().clone());
                 println!("NDStatsConfigure: port={port_name}");
 
-                let registry = Arc::new(crate::stats::build_stats_registry(&handle, &stats_params));
-                m.add_plugin_with_registry(&dtyp, &handle, registry, None);
+                m.add_plugin(&dtyp, &handle);
                 if let Err(e) = m.wiring().rewire(handle.array_sender(), "", &ndarray_port) {
                     eprintln!("NDStatsConfigure: wiring failed: {e}");
                 }
@@ -74,8 +73,7 @@ pub fn register_all_plugins(
                 // Register TimeSeries as a separate asyn port
                 let ts_port_name = format!("{port_name}_TS");
                 let ts_dtyp = dtyp_from_port(&ts_port_name);
-                let ts_registry = Arc::new(crate::time_series::build_ts_registry(&ts_params));
-                m.add_port(&ts_dtyp, ts_runtime, ts_registry);
+                m.add_port(&ts_dtyp, ts_runtime);
                 println!("  TimeSeries port: {ts_port_name} (DTYP: {ts_dtyp})");
 
                 Ok(CommandOutcome::Continue)
@@ -95,10 +93,9 @@ pub fn register_all_plugins(
                 let dtyp = dtyp_from_port(&port_name);
                 let drv = m.driver()?;
                 let pool = drv.pool();
-                let (handle, roi_params, _jh) =
+                let (handle, _roi_params, _jh) =
                     crate::roi::create_roi_runtime(&port_name, pool, queue_size, &ndarray_port, m.wiring().clone());
-                let registry = Arc::new(crate::roi::build_roi_registry(&handle, &roi_params));
-                m.add_plugin_with_registry(&dtyp, &handle, registry, None);
+                m.add_plugin(&dtyp, &handle);
                 if let Err(e) = m.wiring().rewire(handle.array_sender(), "", &ndarray_port) {
                     eprintln!("NDROIConfigure: wiring failed: {e}");
                 }
@@ -184,7 +181,7 @@ pub fn register_all_plugins(
                     &ndarray_port,
                     m.wiring().clone(),
                 );
-                m.add_plugin(&dtyp, &handle, None);
+                m.add_plugin(&dtyp, &handle);
                 if let Err(e) = m.wiring().rewire(handle.array_sender(), "", &ndarray_port) {
                     eprintln!("NDAttrConfigure: wiring failed: {e}");
                 }
@@ -194,15 +191,14 @@ pub fn register_all_plugins(
                 let ts_port_name = format!("{port_name}_TS");
                 let ts_dtyp = dtyp_from_port(&ts_port_name);
                 let (_ts_tx, ts_rx) = tokio::sync::mpsc::channel(16);
-                let (ts_runtime, ts_params, _ts_actor_jh, _ts_data_jh) =
+                let (ts_runtime, _ts_params, _ts_actor_jh, _ts_data_jh) =
                     crate::time_series::create_ts_port_runtime(
                         &ts_port_name,
                         &["TSArrayValue"],
                         2048,
                         ts_rx,
                     );
-                let ts_registry = Arc::new(crate::time_series::build_ts_registry(&ts_params));
-                m.add_port(&ts_dtyp, ts_runtime, ts_registry);
+                m.add_port(&ts_dtyp, ts_runtime);
                 println!("  TimeSeries port: {ts_port_name} (DTYP: {ts_dtyp})");
 
                 Ok(CommandOutcome::Continue)
@@ -222,10 +218,9 @@ pub fn register_all_plugins(
                 let dtyp = dtyp_from_port(&port_name);
                 let drv = m.driver()?;
                 let pool = drv.pool();
-                let (handle, roi_stat_params, _jh) =
+                let (handle, _roi_stat_params, _jh) =
                     crate::roi_stat::create_roi_stat_runtime(&port_name, pool, queue_size, &ndarray_port, m.wiring().clone(), 8);
-                let registry = Arc::new(crate::roi_stat::build_roi_stat_registry(&handle, &roi_stat_params));
-                m.add_plugin_with_registry(&dtyp, &handle, registry, None);
+                m.add_plugin(&dtyp, &handle);
                 if let Err(e) = m.wiring().rewire(handle.array_sender(), "", &ndarray_port) {
                     eprintln!("NDROIStatConfigure: wiring failed: {e}");
                 }
@@ -263,7 +258,7 @@ pub fn register_all_plugins(
                     &ndarray_port,
                     m.wiring().clone(),
                 );
-                m.add_plugin(&dtyp, &handle, None);
+                m.add_plugin(&dtyp, &handle);
                 if let Err(e) = m.wiring().rewire(handle.array_sender(), "", &ndarray_port) {
                     eprintln!("{cmd_name}: wiring failed: {e}");
                 }
@@ -310,7 +305,7 @@ where
             let drv = m.driver()?;
             let pool = drv.pool();
             let (handle, _jh) = factory(&port_name, queue_size, &ndarray_port, pool, m.wiring().clone());
-            m.add_plugin(&dtyp, &handle, None);
+            m.add_plugin(&dtyp, &handle);
             if let Err(e) = m.wiring().rewire(handle.array_sender(), "", &ndarray_port) {
                 eprintln!("{cmd_name}: wiring failed: {e}");
             }
@@ -332,12 +327,11 @@ where
 /// - `asynRecord` registration
 /// - All NDPlugin configure commands (`NDStdArraysConfigure`, `NDStatsConfigure`, etc.)
 /// - No-op commands from commonPlugins.cmd
-/// - Plugin device support (dynamic DTYP dispatch)
+/// - Universal asyn device support (handles all @asyn() linked records)
 /// - Report shell command
 ///
-/// Detector libraries register their configure commands and device support
-/// via `register_startup_command` and `register_device_support`, then
-/// call `run_from_args` to start the IOC.
+/// Detector libraries register their configure commands via
+/// `register_startup_command`, then call `run_from_args` to start the IOC.
 ///
 /// # Example
 ///
@@ -355,6 +349,8 @@ pub struct AdIoc {
     app: Option<IocApplication>,
     mgr: Arc<PluginManager>,
     trace: Arc<TraceManager>,
+    /// Resources kept alive for the IOC's lifetime (e.g. driver runtimes).
+    _resources: Vec<Box<dyn std::any::Any + Send>>,
 }
 
 impl AdIoc {
@@ -390,7 +386,7 @@ impl AdIoc {
             concat!(env!("CARGO_MANIFEST_DIR"), "/../autosave"),
         );
 
-        Self { app: Some(app), mgr, trace }
+        Self { app: Some(app), mgr, trace, _resources: Vec::new() }
     }
 
     /// Access the shared `PluginManager`.
@@ -433,6 +429,14 @@ impl AdIoc {
         self.app = Some(app.register_dynamic_device_support(factory));
     }
 
+    /// Keep a resource alive for the IOC's lifetime.
+    ///
+    /// Use this for driver runtimes that must not be dropped while the IOC is
+    /// running. The resource is stored until `run()` returns.
+    pub fn keep_alive<T: Send + 'static>(&mut self, resource: T) {
+        self._resources.push(Box::new(resource));
+    }
+
     /// Register a shell command.
     pub fn register_shell_command(&mut self, cmd: CommandDef) {
         let app = self.app.take().unwrap();
@@ -470,8 +474,9 @@ impl AdIoc {
         let autosave_config = Arc::new(Mutex::new(AutosaveStartupConfig::new()));
         app = app.autosave_startup(autosave_config);
 
-        // Plugin device support (dynamic DTYP dispatch)
-        app = self.mgr.register_device_support(app);
+        // Universal asyn device support — handles all standard asyn DTYPs
+        // (asynInt32, asynFloat64, asynOctet, array types) via @asyn() links.
+        app = asyn_rs::adapter::register_asyn_device_support(app);
 
         // asynReport shell command
         let mgr_r = self.mgr.clone();

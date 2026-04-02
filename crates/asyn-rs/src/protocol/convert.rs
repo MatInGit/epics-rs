@@ -42,6 +42,14 @@ impl From<&RequestOp> for PortCommand {
                 max_elements: *max_elements,
             },
             RequestOp::Float64ArrayWrite { data } => Self::Float64ArrayWrite { data: data.clone() },
+            RequestOp::Int8ArrayRead { max_elements } => Self::Int8ArrayRead { max_elements: *max_elements },
+            RequestOp::Int8ArrayWrite { data } => Self::Int8ArrayWrite { data: data.clone() },
+            RequestOp::Int16ArrayRead { max_elements } => Self::Int16ArrayRead { max_elements: *max_elements },
+            RequestOp::Int16ArrayWrite { data } => Self::Int16ArrayWrite { data: data.clone() },
+            RequestOp::Int64ArrayRead { max_elements } => Self::Int64ArrayRead { max_elements: *max_elements },
+            RequestOp::Int64ArrayWrite { data } => Self::Int64ArrayWrite { data: data.clone() },
+            RequestOp::Float32ArrayRead { max_elements } => Self::Float32ArrayRead { max_elements: *max_elements },
+            RequestOp::Float32ArrayWrite { data } => Self::Float32ArrayWrite { data: data.clone() },
             RequestOp::Flush => Self::Flush,
             RequestOp::Connect => Self::Connect,
             RequestOp::Disconnect => Self::Disconnect,
@@ -96,6 +104,14 @@ impl From<&PortCommand> for RequestOp {
                 max_elements: *max_elements,
             },
             PortCommand::Float64ArrayWrite { data } => Self::Float64ArrayWrite { data: data.clone() },
+            PortCommand::Int8ArrayRead { max_elements } => Self::Int8ArrayRead { max_elements: *max_elements },
+            PortCommand::Int8ArrayWrite { data } => Self::Int8ArrayWrite { data: data.clone() },
+            PortCommand::Int16ArrayRead { max_elements } => Self::Int16ArrayRead { max_elements: *max_elements },
+            PortCommand::Int16ArrayWrite { data } => Self::Int16ArrayWrite { data: data.clone() },
+            PortCommand::Int64ArrayRead { max_elements } => Self::Int64ArrayRead { max_elements: *max_elements },
+            PortCommand::Int64ArrayWrite { data } => Self::Int64ArrayWrite { data: data.clone() },
+            PortCommand::Float32ArrayRead { max_elements } => Self::Float32ArrayRead { max_elements: *max_elements },
+            PortCommand::Float32ArrayWrite { data } => Self::Float32ArrayWrite { data: data.clone() },
             PortCommand::Flush => Self::Flush,
             PortCommand::Connect => Self::Connect,
             PortCommand::Disconnect => Self::Disconnect,
@@ -151,6 +167,14 @@ pub fn result_to_reply(result: &RequestResult, request_id: u64) -> PortReply {
         ReplyPayload::Value(ParamValue::Int32Array(v.clone()))
     } else if let Some(ref v) = result.float64_array {
         ReplyPayload::Value(ParamValue::Float64Array(v.clone()))
+    } else if let Some(ref v) = result.int8_array {
+        ReplyPayload::Value(ParamValue::Int8Array(v.clone()))
+    } else if let Some(ref v) = result.int16_array {
+        ReplyPayload::Value(ParamValue::Int16Array(v.clone()))
+    } else if let Some(ref v) = result.int64_array {
+        ReplyPayload::Value(ParamValue::Int64Array(v.clone()))
+    } else if let Some(ref v) = result.float32_array {
+        ReplyPayload::Value(ParamValue::Float32Array(v.clone()))
     } else if let Some(v) = result.reason {
         // DrvUserCreate returns reason index
         ReplyPayload::Value(ParamValue::Int32(v as i32))
