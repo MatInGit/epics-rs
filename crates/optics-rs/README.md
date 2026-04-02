@@ -279,3 +279,7 @@ caput-rs mini:BraggLAO 0
 # Check the 2d spacing
 caget-rs mini:Bragg2dSpacingAO
 ```
+
+## License
+
+[EPICS Open License](../../LICENSE)

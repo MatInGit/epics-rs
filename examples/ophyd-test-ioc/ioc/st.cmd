@@ -37,23 +37,27 @@ dbLoadRecords("$(OPHYD_TEST_IOC)/db/sensor.template", "P=XF:31IDA-BI{Dev:4},R=E-
 dbLoadRecords("$(OPHYD_TEST_IOC)/db/sensor.template", "P=XF:31IDA-BI{Dev:5},R=E-I")
 dbLoadRecords("$(OPHYD_TEST_IOC)/db/sensor.template", "P=XF:31IDA-BI{Dev:6},R=E-I")
 
-# ===== AreaDetector (SimDetector) =====
-ophydTestAdConfig()
+# ===== SimDetector AreaDetector =====
+simDetectorConfig("SIM", 640, 480, 50000000)
 
-# Load camera records (MovingDot-based sim detector)
-epicsEnvSet("EPICS_DB_INCLUDE_PATH", "$(OPHYD_TEST_IOC)/db:$(ADCORE)/db")
-dbLoadRecords("$(OPHYD_TEST_IOC)/db/sim_cam.template", "P=XF:31IDA-BI{Cam:Tbl}:,R=cam1:,PORT=SIM,IOC=XF:31IDA-BI{Cam:Tbl}:")
+# Load SimDetector records with XF:31IDA-BI{Cam:Tbl}: prefix
+epicsEnvSet("EPICS_DB_INCLUDE_PATH", "$(ADSIMDETECTOR)/db:$(ADCORE)/db")
+dbLoadRecords("$(ADSIMDETECTOR)/db/simDetector.template", "P=XF:31IDA-BI{Cam:Tbl}:,R=cam1:,PORT=SIM,ADDR=0,TIMEOUT=1")
 
 # Load standard areaDetector plugins
 epicsEnvSet("PREFIX", "XF:31IDA-BI{Cam:Tbl}:")
-epicsEnvSet("PORT",   "SIM")
-epicsEnvSet("QSIZE",  "20")
-epicsEnvSet("XSIZE",  "640")
-epicsEnvSet("YSIZE",  "480")
-epicsEnvSet("NCHANS", "2048")
-epicsEnvSet("CBUFFS", "500")
+epicsEnvSet("PORT",       "SIM")
+epicsEnvSet("QSIZE",      "20")
+epicsEnvSet("XSIZE",      "640")
+epicsEnvSet("YSIZE",      "480")
+epicsEnvSet("NCHANS",     "2048")
+epicsEnvSet("CBUFFS",     "500")
+epicsEnvSet("NELEMENTS",  "307200")
+epicsEnvSet("FTVL",       "SHORT")
+epicsEnvSet("TYPE",       "Int16")
 < $(ADCORE)/ioc/commonPlugins.cmd
 
-# Also load with ADSIM: prefix for fallback
+# Also load with ADSIM: prefix for ophyd test compatibility
 epicsEnvSet("PREFIX", "ADSIM:")
+dbLoadRecords("$(ADSIMDETECTOR)/db/simDetector.template", "P=ADSIM:,R=cam1:,PORT=SIM,ADDR=0,TIMEOUT=1")
 < $(ADCORE)/ioc/commonPlugins.cmd

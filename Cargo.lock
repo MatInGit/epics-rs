@@ -1056,6 +1056,7 @@ dependencies = [
  "motor-rs",
  "parking_lot",
  "rand",
+ "sim-detector",
 ]
 
 [[package]]

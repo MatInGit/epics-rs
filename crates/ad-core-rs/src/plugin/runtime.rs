@@ -173,28 +173,34 @@ impl<P: NDPluginProcess> SharedProcessorInner<P> {
             use crate::ndarray::NDDataBuffer;
             use asyn_rs::param::ParamValue;
             let value = match &data_arr.data {
-                NDDataBuffer::I16(v) => ParamValue::Int16Array(std::sync::Arc::from(v.as_slice())),
-                NDDataBuffer::U16(v) => ParamValue::Int16Array(std::sync::Arc::from(
-                    v.iter().map(|&x| x as i16).collect::<Vec<_>>().as_slice()
-                )),
-                NDDataBuffer::U8(v) => ParamValue::Int8Array(std::sync::Arc::from(
+                NDDataBuffer::I8(v) => Some(ParamValue::Int8Array(std::sync::Arc::from(v.as_slice()))),
+                NDDataBuffer::U8(v) => Some(ParamValue::Int8Array(std::sync::Arc::from(
                     v.iter().map(|&x| x as i8).collect::<Vec<_>>().as_slice()
-                )),
-                NDDataBuffer::I8(v) => ParamValue::Int8Array(std::sync::Arc::from(v.as_slice())),
-                NDDataBuffer::I32(v) => ParamValue::Int32Array(std::sync::Arc::from(v.as_slice())),
-                NDDataBuffer::U32(v) => ParamValue::Int32Array(std::sync::Arc::from(
+                ))),
+                NDDataBuffer::I16(v) => Some(ParamValue::Int16Array(std::sync::Arc::from(v.as_slice()))),
+                NDDataBuffer::U16(v) => Some(ParamValue::Int16Array(std::sync::Arc::from(
+                    v.iter().map(|&x| x as i16).collect::<Vec<_>>().as_slice()
+                ))),
+                NDDataBuffer::I32(v) => Some(ParamValue::Int32Array(std::sync::Arc::from(v.as_slice()))),
+                NDDataBuffer::U32(v) => Some(ParamValue::Int32Array(std::sync::Arc::from(
                     v.iter().map(|&x| x as i32).collect::<Vec<_>>().as_slice()
-                )),
-                NDDataBuffer::F32(v) => ParamValue::Float32Array(std::sync::Arc::from(v.as_slice())),
-                NDDataBuffer::F64(v) => ParamValue::Float64Array(std::sync::Arc::from(v.as_slice())),
-                _ => return,
+                ))),
+                NDDataBuffer::I64(v) => Some(ParamValue::Int64Array(std::sync::Arc::from(v.as_slice()))),
+                NDDataBuffer::U64(v) => Some(ParamValue::Int64Array(std::sync::Arc::from(
+                    v.iter().map(|&x| x as i64).collect::<Vec<_>>().as_slice()
+                ))),
+                NDDataBuffer::F32(v) => Some(ParamValue::Float32Array(std::sync::Arc::from(v.as_slice()))),
+                NDDataBuffer::F64(v) => Some(ParamValue::Float64Array(std::sync::Arc::from(v.as_slice()))),
             };
-            self.port_handle.interrupts().notify(asyn_rs::interrupt::InterruptValue {
-                reason: param,
-                addr: 0,
-                value,
-                timestamp: std::time::SystemTime::now(),
-            });
+            if let Some(value) = value {
+                let ts = data_arr.timestamp.to_system_time();
+                self.port_handle.interrupts().notify(asyn_rs::interrupt::InterruptValue {
+                    reason: param,
+                    addr: 0,
+                    value,
+                    timestamp: ts,
+                });
+            }
         }
 
         let report_arr = result.output_arrays.first().map(|a| a.as_ref()).unwrap_or(array);

@@ -144,4 +144,4 @@ cargo test -p ad-plugins                     # 205 tests
 
 ## License
 
-MIT
+[EPICS Open License](../../LICENSE)

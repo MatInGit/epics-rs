@@ -6,13 +6,14 @@ description = "EPICS IOC for ophyd test suite — replaces Docker-based epics-se
 publish = false
 
 [features]
-ioc = ["dep:epics-base-rs", "dep:epics-ca-rs", "dep:ad-plugins-rs", "ad-plugins-rs/ioc", "ad-core-rs/ioc", "asyn-rs/epics", "dep:motor-rs"]
+ioc = ["dep:epics-base-rs", "dep:epics-ca-rs", "dep:ad-plugins-rs", "ad-plugins-rs/ioc", "ad-core-rs/ioc", "asyn-rs/epics", "dep:motor-rs", "dep:sim-detector", "sim-detector/ioc"]
 
 [dependencies]
 ad-core-rs = { workspace = true }
 ad-plugins-rs = { workspace = true, optional = true }
 asyn-rs = { workspace = true }
 motor-rs = { workspace = true, optional = true }
+sim-detector = { path = "../sim-detector", optional = true }
 parking_lot = "0.12"
 rand = "0.9"
 libm = "0.2"

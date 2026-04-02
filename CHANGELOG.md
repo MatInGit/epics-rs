@@ -31,7 +31,12 @@
 - Autosave for MovingDot cam1, `commonPlugins_settings.req` fixes
 - `PvDatabase::get_pv_blocking` for sync access from std::threads
 - `AdIoc::keep_alive` for driver runtime lifetime management
-- Add ophyd-test-ioc README
+- `EpicsTimestamp::to_system_time` for interrupt timestamp consistency
+- Fix array interrupt: handle I64/U64 types, use NDArray timestamp (not wall clock)
+- Fix ADCORE path in AdIoc (`ad-core` → `ad-core-rs`)
+- ophyd-test-ioc: switch from MovingDot to SimDetector (provides GainX/Y, Noise, etc.)
+- ophyd-test-ioc: use AdIoc, add ADSIM: prefix for ophyd test compatibility
+- All crate READMEs: fix license to EPICS Open License, add missing READMEs
 
 ## v0.7.7
 

@@ -71,4 +71,4 @@ Field names are converted from `snake_case` to `UPPER_CASE` (e.g., `znam` -> `"Z
 
 ## License
 
-MIT
+[EPICS Open License](../../LICENSE)

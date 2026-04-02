@@ -36,7 +36,7 @@ set_pass1_restoreFile("simDetector_settings.req", "P=$(PREFIX),R=$(CAM)")
 simDetectorConfig("$(PORT)", 1024, 1024, 50000000)
 
 # Load the detector database
-dbLoadRecords("$(ADSIMDETECTOR)/db/simDetector.template", "P=$(PREFIX),R=$(CAM),PORT=$(PORT)")
+dbLoadRecords("$(ADSIMDETECTOR)/db/simDetector.template", "P=$(PREFIX),R=$(CAM),PORT=$(PORT),ADDR=0,TIMEOUT=1")
 
 # Load all common plugins (includes image1 StdArrays)
 < $(ADCORE)/ioc/commonPlugins.cmd

@@ -14,7 +14,7 @@ asyn-rs provides the same driver model as C asyn, but uses Rust's type system an
 - **ParamList** — named parameter cache with change tracking, timestamps, and alarm status
 - **InterruptManager** — dual async (broadcast) + sync (mpsc) callback delivery
 - **PortManager** — registry of named port drivers
-- **AsynDeviceSupport** — bridges asyn-rs drivers to epics-ca `DeviceSupport` trait
+- **AsynDeviceSupport** — universal asyn device support factory bridging any asyn-rs driver to epics-ca records
 
 ## What's New in v0.2
 
@@ -249,8 +249,4 @@ cargo bench                   # Criterion throughput benchmarks
 
 ## License
 
-The Rust code authored in this crate is licensed under MIT.
-
-This crate also bundles third-party OPI/UI assets related to EPICS asynDriver.
-See [`THIRD_PARTY_LICENSES`](THIRD_PARTY_LICENSES) for attribution and upstream
-license text.
+[EPICS Open License](../../LICENSE)

@@ -371,7 +371,7 @@ impl AdIoc {
         // Set crate paths for commonPlugins.cmd and .req file resolution
         epics_base_rs::runtime::env::set_default(
             "ADCORE",
-            concat!(env!("CARGO_MANIFEST_DIR"), "/../ad-core"),
+            concat!(env!("CARGO_MANIFEST_DIR"), "/../ad-core-rs"),
         );
         epics_base_rs::runtime::env::set_default(
             "CALC",

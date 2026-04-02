@@ -21,4 +21,4 @@ epics-rs = { git = "https://github.com/epics-rs/epics-rs" }
 
 ## License
 
-MIT
+[EPICS Open License](../../LICENSE)

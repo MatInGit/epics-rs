@@ -20,6 +20,14 @@ impl EpicsTimestamp {
     }
 }
 
+impl EpicsTimestamp {
+    /// Convert back to `SystemTime`.
+    pub fn to_system_time(&self) -> SystemTime {
+        let unix_secs = self.sec as u64 + EPICS_EPOCH_OFFSET;
+        UNIX_EPOCH + std::time::Duration::new(unix_secs, self.nsec)
+    }
+}
+
 impl From<SystemTime> for EpicsTimestamp {
     fn from(st: SystemTime) -> Self {
         match st.duration_since(UNIX_EPOCH) {
