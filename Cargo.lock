@@ -902,7 +902,6 @@ dependencies = [
  "optics-rs",
  "parking_lot",
  "rand",
- "tokio",
 ]
 
 [[package]]
@@ -1057,7 +1056,6 @@ dependencies = [
  "motor-rs",
  "parking_lot",
  "rand",
- "tokio",
 ]
 
 [[package]]
@@ -1274,7 +1272,6 @@ dependencies = [
  "epics-base-rs",
  "epics-ca-rs",
  "rand",
- "tokio",
 ]
 
 [[package]]
@@ -1548,7 +1545,6 @@ dependencies = [
  "epics-base-rs",
  "parking_lot",
  "rand",
- "tokio",
 ]
 
 [[package]]

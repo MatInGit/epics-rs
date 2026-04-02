@@ -6,7 +6,7 @@ description = "EPICS IOC for ophyd test suite — replaces Docker-based epics-se
 publish = false
 
 [features]
-ioc = ["dep:epics-base-rs", "dep:epics-ca-rs", "dep:tokio", "dep:ad-plugins-rs", "ad-plugins-rs/ioc", "ad-core-rs/ioc", "asyn-rs/epics", "dep:motor-rs"]
+ioc = ["dep:epics-base-rs", "dep:epics-ca-rs", "dep:ad-plugins-rs", "ad-plugins-rs/ioc", "ad-core-rs/ioc", "asyn-rs/epics", "dep:motor-rs"]
 
 [dependencies]
 ad-core-rs = { workspace = true }
@@ -18,7 +18,6 @@ rand = "0.9"
 libm = "0.2"
 epics-base-rs = { workspace = true, optional = true }
 epics-ca-rs = { workspace = true, optional = true }
-tokio = { version = "1", features = ["full"], optional = true }
 
 [[bin]]
 name = "ophyd_test_ioc"

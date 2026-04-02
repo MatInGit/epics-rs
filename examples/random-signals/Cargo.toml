@@ -8,5 +8,4 @@ publish = false
 [dependencies]
 epics-base-rs = { workspace = true }
 epics-ca-rs = { workspace = true }
-tokio = { version = "1", features = ["rt-multi-thread", "macros", "time"] }
 rand = { version = "0.9", features = ["small_rng"] }
