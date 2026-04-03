@@ -276,6 +276,30 @@ impl CaChannel {
             .map_err(|_| CaError::Shutdown)
     }
 
+    /// Get channel-level metadata (native type, element count, host, access rights)
+    /// without performing a CA read.
+    pub async fn info(&self) -> CaResult<ChannelInfo> {
+        let (info_tx, info_rx) = oneshot::channel();
+        let _ = self.coord_tx.send(CoordRequest::GetChannelInfo {
+            cid: self.cid,
+            reply: info_tx,
+        });
+        let snap = info_rx
+            .await
+            .map_err(|_| CaError::Shutdown)?
+            .ok_or(CaError::Disconnected)?;
+        if snap.state != ChannelState::Connected {
+            return Err(CaError::Disconnected);
+        }
+        Ok(ChannelInfo {
+            pv_name: snap.pv_name,
+            server_addr: snap.server_addr,
+            native_type: snap.native_type,
+            element_count: snap.element_count,
+            access_rights: snap.access_rights,
+        })
+    }
+
     pub async fn get(&self) -> CaResult<(DbFieldType, EpicsValue)> {
         let (info_tx, info_rx) = oneshot::channel();
         let _ = self.coord_tx.send(CoordRequest::GetChannelInfo {
