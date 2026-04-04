@@ -525,7 +525,7 @@ impl CaChannel {
         let _ = self.coord_tx.send(CoordRequest::Subscribe {
             cid: self.cid,
             subid,
-            mask: DBE_VALUE | DBE_ALARM,
+            mask: DBE_VALUE | DBE_LOG | DBE_ALARM,
             callback_tx,
             reply: reply_tx,
         });
