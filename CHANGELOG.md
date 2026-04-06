@@ -1,5 +1,16 @@
 # Changelog
 
+## v0.7.11
+
+### CA Client Transport Rewrite
+- **Single-owner writer task**: Replace `Arc<Mutex<OwnedWriteHalf>>` with a dedicated `write_loop` task + mpsc channel. Eliminates writer lock contention between command dispatch and read_loop (ECHO responses).
+- **Batch coalescing**: Writer task drains all pending frames via `try_recv` before issuing a single `write_all`, reducing TCP segment count under burst load.
+- **TCP_NODELAY**: Set on all CA transport connections. Fixes ~45ms stall on `get()` immediately after `put()` caused by Nagle's algorithm + delayed ACK interaction.
+- **Immediate write-error propagation**: `write_loop` sends `TcpClosed` on socket write failure, so pending `get()`/`put()` waiters fail immediately instead of hanging until timeout.
+
+### CA Client Connection Fix
+- **Channel starvation during concurrent PV creation**: `WaitConnected` and `Found` responses arriving before `RegisterChannel` are now buffered in `pending_wait_connected` / `pending_found` maps and drained on registration, preventing lost connections and infinite search loops.
+
 ## v0.7.10
 
 ### CA Client Search Engine Rewrite (libca++ level)
