@@ -1,5 +1,6 @@
 use std::collections::HashMap;
 use std::net::SocketAddr;
+use std::time::Duration;
 
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::TcpStream;
@@ -9,6 +10,18 @@ use crate::channel::AccessRights;
 use crate::protocol::*;
 
 use super::types::{TransportCommand, TransportEvent};
+
+/// Timeout for echo response before declaring connection dead (matches C EPICS CA_ECHO_TIMEOUT).
+const ECHO_TIMEOUT_SECS: u64 = 5;
+
+/// Default echo interval in seconds (matches C EPICS CA_CONN_VERIFY_PERIOD).
+/// Overridden by EPICS_CA_CONN_TMO environment variable.
+fn echo_idle_secs() -> u64 {
+    epics_base_rs::runtime::env::get("EPICS_CA_CONN_TMO")
+        .and_then(|s| s.parse::<f64>().ok())
+        .map(|v| v.max(1.0) as u64)
+        .unwrap_or(30)
+}
 
 struct ServerConnection {
     write_tx: mpsc::UnboundedSender<Vec<u8>>,
@@ -212,6 +225,17 @@ async fn connect_server(
 
     let _ = stream.set_nodelay(true);
 
+    // TCP keepalive: detect dead connections on idle circuits.
+    // OS sends probes after 15s idle, every 5s, giving up after 3 failures (~30s total).
+    {
+        let sock = socket2::SockRef::from(&stream);
+        let keepalive = socket2::TcpKeepalive::new()
+            .with_time(Duration::from_secs(15))
+            .with_interval(Duration::from_secs(5));
+        let _ = sock.set_keepalive(true);
+        let _ = sock.set_tcp_keepalive(&keepalive);
+    }
+
     let (reader, write_half) = stream.into_split();
     let (write_tx, write_rx) = mpsc::unbounded_channel();
 
@@ -279,16 +303,39 @@ async fn read_loop(
 ) {
     let mut buf = vec![0u8; 8192];
     let mut accumulated = Vec::new();
+    let idle_timeout = Duration::from_secs(echo_idle_secs());
+    let echo_timeout = Duration::from_secs(ECHO_TIMEOUT_SECS);
+    let mut echo_pending = false;
 
     loop {
-        let n = match reader.read(&mut buf).await {
-            Ok(0) | Err(_) => {
+        let timeout = if echo_pending { echo_timeout } else { idle_timeout };
+
+        let n = match tokio::time::timeout(timeout, reader.read(&mut buf)).await {
+            Ok(Ok(0)) | Ok(Err(_)) => {
                 let _ = event_tx.send(TransportEvent::TcpClosed { server_addr });
                 return;
             }
-            Ok(n) => n,
+            Ok(Ok(n)) => n,
+            Err(_) => {
+                // Timeout expired
+                if echo_pending {
+                    // Echo response not received — connection is dead
+                    let _ = event_tx.send(TransportEvent::TcpClosed { server_addr });
+                    return;
+                }
+                // Idle timeout — send echo heartbeat
+                let echo_hdr = CaHeader::new(CA_PROTO_ECHO);
+                if write_tx.send(echo_hdr.to_bytes().to_vec()).is_err() {
+                    let _ = event_tx.send(TransportEvent::TcpClosed { server_addr });
+                    return;
+                }
+                echo_pending = true;
+                continue;
+            }
         };
 
+        // Data received — connection is alive
+        echo_pending = false;
         accumulated.extend_from_slice(&buf[..n]);
 
         let mut offset = 0;
@@ -320,7 +367,7 @@ async fn read_loop(
                         sid: hdr.available,
                         data_type: hdr.data_type,
                         element_count: hdr.actual_count(),
-                        access: AccessRights::from_u32(0x3), // default; real access comes via ACCESS_RIGHTS
+                        access: AccessRights::from_u32(0x3),
                         server_addr,
                     });
                 }
@@ -341,7 +388,6 @@ async fn read_loop(
                     }
                 }
                 CA_PROTO_WRITE_NOTIFY => {
-                    // Per spec: param1 (cid field) = ECA status, param2 (available field) = IOID
                     let _ = event_tx.send(TransportEvent::WriteResponse {
                         ioid: hdr.available,
                         status: hdr.cid,
@@ -357,6 +403,7 @@ async fn read_loop(
                     });
                 }
                 CA_PROTO_ECHO => {
+                    // Server-initiated echo: respond immediately
                     let echo_hdr = CaHeader::new(CA_PROTO_ECHO);
                     let _ = write_tx.send(echo_hdr.to_bytes().to_vec());
                 }
@@ -366,7 +413,6 @@ async fn read_loop(
                     });
                 }
                 CA_PROTO_ERROR => {
-                    // Payload contains original request header (16 bytes) + error message string
                     let orig_cmd = if actual_post >= 16 {
                         let orig_hdr_bytes = &accumulated[data_start..data_start + 16];
                         Some(u16::from_be_bytes([orig_hdr_bytes[0], orig_hdr_bytes[1]]))
