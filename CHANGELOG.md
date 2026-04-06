@@ -1,5 +1,26 @@
 # Changelog
 
+## v0.7.12
+
+### CA Client Connection Stability
+- **TCP keepalive**: Enable `SO_KEEPALIVE` with 15s idle time and 5s probe interval on all CA TCP connections. OS detects dead sockets within ~30s on idle circuits.
+- **Client-side echo heartbeat**: Send `CA_PROTO_ECHO` after 30s of idle (matching C EPICS `CA_CONN_VERIFY_PERIOD`). If no response within 5s (`CA_ECHO_TIMEOUT`), declare connection dead and trigger automatic re-search + subscription recovery. Detects hung server processes that TCP keepalive alone cannot catch.
+- **`EPICS_CA_CONN_TMO` support**: Echo interval configurable via environment variable, matching C EPICS behavior.
+
+### Motor Record
+- **Fix MOVN not resetting to 0**: `finalize_motion()` now clears MOVN when motion completes. Previously MOVN was computed before the phase transition to Idle and never updated, causing ophyd `PVPositionerPC` (which reads `.MOVN`) to report moving=true after `move(wait=True)` returned.
+
+### areaDetector Plugins
+- **NDFileMagick plugin**: New file writer using the `image` crate. Supports PNG, JPEG, BMP, GIF, TIFF (format determined by file extension), UInt8/UInt16 data, mono and RGB color modes. Parameters: `MAGICK_QUALITY`, `MAGICK_BIT_DEPTH`, `MAGICK_COMPRESS_TYPE`.
+- **Idempotent plugin Configure commands**: Skip if port already exists, allowing `commonPlugins.cmd` to be loaded multiple times with different `PREFIX` for alias records.
+- **Activate NDFileMagick** in `commonPlugins.cmd`.
+
+### Asyn Device Support
+- **Initial readback for input records**: Enable `with_initial_readback()` for input records (stringin, longin, etc.), matching C EPICS `devAsynXxx` `init_common()` behavior. Fixes `PluginType_RBV` and other I/O Intr input records returning template defaults ("Unknown") instead of the driver's current value.
+
+### Wiring
+- **Fix sender loss on failed rewire**: Validate new upstream exists before extracting sender from old upstream. Previously a failed rewire (e.g., invalid port name) would drop the sender, causing all subsequent rewires to fail.
+
 ## v0.7.11
 
 ### CA Client Transport Rewrite
