@@ -53,6 +53,10 @@ pub enum PvEntry {
     Record(Arc<RwLock<RecordInstance>>),
 }
 
+/// Callback for resolving external PV names (CA/PVA links).
+/// Returns the current value of the external PV, or None if unavailable.
+pub type ExternalPvResolver = Arc<dyn Fn(&str) -> Option<EpicsValue> + Send + Sync>;
+
 struct PvDatabaseInner {
     simple_pvs: RwLock<HashMap<String, Arc<ProcessVariable>>>,
     records: RwLock<HashMap<String, Arc<RwLock<RecordInstance>>>>,
@@ -60,6 +64,8 @@ struct PvDatabaseInner {
     scan_index: RwLock<HashMap<ScanType, BTreeSet<(i16, String)>>>,
     /// CP link index: maps source_record → list of target records to process when source changes.
     cp_links: RwLock<HashMap<String, Vec<String>>>,
+    /// Optional resolver for external PVs (ca://, pva:// links).
+    external_resolver: RwLock<Option<ExternalPvResolver>>,
 }
 
 /// Database of all process variables hosted by this server.
@@ -87,11 +93,24 @@ impl PvDatabase {
         Self {
             inner: Arc::new(PvDatabaseInner {
                 simple_pvs: RwLock::new(HashMap::new()),
+                external_resolver: RwLock::new(None),
                 records: RwLock::new(HashMap::new()),
                 scan_index: RwLock::new(HashMap::new()),
                 cp_links: RwLock::new(HashMap::new()),
             }),
         }
+    }
+
+    /// Set an external PV resolver for CA/PVA link resolution.
+    /// The resolver is called synchronously from link reads.
+    pub async fn set_external_resolver(&self, resolver: ExternalPvResolver) {
+        *self.inner.external_resolver.write().await = Some(resolver);
+    }
+
+    /// Resolve an external PV name via the registered resolver.
+    pub(crate) async fn resolve_external_pv(&self, name: &str) -> Option<EpicsValue> {
+        let resolver = self.inner.external_resolver.read().await;
+        resolver.as_ref().and_then(|r| r(name))
     }
 
     /// Add a simple PV with an initial value.

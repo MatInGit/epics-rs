@@ -2,18 +2,26 @@ use std::collections::HashSet;
 use std::sync::Arc;
 
 use crate::runtime::sync::RwLock;
-use crate::server::record::{RecordInstance, ScanType};
+use crate::server::record::{AlarmSeverity, RecordInstance, ScanType};
 use crate::types::EpicsValue;
 
 use super::{select_link_indices, PvDatabase};
 
+/// Alarm state from a link source, used for MS/NMS propagation.
+#[derive(Clone, Copy, Debug)]
+pub(crate) struct LinkAlarm {
+    pub stat: u16,
+    pub sevr: AlarmSeverity,
+}
+
 impl PvDatabase {
-    /// Read a value from a parsed link (DB or Constant). Returns None for None/Ca/Pva.
+    /// Read a value from a parsed link (DB, Constant, or external Ca/Pva).
     pub(crate) async fn read_link_value(&self, link: &crate::server::record::ParsedLink) -> Option<EpicsValue> {
         match link {
-            crate::server::record::ParsedLink::None
-            | crate::server::record::ParsedLink::Ca(_)
-            | crate::server::record::ParsedLink::Pva(_) => None,
+            crate::server::record::ParsedLink::None => None,
+            crate::server::record::ParsedLink::Ca(name) | crate::server::record::ParsedLink::Pva(name) => {
+                self.resolve_external_pv(name).await
+            }
             crate::server::record::ParsedLink::Constant(_) => link.constant_value(),
             crate::server::record::ParsedLink::Db(db) => {
                 let pv_name = if db.field == "VAL" {
@@ -23,6 +31,33 @@ impl PvDatabase {
                 };
                 self.get_pv(&pv_name).await.ok()
             }
+        }
+    }
+
+    /// Read value + alarm from a DB link. Returns (value, alarm) for MS/NMS propagation.
+    pub(crate) async fn read_link_with_alarm(
+        &self,
+        link: &crate::server::record::ParsedLink,
+    ) -> (Option<EpicsValue>, Option<LinkAlarm>) {
+        match link {
+            crate::server::record::ParsedLink::Db(db) => {
+                let pv_name = if db.field == "VAL" {
+                    db.record.clone()
+                } else {
+                    format!("{}.{}", db.record, db.field)
+                };
+                let value = self.get_pv(&pv_name).await.ok();
+                // Read source record's alarm state
+                let alarm = if let Some(rec) = self.inner.records.read().await.get(&db.record) {
+                    let inst = rec.read().await;
+                    Some(LinkAlarm { stat: inst.common.stat, sevr: inst.common.sevr })
+                } else {
+                    None
+                };
+                (value, alarm)
+            }
+            crate::server::record::ParsedLink::Constant(_) => (link.constant_value(), None),
+            _ => (None, None),
         }
     }
 
@@ -41,6 +76,9 @@ impl PvDatabase {
                     format!("{}.{}", db.record, db.field)
                 };
                 self.get_pv(&pv_name).await.ok()
+            }
+            crate::server::record::ParsedLink::Ca(name) | crate::server::record::ParsedLink::Pva(name) if is_soft => {
+                self.resolve_external_pv(name).await
             }
             _ => None,
         }

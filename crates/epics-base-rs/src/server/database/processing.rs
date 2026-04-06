@@ -184,7 +184,10 @@ impl PvDatabase {
         };
 
         // 1.5. Multi-input link fetch (calc/calcout/sel/sub)
-        let multi_input_values: Vec<(String, EpicsValue)> = {
+        // Also collect alarm info from source records for MS/NMS propagation.
+        let multi_input_values: Vec<(String, EpicsValue)>;
+        let mut link_alarms: Vec<(crate::server::record::MonitorSwitch, super::links::LinkAlarm)> = Vec::new();
+        {
             let link_info: Vec<(String, String)> = {
                 let instance = rec.read().await;
                 instance.record.multi_input_links().iter().map(|(lf, vf)| {
@@ -198,13 +201,17 @@ impl PvDatabase {
             for (link_str, val_field) in &link_info {
                 if !link_str.is_empty() {
                     let parsed = crate::server::record::parse_link_v2(link_str);
-                    if let Some(value) = self.read_link_value(&parsed).await {
+                    let (value, alarm) = self.read_link_with_alarm(&parsed).await;
+                    if let Some(value) = value {
                         results.push((val_field.clone(), value));
+                    }
+                    if let (Some(alarm), crate::server::record::ParsedLink::Db(db)) = (alarm, &parsed) {
+                        link_alarms.push((db.monitor_switch, alarm));
                     }
                 }
             }
-            results
-        };
+            multi_input_values = results;
+        }
 
         // 1.6. Sel NVL link: resolve NVL -> SELN
         let sel_nvl_value: Option<EpicsValue> = {
@@ -393,6 +400,23 @@ impl PvDatabase {
                     inst.notify_from_snapshot(&snapshot);
                 }
                 return Ok(());
+            }
+
+            // MS/NMS alarm propagation from input links
+            for (ms, alarm) in &link_alarms {
+                use crate::server::record::MonitorSwitch;
+                use crate::server::recgbl::rec_gbl_set_sevr;
+                match ms {
+                    MonitorSwitch::Maximize | MonitorSwitch::MaximizeStatus => {
+                        rec_gbl_set_sevr(&mut instance.common, alarm.stat, alarm.sevr);
+                    }
+                    MonitorSwitch::MaximizeIfInvalid => {
+                        if alarm.sevr == crate::server::record::AlarmSeverity::Invalid {
+                            rec_gbl_set_sevr(&mut instance.common, alarm.stat, alarm.sevr);
+                        }
+                    }
+                    MonitorSwitch::NoMaximize => {} // NMS: do not propagate
+                }
             }
 
             // Evaluate alarms (accumulates into nsta/nsev)
