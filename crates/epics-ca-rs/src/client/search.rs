@@ -34,7 +34,7 @@ const MAX_UDP_SEND: usize = 1024;
 const PENALTY_DURATION: Duration = Duration::from_secs(30);
 
 /// Maximum frames_per_try (cap for AIMD additive increase).
-const MAX_FRAMES_PER_TRY: u32 = 10;
+const MAX_FRAMES_PER_TRY: u32 = 50;
 
 /// AIMD evaluation window duration.
 const AIMD_WINDOW: Duration = Duration::from_secs(1);
@@ -121,7 +121,7 @@ struct SendBudget {
 impl SendBudget {
     fn new() -> Self {
         Self {
-            frames_per_try: 1,
+            frames_per_try: MAX_FRAMES_PER_TRY,
             sent_this_window: 0,
             responded_this_window: 0,
             window_start: Instant::now(),
@@ -266,13 +266,16 @@ pub(crate) async fn run_search_engine(
                 while let Ok(req) = request_rx.try_recv() {
                     handle_request(&mut state, req);
                 }
-                // Immediately send any due searches (deadline = now).
                 send_due_searches(&mut state, &addr_list, &socket).await;
             }
 
             result = socket.recv_from(&mut recv_buf) => {
                 let Ok((len, src)) = result else { continue };
                 handle_udp_response(&mut state, &recv_buf[..len], src, &response_tx);
+                // Also send any due searches after processing responses.
+                // Without this, budget-limited channels stuck at deadline=now
+                // starve when recv_from keeps winning the select! race.
+                send_due_searches(&mut state, &addr_list, &socket).await;
             }
 
             _ = sleep => {

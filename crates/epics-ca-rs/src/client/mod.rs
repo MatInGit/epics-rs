@@ -593,6 +593,8 @@ async fn run_coordinator(
     transport_tx: mpsc::UnboundedSender<TransportCommand>,
 ) {
     let mut channels: HashMap<u32, ChannelInner> = HashMap::new();
+    let mut pending_wait_connected: HashMap<u32, Vec<oneshot::Sender<()>>> = HashMap::new();
+    let mut pending_found: HashMap<u32, SocketAddr> = HashMap::new();
     let mut subscriptions = SubscriptionRegistry::new();
     let mut read_waiters: HashMap<u32, oneshot::Sender<CaResult<(u16, u32, Vec<u8>)>>> = HashMap::new();
     let mut write_waiters: HashMap<u32, oneshot::Sender<CaResult<()>>> = HashMap::new();
@@ -607,18 +609,34 @@ async fn run_coordinator(
                 let Some(req) = req else { return };
                 match req {
                     CoordRequest::RegisterChannel { cid, pv_name, conn_tx } => {
+                        // Drain any waiters that arrived before registration.
+                        let early_waiters = pending_wait_connected
+                            .remove(&cid)
+                            .unwrap_or_default();
                         channels.insert(cid, ChannelInner {
                             cid,
-                            pv_name,
+                            pv_name: pv_name.clone(),
                             state: ChannelState::Searching,
                             sid: 0,
                             native_type: None,
                             element_count: 0,
                             server_addr: None,
                             access_rights: AccessRights::from_u32(0),
-                            connect_waiters: Vec::new(),
+                            connect_waiters: early_waiters,
                             conn_tx,
                         });
+                        // Process any Found response that arrived before registration.
+                        if let Some(server_addr) = pending_found.remove(&cid) {
+                            let ch = channels.get_mut(&cid).unwrap();
+                            ch.state = ChannelState::Connecting;
+                            ch.server_addr = Some(server_addr);
+                            server_channels.entry(server_addr).or_default().insert(cid);
+                            let _ = transport_tx.send(TransportCommand::CreateChannel {
+                                cid,
+                                pv_name,
+                                server_addr,
+                            });
+                        }
                     }
                     CoordRequest::WaitConnected { cid, reply } => {
                         if let Some(ch) = channels.get_mut(&cid) {
@@ -628,7 +646,12 @@ async fn run_coordinator(
                                 ch.connect_waiters.push(reply);
                             }
                         } else {
-                            let _ = reply.send(());
+                            // Channel not yet registered — stash the waiter
+                            // so RegisterChannel can drain it when it arrives.
+                            pending_wait_connected
+                                .entry(cid)
+                                .or_insert_with(Vec::new)
+                                .push(reply);
                         }
                     }
                     CoordRequest::GetChannelInfo { cid, reply } => {
@@ -773,6 +796,10 @@ async fn run_coordinator(
                                     server_addr,
                                 });
                             }
+                        } else {
+                            // Channel not registered yet — stash the Found
+                            // response so RegisterChannel can process it.
+                            pending_found.insert(cid, server_addr);
                         }
                     }
                 }
