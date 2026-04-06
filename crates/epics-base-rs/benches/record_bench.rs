@@ -1,3 +1,5 @@
+#![allow(clippy::approx_constant)]
+
 use criterion::{black_box, criterion_group, criterion_main, Criterion};
 use epics_base_rs::calc;
 use epics_base_rs::types::EpicsValue;
