@@ -650,7 +650,7 @@ async fn run_coordinator(
                             // so RegisterChannel can drain it when it arrives.
                             pending_wait_connected
                                 .entry(cid)
-                                .or_insert_with(Vec::new)
+                                .or_default()
                                 .push(reply);
                         }
                     }

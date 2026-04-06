@@ -1,10 +1,9 @@
 use std::collections::HashMap;
 use std::net::SocketAddr;
-use std::sync::Arc;
 
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::TcpStream;
-use epics_base_rs::runtime::sync::{mpsc, Mutex};
+use epics_base_rs::runtime::sync::mpsc;
 
 use crate::channel::AccessRights;
 use crate::protocol::*;
@@ -12,8 +11,9 @@ use crate::protocol::*;
 use super::types::{TransportCommand, TransportEvent};
 
 struct ServerConnection {
-    writer: Arc<Mutex<tokio::net::tcp::OwnedWriteHalf>>,
+    write_tx: mpsc::UnboundedSender<Vec<u8>>,
     _read_task: tokio::task::JoinHandle<()>,
+    _write_task: tokio::task::JoinHandle<()>,
 }
 
 pub(crate) async fn run_transport_manager(
@@ -42,10 +42,10 @@ pub(crate) async fn run_transport_manager(
                     }
                 }
 
-                // Check connection is still alive (task not finished)
+                // Check connection is still alive (both tasks running)
                 let alive = connections
                     .get(&server_addr)
-                    .map(|c| !c._read_task.is_finished())
+                    .map(|c| !c._read_task.is_finished() && !c._write_task.is_finished())
                     .unwrap_or(false);
 
                 if !alive {
@@ -61,23 +61,15 @@ pub(crate) async fn run_transport_manager(
                     }
                 }
 
-                let conn = connections.get(&server_addr).unwrap();
                 let pv_payload = pad_string(&pv_name);
                 let mut create_hdr = CaHeader::new(CA_PROTO_CREATE_CHAN);
                 create_hdr.postsize = pv_payload.len() as u16;
                 create_hdr.cid = cid;
                 create_hdr.available = CA_MINOR_VERSION as u32;
 
-                let writer = conn.writer.clone();
-                let mut w = writer.lock().await;
-                let ok = w.write_all(&create_hdr.to_bytes()).await.is_ok()
-                    && w.write_all(&pv_payload).await.is_ok()
-                    && w.flush().await.is_ok();
-                if !ok {
-                    drop(w);
-                    connections.remove(&server_addr);
-                    let _ = event_tx.send(TransportEvent::TcpClosed { server_addr });
-                }
+                let mut frame = create_hdr.to_bytes().to_vec();
+                frame.extend_from_slice(&pv_payload);
+                send_frame(&mut connections, server_addr, frame, &event_tx);
             }
             TransportCommand::ReadNotify {
                 sid,
@@ -86,21 +78,16 @@ pub(crate) async fn run_transport_manager(
                 ioid,
                 server_addr,
             } => {
-                if let Some(conn) = connections.get(&server_addr) {
-                    let mut hdr = CaHeader::new(CA_PROTO_READ_NOTIFY);
-                    hdr.data_type = data_type;
-                    hdr.cid = sid;
-                    hdr.available = ioid;
-                    if count > 0xFFFF {
-                        hdr.set_payload_size(0, count);
-                    } else {
-                        hdr.count = count as u16;
-                    }
-
-                    let mut w = conn.writer.lock().await;
-                    let _ = w.write_all(&hdr.to_bytes_extended()).await;
-                    let _ = w.flush().await;
+                let mut hdr = CaHeader::new(CA_PROTO_READ_NOTIFY);
+                hdr.data_type = data_type;
+                hdr.cid = sid;
+                hdr.available = ioid;
+                if count > 0xFFFF {
+                    hdr.set_payload_size(0, count);
+                } else {
+                    hdr.count = count as u16;
                 }
+                send_frame(&mut connections, server_addr, hdr.to_bytes_extended(), &event_tx);
             }
             TransportCommand::Write {
                 sid,
@@ -109,22 +96,18 @@ pub(crate) async fn run_transport_manager(
                 payload,
                 server_addr,
             } => {
-                if let Some(conn) = connections.get(&server_addr) {
-                    let padded_len = align8(payload.len());
-                    let mut padded = payload;
-                    padded.resize(padded_len, 0);
+                let padded_len = align8(payload.len());
+                let mut padded = payload;
+                padded.resize(padded_len, 0);
 
-                    let mut hdr = CaHeader::new(CA_PROTO_WRITE);
-                    hdr.data_type = data_type;
-                    hdr.cid = sid;
-                    hdr.set_payload_size(padded.len(), count);
+                let mut hdr = CaHeader::new(CA_PROTO_WRITE);
+                hdr.data_type = data_type;
+                hdr.cid = sid;
+                hdr.set_payload_size(padded.len(), count);
 
-                    let hdr_bytes = hdr.to_bytes_extended();
-                    let mut w = conn.writer.lock().await;
-                    let _ = w.write_all(&hdr_bytes).await;
-                    let _ = w.write_all(&padded).await;
-                    let _ = w.flush().await;
-                }
+                let mut frame = hdr.to_bytes_extended();
+                frame.extend_from_slice(&padded);
+                send_frame(&mut connections, server_addr, frame, &event_tx);
             }
             TransportCommand::WriteNotify {
                 sid,
@@ -134,23 +117,19 @@ pub(crate) async fn run_transport_manager(
                 payload,
                 server_addr,
             } => {
-                if let Some(conn) = connections.get(&server_addr) {
-                    let padded_len = align8(payload.len());
-                    let mut padded = payload;
-                    padded.resize(padded_len, 0);
+                let padded_len = align8(payload.len());
+                let mut padded = payload;
+                padded.resize(padded_len, 0);
 
-                    let mut hdr = CaHeader::new(CA_PROTO_WRITE_NOTIFY);
-                    hdr.data_type = data_type;
-                    hdr.cid = sid;
-                    hdr.available = ioid;
-                    hdr.set_payload_size(padded.len(), count);
+                let mut hdr = CaHeader::new(CA_PROTO_WRITE_NOTIFY);
+                hdr.data_type = data_type;
+                hdr.cid = sid;
+                hdr.available = ioid;
+                hdr.set_payload_size(padded.len(), count);
 
-                    let hdr_bytes = hdr.to_bytes_extended();
-                    let mut w = conn.writer.lock().await;
-                    let _ = w.write_all(&hdr_bytes).await;
-                    let _ = w.write_all(&padded).await;
-                    let _ = w.flush().await;
-                }
+                let mut frame = hdr.to_bytes_extended();
+                frame.extend_from_slice(&padded);
+                send_frame(&mut connections, server_addr, frame, &event_tx);
             }
             TransportCommand::Subscribe {
                 sid,
@@ -160,27 +139,23 @@ pub(crate) async fn run_transport_manager(
                 mask,
                 server_addr,
             } => {
-                if let Some(conn) = connections.get(&server_addr) {
-                    let mut hdr = CaHeader::new(CA_PROTO_EVENT_ADD);
-                    hdr.postsize = 16;
-                    hdr.data_type = data_type;
-                    hdr.cid = sid;
-                    hdr.available = subid;
-                    if count > 0xFFFF {
-                        hdr.set_payload_size(16, count);
-                    } else {
-                        hdr.count = count as u16;
-                    }
-
-                    let mut mask_payload = [0u8; 16];
-                    mask_payload[12..14].copy_from_slice(&mask.to_be_bytes());
-
-                    let hdr_bytes = hdr.to_bytes_extended();
-                    let mut w = conn.writer.lock().await;
-                    let _ = w.write_all(&hdr_bytes).await;
-                    let _ = w.write_all(&mask_payload).await;
-                    let _ = w.flush().await;
+                let mut hdr = CaHeader::new(CA_PROTO_EVENT_ADD);
+                hdr.postsize = 16;
+                hdr.data_type = data_type;
+                hdr.cid = sid;
+                hdr.available = subid;
+                if count > 0xFFFF {
+                    hdr.set_payload_size(16, count);
+                } else {
+                    hdr.count = count as u16;
                 }
+
+                let mut mask_payload = [0u8; 16];
+                mask_payload[12..14].copy_from_slice(&mask.to_be_bytes());
+
+                let mut frame = hdr.to_bytes_extended();
+                frame.extend_from_slice(&mask_payload);
+                send_frame(&mut connections, server_addr, frame, &event_tx);
             }
             TransportCommand::Unsubscribe {
                 sid,
@@ -188,33 +163,38 @@ pub(crate) async fn run_transport_manager(
                 data_type,
                 server_addr,
             } => {
-                if let Some(conn) = connections.get(&server_addr) {
-                    let mut hdr = CaHeader::new(CA_PROTO_EVENT_CANCEL);
-                    hdr.data_type = data_type;
-                    hdr.cid = sid;
-                    hdr.available = subid;
-
-                    let mut w = conn.writer.lock().await;
-                    let _ = w.write_all(&hdr.to_bytes()).await;
-                    let _ = w.flush().await;
-                }
+                let mut hdr = CaHeader::new(CA_PROTO_EVENT_CANCEL);
+                hdr.data_type = data_type;
+                hdr.cid = sid;
+                hdr.available = subid;
+                send_frame(&mut connections, server_addr, hdr.to_bytes().to_vec(), &event_tx);
             }
             TransportCommand::ClearChannel {
                 cid,
                 sid,
                 server_addr,
             } => {
-                if let Some(conn) = connections.get(&server_addr) {
-                    let mut hdr = CaHeader::new(CA_PROTO_CLEAR_CHANNEL);
-                    hdr.cid = sid;
-                    hdr.available = cid;
-
-                    let mut w = conn.writer.lock().await;
-                    let _ = w.write_all(&hdr.to_bytes()).await;
-                    let _ = w.flush().await;
-                }
+                let mut hdr = CaHeader::new(CA_PROTO_CLEAR_CHANNEL);
+                hdr.cid = sid;
+                hdr.available = cid;
+                send_frame(&mut connections, server_addr, hdr.to_bytes().to_vec(), &event_tx);
             }
         }
+    }
+}
+
+fn send_frame(
+    connections: &mut HashMap<SocketAddr, ServerConnection>,
+    server_addr: SocketAddr,
+    frame: Vec<u8>,
+    event_tx: &mpsc::UnboundedSender<TransportEvent>,
+) {
+    let failed = connections
+        .get(&server_addr)
+        .is_some_and(|c| c.write_tx.send(frame).is_err());
+    if failed {
+        connections.remove(&server_addr);
+        let _ = event_tx.send(TransportEvent::TcpClosed { server_addr });
     }
 }
 
@@ -233,48 +213,69 @@ async fn connect_server(
     let _ = stream.set_nodelay(true);
 
     let (reader, write_half) = stream.into_split();
-    let writer = Arc::new(Mutex::new(write_half));
+    let (write_tx, write_rx) = mpsc::unbounded_channel();
 
-    // Send VERSION + HOST + CLIENT
-    {
-        let mut w = writer.lock().await;
+    // Build initial handshake as a single frame (VERSION + HOST + CLIENT)
+    let mut handshake = Vec::new();
 
-        let mut version_hdr = CaHeader::new(CA_PROTO_VERSION);
-        version_hdr.count = CA_MINOR_VERSION;
-        w.write_all(&version_hdr.to_bytes()).await.ok()?;
+    let mut version_hdr = CaHeader::new(CA_PROTO_VERSION);
+    version_hdr.count = CA_MINOR_VERSION;
+    handshake.extend_from_slice(&version_hdr.to_bytes());
 
-        let hostname = epics_base_rs::runtime::env::hostname();
-        let host_payload = pad_string(&hostname);
-        let mut host_hdr = CaHeader::new(CA_PROTO_HOST_NAME);
-        host_hdr.postsize = host_payload.len() as u16;
-        w.write_all(&host_hdr.to_bytes()).await.ok()?;
-        w.write_all(&host_payload).await.ok()?;
+    let hostname = epics_base_rs::runtime::env::hostname();
+    let host_payload = pad_string(&hostname);
+    let mut host_hdr = CaHeader::new(CA_PROTO_HOST_NAME);
+    host_hdr.postsize = host_payload.len() as u16;
+    handshake.extend_from_slice(&host_hdr.to_bytes());
+    handshake.extend_from_slice(&host_payload);
 
-        let username = epics_base_rs::runtime::env::get("USER")
-            .or_else(|| epics_base_rs::runtime::env::get("USERNAME"))
-            .unwrap_or_else(|| "unknown".to_string());
-        let user_payload = pad_string(&username);
-        let mut user_hdr = CaHeader::new(CA_PROTO_CLIENT_NAME);
-        user_hdr.postsize = user_payload.len() as u16;
-        w.write_all(&user_hdr.to_bytes()).await.ok()?;
-        w.write_all(&user_payload).await.ok()?;
+    let username = epics_base_rs::runtime::env::get("USER")
+        .or_else(|| epics_base_rs::runtime::env::get("USERNAME"))
+        .unwrap_or_else(|| "unknown".to_string());
+    let user_payload = pad_string(&username);
+    let mut user_hdr = CaHeader::new(CA_PROTO_CLIENT_NAME);
+    user_hdr.postsize = user_payload.len() as u16;
+    handshake.extend_from_slice(&user_hdr.to_bytes());
+    handshake.extend_from_slice(&user_payload);
 
-        w.flush().await.ok()?;
-    }
+    let _ = write_tx.send(handshake);
 
-    let read_task = epics_base_rs::runtime::task::spawn(read_loop(reader, server_addr, event_tx, writer.clone()));
+    let write_task = epics_base_rs::runtime::task::spawn(write_loop(write_half, write_rx, server_addr, event_tx.clone()));
+    let read_task = epics_base_rs::runtime::task::spawn(read_loop(reader, server_addr, event_tx, write_tx.clone()));
 
     Some(ServerConnection {
-        writer,
+        write_tx,
         _read_task: read_task,
+        _write_task: write_task,
     })
+}
+
+async fn write_loop(
+    mut writer: tokio::net::tcp::OwnedWriteHalf,
+    mut rx: mpsc::UnboundedReceiver<Vec<u8>>,
+    server_addr: SocketAddr,
+    event_tx: mpsc::UnboundedSender<TransportEvent>,
+) {
+    let mut batch = Vec::with_capacity(4096);
+    while let Some(frame) = rx.recv().await {
+        batch.extend_from_slice(&frame);
+        // Drain all pending frames into a single write
+        while let Ok(frame) = rx.try_recv() {
+            batch.extend_from_slice(&frame);
+        }
+        if writer.write_all(&batch).await.is_err() {
+            let _ = event_tx.send(TransportEvent::TcpClosed { server_addr });
+            return;
+        }
+        batch.clear();
+    }
 }
 
 async fn read_loop(
     mut reader: tokio::net::tcp::OwnedReadHalf,
     server_addr: SocketAddr,
     event_tx: mpsc::UnboundedSender<TransportEvent>,
-    writer: Arc<Mutex<tokio::net::tcp::OwnedWriteHalf>>,
+    write_tx: mpsc::UnboundedSender<Vec<u8>>,
 ) {
     let mut buf = vec![0u8; 8192];
     let mut accumulated = Vec::new();
@@ -356,11 +357,8 @@ async fn read_loop(
                     });
                 }
                 CA_PROTO_ECHO => {
-                    // Respond inline
                     let echo_hdr = CaHeader::new(CA_PROTO_ECHO);
-                    let mut w = writer.lock().await;
-                    let _ = w.write_all(&echo_hdr.to_bytes()).await;
-                    let _ = w.flush().await;
+                    let _ = write_tx.send(echo_hdr.to_bytes().to_vec());
                 }
                 CA_PROTO_CREATE_CH_FAIL => {
                     let _ = event_tx.send(TransportEvent::ChannelCreateFailed {
