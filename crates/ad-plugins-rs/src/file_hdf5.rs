@@ -16,7 +16,7 @@ use ad_core_rs::plugin::runtime::{
 #[cfg(feature = "hdf5")]
 mod hdf5_real {
     use super::*;
-    use hdf5_metno::File as H5File;
+    use hdf5::H5File;
 
     /// HDF5 file writer using the hdf5 crate.
     pub struct Hdf5RealWriter {
@@ -123,11 +123,11 @@ mod hdf5_real {
                 let val_str = attr.value.as_string();
                 // HDF5 string attributes on the dataset
                 if let Ok(ds) = h5file.dataset(&dataset_name) {
-                    let _ = ds.new_attr::<hdf5_metno::types::VarLenUnicode>()
+                    let _ = ds.new_attr::<hdf5::types::VarLenUnicode>()
                         .shape(())
                         .create(attr.name.as_str())
                         .and_then(|a| {
-                            let s: hdf5_metno::types::VarLenUnicode = val_str.parse().unwrap_or_default();
+                            let s: hdf5::types::VarLenUnicode = val_str.parse().unwrap_or_default();
                             a.write_scalar(&s)
                         });
                 }

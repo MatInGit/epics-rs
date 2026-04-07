@@ -26,13 +26,13 @@ netcdf3 = "0.6"
 image = { version = "0.25", default-features = false, features = ["png", "jpeg", "bmp", "gif", "tiff"] }
 rayon = { version = "1", optional = true }
 
-[dependencies.hdf5-metno]
-version = "0.12"
-features = ["static"]
+[dependencies.hdf5]
+git = "https://github.com/physwkim/hdf5-rs.git"
+features = ["threadsafe"]
 optional = true
 
 [features]
 default = ["parallel"]
-hdf5 = ["dep:hdf5-metno"]
+hdf5 = ["dep:hdf5"]
 ioc = ["ad-core-rs/ioc"]
 parallel = ["rayon"]
