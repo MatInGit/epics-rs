@@ -3,8 +3,8 @@ use std::sync::Arc;
 use ad_core_rs::ndarray::{NDArray, NDDataBuffer, NDDataType, NDDimension};
 use ad_core_rs::ndarray_pool::NDArrayPool;
 use ad_core_rs::plugin::runtime::{NDPluginProcess, ProcessResult};
-use rustfft::num_complex::Complex;
 use rustfft::FftPlanner;
+use rustfft::num_complex::Complex;
 
 /// FFT mode selection.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -49,7 +49,11 @@ pub fn fft_1d_rows(src: &NDArray, suppress_dc: bool) -> Option<NDArray> {
     }
 
     let width = src.dims[0].size;
-    let height = if src.dims.len() >= 2 { src.dims[1].size } else { 1 };
+    let height = if src.dims.len() >= 2 {
+        src.dims[1].size
+    } else {
+        1
+    };
 
     if width == 0 {
         return None;
@@ -64,10 +68,7 @@ pub fn fft_1d_rows(src: &NDArray, suppress_dc: bool) -> Option<NDArray> {
     for row in 0..height {
         // Fill complex buffer: real = pixel value, imag = 0
         for i in 0..width {
-            row_buf[i] = Complex::new(
-                src.data.get_as_f64(row * width + i).unwrap_or(0.0),
-                0.0,
-            );
+            row_buf[i] = Complex::new(src.data.get_as_f64(row * width + i).unwrap_or(0.0), 0.0);
         }
 
         fft.process(&mut row_buf);
@@ -114,10 +115,7 @@ pub fn fft_2d(src: &NDArray, suppress_dc: bool) -> Option<NDArray> {
 
     for row in 0..h {
         for i in 0..w {
-            row_buf[i] = Complex::new(
-                src.data.get_as_f64(row * w + i).unwrap_or(0.0),
-                0.0,
-            );
+            row_buf[i] = Complex::new(src.data.get_as_f64(row * w + i).unwrap_or(0.0), 0.0);
         }
         fft_row.process(&mut row_buf);
         data[row * w..(row * w + w)].copy_from_slice(&row_buf);
@@ -155,6 +153,15 @@ pub fn fft_2d(src: &NDArray, suppress_dc: bool) -> Option<NDArray> {
 }
 
 /// FFT processing engine with cached planner and optional magnitude averaging.
+#[derive(Default)]
+struct FFTParamIndices {
+    direction: Option<usize>,
+    suppress_dc: Option<usize>,
+    num_average: Option<usize>,
+    num_averaged: Option<usize>,
+    reset_average: Option<usize>,
+}
+
 pub struct FFTProcessor {
     config: FFTConfig,
     planner: FftPlanner<f64>,
@@ -164,6 +171,7 @@ pub struct FFTProcessor {
     avg_count: usize,
     /// Cached dimensions to detect changes.
     cached_dims: Vec<usize>,
+    params: FFTParamIndices,
 }
 
 impl FFTProcessor {
@@ -179,6 +187,7 @@ impl FFTProcessor {
             avg_buffer: None,
             avg_count: 0,
             cached_dims: Vec::new(),
+            params: FFTParamIndices::default(),
         }
     }
 
@@ -189,6 +198,7 @@ impl FFTProcessor {
             avg_buffer: None,
             avg_count: 0,
             cached_dims: Vec::new(),
+            params: FFTParamIndices::default(),
         }
     }
 
@@ -222,17 +232,17 @@ impl FFTProcessor {
         }
     }
 
-    fn compute_fft_1d_rows_forward(
-        &mut self,
-        src: &NDArray,
-        suppress_dc: bool,
-    ) -> Option<NDArray> {
+    fn compute_fft_1d_rows_forward(&mut self, src: &NDArray, suppress_dc: bool) -> Option<NDArray> {
         if src.dims.is_empty() {
             return None;
         }
 
         let width = src.dims[0].size;
-        let height = if src.dims.len() >= 2 { src.dims[1].size } else { 1 };
+        let height = if src.dims.len() >= 2 {
+            src.dims[1].size
+        } else {
+            1
+        };
 
         if width == 0 {
             return None;
@@ -245,10 +255,7 @@ impl FFTProcessor {
 
         for row in 0..height {
             for i in 0..width {
-                row_buf[i] = Complex::new(
-                    src.data.get_as_f64(row * width + i).unwrap_or(0.0),
-                    0.0,
-                );
+                row_buf[i] = Complex::new(src.data.get_as_f64(row * width + i).unwrap_or(0.0), 0.0);
             }
             fft.process(&mut row_buf);
             for (i, c) in row_buf.iter().enumerate() {
@@ -268,17 +275,17 @@ impl FFTProcessor {
         Some(arr)
     }
 
-    fn compute_fft_1d_rows_inverse(
-        &mut self,
-        src: &NDArray,
-        suppress_dc: bool,
-    ) -> Option<NDArray> {
+    fn compute_fft_1d_rows_inverse(&mut self, src: &NDArray, suppress_dc: bool) -> Option<NDArray> {
         if src.dims.is_empty() {
             return None;
         }
 
         let width = src.dims[0].size;
-        let height = if src.dims.len() >= 2 { src.dims[1].size } else { 1 };
+        let height = if src.dims.len() >= 2 {
+            src.dims[1].size
+        } else {
+            1
+        };
 
         if width == 0 {
             return None;
@@ -292,10 +299,7 @@ impl FFTProcessor {
 
         for row in 0..height {
             for i in 0..width {
-                row_buf[i] = Complex::new(
-                    src.data.get_as_f64(row * width + i).unwrap_or(0.0),
-                    0.0,
-                );
+                row_buf[i] = Complex::new(src.data.get_as_f64(row * width + i).unwrap_or(0.0), 0.0);
             }
             if suppress_dc {
                 row_buf[0] = Complex::new(0.0, 0.0);
@@ -315,11 +319,7 @@ impl FFTProcessor {
         Some(arr)
     }
 
-    fn compute_fft_2d_forward(
-        &mut self,
-        src: &NDArray,
-        suppress_dc: bool,
-    ) -> Option<NDArray> {
+    fn compute_fft_2d_forward(&mut self, src: &NDArray, suppress_dc: bool) -> Option<NDArray> {
         if src.dims.len() < 2 {
             return None;
         }
@@ -339,10 +339,7 @@ impl FFTProcessor {
 
         for row in 0..h {
             for i in 0..w {
-                row_buf[i] = Complex::new(
-                    src.data.get_as_f64(row * w + i).unwrap_or(0.0),
-                    0.0,
-                );
+                row_buf[i] = Complex::new(src.data.get_as_f64(row * w + i).unwrap_or(0.0), 0.0);
             }
             fft_row.process(&mut row_buf);
             data[row * w..(row * w + w)].copy_from_slice(&row_buf);
@@ -374,11 +371,7 @@ impl FFTProcessor {
         Some(arr)
     }
 
-    fn compute_fft_2d_inverse(
-        &mut self,
-        src: &NDArray,
-        suppress_dc: bool,
-    ) -> Option<NDArray> {
+    fn compute_fft_2d_inverse(&mut self, src: &NDArray, suppress_dc: bool) -> Option<NDArray> {
         if src.dims.len() < 2 {
             return None;
         }
@@ -396,10 +389,7 @@ impl FFTProcessor {
 
         let mut data = vec![Complex::new(0.0, 0.0); w * h];
         for i in 0..w * h {
-            data[i] = Complex::new(
-                src.data.get_as_f64(i).unwrap_or(0.0),
-                0.0,
-            );
+            data[i] = Complex::new(src.data.get_as_f64(i).unwrap_or(0.0), 0.0);
         }
 
         if suppress_dc {
@@ -442,7 +432,9 @@ impl FFTProcessor {
             return magnitudes.to_vec();
         }
 
-        let buf = self.avg_buffer.get_or_insert_with(|| vec![0.0; magnitudes.len()]);
+        let buf = self
+            .avg_buffer
+            .get_or_insert_with(|| vec![0.0; magnitudes.len()]);
 
         // Reset if buffer size changed (shouldn't happen after check_dims_changed, but guard)
         if buf.len() != magnitudes.len() {
@@ -471,9 +463,16 @@ impl FFTProcessor {
 
 impl NDPluginProcess for FFTProcessor {
     fn process_array(&mut self, array: &NDArray, _pool: &NDArrayPool) -> ProcessResult {
+        use ad_core_rs::plugin::runtime::ParamUpdate;
+
         self.check_dims_changed(&array.dims);
 
         let result = self.compute_fft(array);
+        let mut updates = Vec::new();
+        if let Some(idx) = self.params.num_averaged {
+            updates.push(ParamUpdate::int32(idx, self.avg_count as i32));
+        }
+
         match result {
             Some(mut out) => {
                 if self.config.num_average > 1 {
@@ -482,9 +481,11 @@ impl NDPluginProcess for FFTProcessor {
                         out.data = NDDataBuffer::F64(averaged);
                     }
                 }
-                ProcessResult::arrays(vec![Arc::new(out)])
+                let mut r = ProcessResult::arrays(vec![Arc::new(out)]);
+                r.param_updates = updates;
+                r
             }
-            None => ProcessResult::empty(),
+            None => ProcessResult::sink(updates),
         }
     }
 
@@ -492,7 +493,10 @@ impl NDPluginProcess for FFTProcessor {
         "NDPluginFFT"
     }
 
-    fn register_params(&mut self, base: &mut asyn_rs::port::PortDriverBase) -> asyn_rs::error::AsynResult<()> {
+    fn register_params(
+        &mut self,
+        base: &mut asyn_rs::port::PortDriverBase,
+    ) -> asyn_rs::error::AsynResult<()> {
         use asyn_rs::param::ParamType;
         base.create_param("FFT_TIME_PER_POINT", ParamType::Float64)?;
         base.create_param("FFT_TIME_AXIS", ParamType::Float64Array)?;
@@ -506,7 +510,37 @@ impl NDPluginProcess for FFTProcessor {
         base.create_param("FFT_REAL", ParamType::Float64Array)?;
         base.create_param("FFT_IMAGINARY", ParamType::Float64Array)?;
         base.create_param("FFT_ABS_VALUE", ParamType::Float64Array)?;
+
+        self.params.direction = base.find_param("FFT_DIRECTION");
+        self.params.suppress_dc = base.find_param("FFT_SUPPRESS_DC");
+        self.params.num_average = base.find_param("FFT_NUM_AVERAGE");
+        self.params.num_averaged = base.find_param("FFT_NUM_AVERAGED");
+        self.params.reset_average = base.find_param("FFT_RESET_AVERAGE");
         Ok(())
+    }
+
+    fn on_param_change(
+        &mut self,
+        reason: usize,
+        params: &ad_core_rs::plugin::runtime::PluginParamSnapshot,
+    ) -> ad_core_rs::plugin::runtime::ParamChangeResult {
+        if Some(reason) == self.params.direction {
+            self.config.direction = if params.value.as_i32() == 0 {
+                FFTDirection::Forward
+            } else {
+                FFTDirection::Inverse
+            };
+        } else if Some(reason) == self.params.suppress_dc {
+            self.config.suppress_dc = params.value.as_i32() != 0;
+        } else if Some(reason) == self.params.num_average {
+            self.config.num_average = params.value.as_i32().max(0) as usize;
+        } else if Some(reason) == self.params.reset_average {
+            if params.value.as_i32() != 0 {
+                self.avg_buffer = None;
+                self.avg_count = 0;
+            }
+        }
+        ad_core_rs::plugin::runtime::ParamChangeResult::updates(vec![])
     }
 }
 
@@ -663,7 +697,12 @@ mod tests {
             );
             // Other bins should be ~0
             for k in [0, 1, 2, 4, 5, 6, 7, 8, 9, 10, 11, 12, 14, 15] {
-                assert!(v[k].abs() < 1e-10, "k={} magnitude = {}, expected ~0", k, v[k]);
+                assert!(
+                    v[k].abs() < 1e-10,
+                    "k={} magnitude = {}, expected ~0",
+                    k,
+                    v[k]
+                );
             }
         } else {
             panic!("expected F64 data");

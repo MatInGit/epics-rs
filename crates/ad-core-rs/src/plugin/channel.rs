@@ -1,5 +1,5 @@
-use std::sync::atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering};
 use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering};
 use std::time::Duration;
 
 use crate::ndarray::NDArray;
@@ -55,9 +55,11 @@ impl QueuedArrayCounter {
         }
         !self
             .condvar
-            .wait_while_for(&mut guard, |_| {
-                self.count.load(Ordering::Acquire) != 0
-            }, timeout)
+            .wait_while_for(
+                &mut guard,
+                |_| self.count.load(Ordering::Acquire) != 0,
+                timeout,
+            )
             .timed_out()
     }
 }
@@ -239,6 +241,13 @@ impl NDArrayOutput {
     pub fn publish(&self, array: Arc<NDArray>) {
         for sender in &self.senders {
             sender.send(array.clone());
+        }
+    }
+
+    /// Publish an array to a single downstream receiver by index (for scatter/round-robin).
+    pub fn publish_to(&self, index: usize, array: Arc<NDArray>) {
+        if let Some(sender) = self.senders.get(index % self.senders.len().max(1)) {
+            sender.send(array);
         }
     }
 

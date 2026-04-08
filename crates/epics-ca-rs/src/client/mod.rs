@@ -8,15 +8,14 @@ mod types;
 use std::collections::{HashMap, HashSet};
 use std::net::{Ipv4Addr, SocketAddr, SocketAddrV4};
 
-
 use std::time::Duration;
 
 use epics_base_rs::runtime::sync::{broadcast, mpsc, oneshot};
 
-use crate::channel::{alloc_cid, alloc_ioid, alloc_subid, AccessRights, ChannelInfo};
-use epics_base_rs::error::{CaError, CaResult};
+use crate::channel::{AccessRights, ChannelInfo, alloc_cid, alloc_ioid, alloc_subid};
 use crate::protocol::*;
 use crate::repeater;
+use epics_base_rs::error::{CaError, CaResult};
 use epics_base_rs::server::snapshot::{DbrClass, Snapshot};
 use epics_base_rs::types::{DbFieldType, EpicsValue, decode_dbr};
 
@@ -24,26 +23,48 @@ pub use state::{ChannelState, ConnectionEvent};
 
 use state::ChannelInner;
 
-use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
+use std::sync::atomic::{AtomicU64, Ordering};
 
 /// Type of diagnostic event recorded in the event history.
 #[derive(Debug, Clone)]
 pub enum DiagEvent {
-    Connected { pv: String, server: SocketAddr },
-    Disconnected { server: SocketAddr, channels: usize },
-    Reconnected { pv: String, restored: u32, stale: u32 },
-    Unresponsive { server: SocketAddr },
-    Responsive { server: SocketAddr },
-    BeaconAnomaly { server: SocketAddr },
+    Connected {
+        pv: String,
+        server: SocketAddr,
+    },
+    Disconnected {
+        server: SocketAddr,
+        channels: usize,
+    },
+    Reconnected {
+        pv: String,
+        restored: u32,
+        stale: u32,
+    },
+    Unresponsive {
+        server: SocketAddr,
+    },
+    Responsive {
+        server: SocketAddr,
+    },
+    BeaconAnomaly {
+        server: SocketAddr,
+    },
 }
 
 impl std::fmt::Display for DiagEvent {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             Self::Connected { pv, server } => write!(f, "Connected {pv} @ {server}"),
-            Self::Disconnected { server, channels } => write!(f, "Disconnected {server} ({channels} channels)"),
-            Self::Reconnected { pv, restored, stale } => write!(f, "Reconnected {pv} (restored={restored}, stale={stale})"),
+            Self::Disconnected { server, channels } => {
+                write!(f, "Disconnected {server} ({channels} channels)")
+            }
+            Self::Reconnected {
+                pv,
+                restored,
+                stale,
+            } => write!(f, "Reconnected {pv} (restored={restored}, stale={stale})"),
             Self::Unresponsive { server } => write!(f, "Unresponsive {server}"),
             Self::Responsive { server } => write!(f, "Responsive {server}"),
             Self::BeaconAnomaly { server } => write!(f, "Beacon anomaly {server}"),
@@ -93,7 +114,10 @@ impl Default for CaDiagnostics {
 impl CaDiagnostics {
     /// Record a diagnostic event with the current timestamp.
     pub fn record(&self, event: DiagEvent) {
-        let record = DiagRecord { time: std::time::Instant::now(), event };
+        let record = DiagRecord {
+            time: std::time::Instant::now(),
+            event,
+        };
         if let Ok(mut history) = self.history.lock() {
             if history.len() >= EVENT_HISTORY_CAPACITY {
                 history.remove(0);
@@ -104,9 +128,7 @@ impl CaDiagnostics {
 
     /// Get a snapshot of counters + recent event history.
     pub fn snapshot(&self) -> DiagnosticsSnapshot {
-        let history = self.history.lock()
-            .map(|h| h.clone())
-            .unwrap_or_default();
+        let history = self.history.lock().map(|h| h.clone()).unwrap_or_default();
         DiagnosticsSnapshot {
             connections: self.connections.load(Ordering::Relaxed),
             disconnections: self.disconnections.load(Ordering::Relaxed),
@@ -147,7 +169,11 @@ impl std::fmt::Display for DiagnosticsSnapshot {
         writeln!(f, "Search requests:        {}", self.search_requests)?;
         if !self.history.is_empty() {
             writeln!(f, "Recent events ({}):", self.history.len())?;
-            let start = self.history.first().map(|r| r.time).unwrap_or_else(std::time::Instant::now);
+            let start = self
+                .history
+                .first()
+                .map(|r| r.time)
+                .unwrap_or_else(std::time::Instant::now);
             for rec in &self.history {
                 let elapsed = rec.time.duration_since(start);
                 writeln!(f, "  +{:.1}s  {}", elapsed.as_secs_f64(), rec.event)?;
@@ -270,9 +296,9 @@ impl CaClient {
             diagnostics.clone(),
         ));
 
-        let beacon_task = epics_base_rs::runtime::task::spawn(
-            beacon_monitor::run_beacon_monitor(coord_tx.clone()),
-        );
+        let beacon_task = epics_base_rs::runtime::task::spawn(beacon_monitor::run_beacon_monitor(
+            coord_tx.clone(),
+        ));
 
         Ok(Self {
             search_tx,
@@ -333,7 +359,9 @@ impl CaClient {
         let ch = self.create_channel(pv_name);
         ch.wait_connected(Duration::from_secs(3)).await?;
         let result = ch.get().await;
-        let _ = self.coord_tx.send(CoordRequest::DropChannel { cid: ch.cid });
+        let _ = self
+            .coord_tx
+            .send(CoordRequest::DropChannel { cid: ch.cid });
         result
     }
 
@@ -354,12 +382,19 @@ impl CaClient {
 
         let value = EpicsValue::parse(snap.native_type, value_str)?;
         ch.put_nowait(&value).await?;
-        let _ = self.coord_tx.send(CoordRequest::DropChannel { cid: ch.cid });
+        let _ = self
+            .coord_tx
+            .send(CoordRequest::DropChannel { cid: ch.cid });
         Ok(())
     }
 
     /// Write with completion callback (CA_PROTO_WRITE_NOTIFY). Matches C `caput -c`.
-    pub async fn caput_callback(&self, pv_name: &str, value_str: &str, timeout_secs: f64) -> CaResult<()> {
+    pub async fn caput_callback(
+        &self,
+        pv_name: &str,
+        value_str: &str,
+        timeout_secs: f64,
+    ) -> CaResult<()> {
         let ch = self.create_channel(pv_name);
         ch.wait_connected(Duration::from_secs(3)).await?;
 
@@ -374,8 +409,11 @@ impl CaClient {
             .ok_or(CaError::Disconnected)?;
 
         let value = EpicsValue::parse(snap.native_type, value_str)?;
-        ch.put_with_timeout(&value, Duration::from_secs_f64(timeout_secs)).await?;
-        let _ = self.coord_tx.send(CoordRequest::DropChannel { cid: ch.cid });
+        ch.put_with_timeout(&value, Duration::from_secs_f64(timeout_secs))
+            .await?;
+        let _ = self
+            .coord_tx
+            .send(CoordRequest::DropChannel { cid: ch.cid });
         Ok(())
     }
 
@@ -393,7 +431,9 @@ impl CaClient {
             .map_err(|_| CaError::Shutdown)?
             .ok_or(CaError::Disconnected)?;
 
-        let _ = self.coord_tx.send(CoordRequest::DropChannel { cid: ch.cid });
+        let _ = self
+            .coord_tx
+            .send(CoordRequest::DropChannel { cid: ch.cid });
 
         Ok(ChannelInfo {
             pv_name: snap.pv_name,
@@ -535,7 +575,11 @@ impl CaChannel {
             return Err(CaError::Disconnected);
         }
 
-        let request_count = if count > 0 { count.min(snap.element_count) } else { snap.element_count };
+        let request_count = if count > 0 {
+            count.min(snap.element_count)
+        } else {
+            snap.element_count
+        };
 
         let native = DbFieldType::from_u16(snap.native_type as u16)?;
         let request_type = match class {
@@ -727,7 +771,9 @@ impl CaChannel {
 
 impl Drop for CaChannel {
     fn drop(&mut self) {
-        let _ = self.coord_tx.send(CoordRequest::DropChannel { cid: self.cid });
+        let _ = self
+            .coord_tx
+            .send(CoordRequest::DropChannel { cid: self.cid });
     }
 }
 
@@ -746,9 +792,9 @@ impl MonitorHandle {
 
 impl Drop for MonitorHandle {
     fn drop(&mut self) {
-        let _ = self.coord_tx.send(CoordRequest::Unsubscribe {
-            subid: self.subid,
-        });
+        let _ = self
+            .coord_tx
+            .send(CoordRequest::Unsubscribe { subid: self.subid });
     }
 }
 
@@ -766,7 +812,8 @@ async fn run_coordinator(
     let mut pending_wait_connected: HashMap<u32, Vec<oneshot::Sender<()>>> = HashMap::new();
     let mut pending_found: HashMap<u32, SocketAddr> = HashMap::new();
     let mut subscriptions = SubscriptionRegistry::new();
-    let mut read_waiters: HashMap<u32, oneshot::Sender<CaResult<(u16, u32, Vec<u8>)>>> = HashMap::new();
+    let mut read_waiters: HashMap<u32, oneshot::Sender<CaResult<(u16, u32, Vec<u8>)>>> =
+        HashMap::new();
     let mut write_waiters: HashMap<u32, oneshot::Sender<CaResult<()>>> = HashMap::new();
     // Reverse index: server_addr -> set of cids last seen on that server.
     // Keep disconnected channels indexed so beacon anomalies can trigger
@@ -1169,8 +1216,7 @@ fn handle_disconnect(
     let now = std::time::Instant::now();
 
     for ch in channels.values_mut() {
-        if ch.server_addr == Some(server_addr)
-            && ch.state.is_operational()
+        if ch.server_addr == Some(server_addr) && ch.state.is_operational()
             || ch.state == ChannelState::Connecting
         {
             ch.state = ChannelState::Disconnected;
@@ -1180,7 +1226,8 @@ fn handle_disconnect(
             // Reconnection backoff: if the connection was short-lived (<30s),
             // increment reconnect_count for exponential backoff. Sustained
             // connections reset the counter.
-            let sustained = ch.last_connected_at
+            let sustained = ch
+                .last_connected_at
                 .map(|t| now.duration_since(t).as_secs() > 30)
                 .unwrap_or(false);
             if sustained {
@@ -1200,7 +1247,10 @@ fn handle_disconnect(
     }
     if !affected_cids.is_empty() {
         diag.disconnections.fetch_add(1, Ordering::Relaxed);
-        diag.record(DiagEvent::Disconnected { server: server_addr, channels: affected_cids.len() });
+        diag.record(DiagEvent::Disconnected {
+            server: server_addr,
+            channels: affected_cids.len(),
+        });
     }
     subscriptions.mark_disconnected(&affected_cids);
 }

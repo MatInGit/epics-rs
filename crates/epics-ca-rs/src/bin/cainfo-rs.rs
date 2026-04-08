@@ -2,7 +2,10 @@ use clap::Parser;
 use epics_ca_rs::client::CaClient;
 
 #[derive(Parser)]
-#[command(name = "rcainfo", about = "Show EPICS PV channel information and client diagnostics")]
+#[command(
+    name = "rcainfo",
+    about = "Show EPICS PV channel information and client diagnostics"
+)]
 struct Args {
     /// PV names to query (omit for diagnostics only)
     pv_names: Vec<String>,

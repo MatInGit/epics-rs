@@ -2,8 +2,8 @@ use std::collections::HashMap;
 use std::net::{Ipv4Addr, SocketAddr, SocketAddrV4};
 use std::time::{Duration, Instant};
 
-use tokio::net::UdpSocket;
 use epics_base_rs::runtime::sync::mpsc;
+use tokio::net::UdpSocket;
 
 use crate::protocol::*;
 
@@ -31,9 +31,7 @@ struct BeaconState {
 /// with the repeater in case it restarted.
 const REREGISTER_INTERVAL: Duration = Duration::from_secs(300);
 
-pub(crate) async fn run_beacon_monitor(
-    coord_tx: mpsc::UnboundedSender<CoordRequest>,
-) {
+pub(crate) async fn run_beacon_monitor(coord_tx: mpsc::UnboundedSender<CoordRequest>) {
     // Bind a dedicated UDP socket for beacon reception.
     let socket = match UdpSocket::bind("0.0.0.0:0").await {
         Ok(s) => s,
@@ -86,8 +84,7 @@ pub(crate) async fn run_beacon_monitor(
         }
 
         let server_ip = Ipv4Addr::from(hdr.available.to_be_bytes());
-        let server_addr =
-            SocketAddr::V4(SocketAddrV4::new(server_ip, server_port as u16));
+        let server_addr = SocketAddr::V4(SocketAddrV4::new(server_ip, server_port as u16));
         let now = Instant::now();
 
         let entry = servers.entry(server_addr).or_insert_with(|| BeaconState {
@@ -122,9 +119,7 @@ pub(crate) async fn run_beacon_monitor(
         }
 
         if is_anomaly {
-            let _ = coord_tx.send(CoordRequest::ForceRescanServer {
-                server_addr,
-            });
+            let _ = coord_tx.send(CoordRequest::ForceRescanServer { server_addr });
         }
     }
 }
@@ -143,8 +138,7 @@ async fn register_with_repeater(socket: &UdpSocket) -> Result<(), ()> {
     let mut hdr = CaHeader::new(CA_PROTO_REPEATER_REGISTER);
     hdr.available = u32::from_be_bytes(local_ip.octets());
 
-    let repeater_addr =
-        SocketAddrV4::new(Ipv4Addr::LOCALHOST, CA_REPEATER_PORT);
+    let repeater_addr = SocketAddrV4::new(Ipv4Addr::LOCALHOST, CA_REPEATER_PORT);
     socket
         .send_to(&hdr.to_bytes(), repeater_addr)
         .await

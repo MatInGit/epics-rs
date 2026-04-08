@@ -2,9 +2,9 @@ use std::collections::HashMap;
 use std::net::SocketAddr;
 use std::time::Duration;
 
+use epics_base_rs::runtime::sync::mpsc;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::TcpStream;
-use epics_base_rs::runtime::sync::mpsc;
 
 use crate::channel::AccessRights;
 use crate::protocol::*;
@@ -104,7 +104,12 @@ pub(crate) async fn run_transport_manager(
                 } else {
                     hdr.count = count as u16;
                 }
-                send_frame(&mut connections, server_addr, hdr.to_bytes_extended(), &event_tx);
+                send_frame(
+                    &mut connections,
+                    server_addr,
+                    hdr.to_bytes_extended(),
+                    &event_tx,
+                );
             }
             TransportCommand::Write {
                 sid,
@@ -184,7 +189,12 @@ pub(crate) async fn run_transport_manager(
                 hdr.data_type = data_type;
                 hdr.cid = sid;
                 hdr.available = subid;
-                send_frame(&mut connections, server_addr, hdr.to_bytes().to_vec(), &event_tx);
+                send_frame(
+                    &mut connections,
+                    server_addr,
+                    hdr.to_bytes().to_vec(),
+                    &event_tx,
+                );
             }
             TransportCommand::ClearChannel {
                 cid,
@@ -194,7 +204,12 @@ pub(crate) async fn run_transport_manager(
                 let mut hdr = CaHeader::new(CA_PROTO_CLEAR_CHANNEL);
                 hdr.cid = sid;
                 hdr.available = cid;
-                send_frame(&mut connections, server_addr, hdr.to_bytes().to_vec(), &event_tx);
+                send_frame(
+                    &mut connections,
+                    server_addr,
+                    hdr.to_bytes().to_vec(),
+                    &event_tx,
+                );
             }
         }
     }
@@ -268,8 +283,18 @@ async fn connect_server(
 
     let _ = write_tx.send(handshake);
 
-    let write_task = epics_base_rs::runtime::task::spawn(write_loop(write_half, write_rx, server_addr, event_tx.clone()));
-    let read_task = epics_base_rs::runtime::task::spawn(read_loop(reader, server_addr, event_tx, write_tx.clone()));
+    let write_task = epics_base_rs::runtime::task::spawn(write_loop(
+        write_half,
+        write_rx,
+        server_addr,
+        event_tx.clone(),
+    ));
+    let read_task = epics_base_rs::runtime::task::spawn(read_loop(
+        reader,
+        server_addr,
+        event_tx,
+        write_tx.clone(),
+    ));
 
     Some(ServerConnection {
         write_tx,
@@ -324,7 +349,11 @@ async fn read_loop(
     const FLOW_CONTROL_THRESHOLD: u32 = 10;
 
     loop {
-        let timeout = if echo_pending { echo_timeout } else { idle_timeout };
+        let timeout = if echo_pending {
+            echo_timeout
+        } else {
+            idle_timeout
+        };
 
         let n = match tokio::time::timeout(timeout, reader.read(&mut buf)).await {
             Ok(Ok(0)) | Ok(Err(_)) => {
@@ -346,7 +375,11 @@ async fn read_loop(
                         // First echo timeout: mark unresponsive, try one more echo
                         let _ = event_tx.send(TransportEvent::CircuitUnresponsive { server_addr });
                         unresponsive_notified = true;
-                        let cmd = if server_minor_version >= 3 { CA_PROTO_ECHO } else { CA_PROTO_READ_SYNC };
+                        let cmd = if server_minor_version >= 3 {
+                            CA_PROTO_ECHO
+                        } else {
+                            CA_PROTO_READ_SYNC
+                        };
                         let echo_hdr = CaHeader::new(cmd);
                         if write_tx.send(echo_hdr.to_bytes().to_vec()).is_err() {
                             let _ = event_tx.send(TransportEvent::TcpClosed { server_addr });
@@ -360,7 +393,11 @@ async fn read_loop(
                 }
                 // Idle timeout — send echo heartbeat
                 // Use READ_SYNC for pre-v4.3 servers that don't understand ECHO
-                let cmd = if server_minor_version >= 3 { CA_PROTO_ECHO } else { CA_PROTO_READ_SYNC };
+                let cmd = if server_minor_version >= 3 {
+                    CA_PROTO_ECHO
+                } else {
+                    CA_PROTO_READ_SYNC
+                };
                 let echo_hdr = CaHeader::new(cmd);
                 if write_tx.send(echo_hdr.to_bytes().to_vec()).is_err() {
                     let _ = event_tx.send(TransportEvent::TcpClosed { server_addr });
@@ -459,9 +496,7 @@ async fn read_loop(
                     let _ = write_tx.send(echo_hdr.to_bytes().to_vec());
                 }
                 CA_PROTO_CREATE_CH_FAIL => {
-                    let _ = event_tx.send(TransportEvent::ChannelCreateFailed {
-                        cid: hdr.cid,
-                    });
+                    let _ = event_tx.send(TransportEvent::ChannelCreateFailed { cid: hdr.cid });
                 }
                 CA_PROTO_ERROR => {
                     let orig_cmd = if actual_post >= 16 {
@@ -472,7 +507,10 @@ async fn read_loop(
                     };
                     let msg = if actual_post > 16 {
                         let msg_bytes = &accumulated[data_start + 16..data_start + actual_post];
-                        let end = msg_bytes.iter().position(|&b| b == 0).unwrap_or(msg_bytes.len());
+                        let end = msg_bytes
+                            .iter()
+                            .position(|&b| b == 0)
+                            .unwrap_or(msg_bytes.len());
                         String::from_utf8_lossy(&msg_bytes[..end]).to_string()
                     } else {
                         String::new()

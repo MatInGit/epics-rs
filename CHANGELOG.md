@@ -1,5 +1,45 @@
 # Changelog
 
+## v0.8.0
+
+### HDF5 Plugin — Complete Rewrite
+- **Pure Rust HDF5**: Switch from fallback binary format to real HDF5 via `rust-hdf5` (crates.io `0.2`). No C dependencies.
+- **Compression**: zlib, SZIP, LZ4, Blosc (with sub-codecs: BloscLZ, LZ4, LZ4HC, Snappy, Zlib, Zstd). All via `rust-hdf5` filter pipeline.
+- **SWMR streaming**: Single Writer Multiple Reader support — `SwmrFileWriter` with `append_frame`, periodic flush, ordered fsyncs.
+- **Store performance**: Write timing measurement with Run time / I/O speed readback.
+- **Store attributes**: Controllable via param (on/off).
+- **File number fix**: Last filename now shows the actual written file, not the next incremented number.
+
+### NeXus File Plugin (New)
+- **NDFileNexus**: HDF5-based NeXus format writer with `/entry/instrument/detector/data` group hierarchy via `rust-hdf5` group API.
+
+### Plugin on_param_change — All Plugins Complete
+- **Process**: Full `on_param_change` for all 34 params. Filter type presets (RecursiveAve, Average, Sum, Difference, RecursiveAveDiff, CopyToFilter). Auto offset/scale calc. Separate low/high clip threshold and value. Scale flat field param.
+- **Transform**: `on_param_change` for TRANSFORM_TYPE.
+- **ColorConvert**: `on_param_change` for COLOR_MODE_OUT and FALSE_COLOR.
+- **Overlay**: 8 runtime-configurable overlay slots via addr, with Position↔Center bidirectional readback.
+- **FFT**: `on_param_change` for direction, suppress DC, num_average, reset_average. Num averaged readback.
+- **CircularBuff**: `on_param_change` for Start/Stop, trigger A/B attributes, calc expression, pre/post count, preset triggers, soft trigger, flush on trigger. Status/triggered/trigger count readback.
+- **Codec**: `on_param_change` for mode, compressor (LZ4/JPEG/Blosc), JPEG quality, Blosc sub-compressor/level/shuffle. Compression factor and status readback. Blosc compress/decompress via `rust-hdf5` filter pipeline.
+- **Stats**: `on_param_change` for compute_statistics toggle.
+- **BadPixel**: `on_param_change` for BAD_PIXEL_FILE_NAME — loads JSON bad pixel list at runtime. Moved from stub to real processor.
+- **Attribute**: 8-channel multi-addr attribute extraction with TimeSeries integration. Moved from stub to real processor.
+
+### Scatter/Gather — C ADCore Compatible
+- **Scatter**: Round-robin distribution via `ProcessResult::scatter_index`. New `NDArrayOutput::publish_to(index)` for selective delivery.
+- **Gather**: Multi-upstream wiring in `NDGatherConfigure` — accepts multiple port names.
+
+### TimeSeries Refactor
+- **`TsReceiverRegistry`**: Shared registry pattern. Stats/ROIStat/Attribute store TS receivers; `NDTimeSeriesConfigure` picks them up. Eliminates duplicate TS port creation code.
+- **`NDTimeSeriesConfigure`**: Fully implemented (no longer a stub).
+
+### File Plugin Infrastructure
+- **Lazy open / Delete driver file / Free buffer**: Params wired in `FilePluginController` (shared by all file plugins).
+- **ROIStat**: 32 ROIs (up from 8), with `NDROIStatN.template` × 32 in commonPlugins.cmd.
+
+### Dependencies
+- **rust-hdf5**: Switch from git dependency to crates.io `0.2`. Pure Rust HDF5 with all compression filters.
+
 ## v0.7.12
 
 ### CA Client Connection Stability

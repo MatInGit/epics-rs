@@ -4,7 +4,10 @@ use ad_core_rs::ndarray::NDArray;
 use ad_core_rs::ndarray_pool::NDArrayPool;
 use ad_core_rs::plugin::runtime::{NDPluginProcess, ProcessResult};
 
-/// Pure gather processing logic (passthrough — gathers from multiple senders into one stream).
+/// Maximum number of gather input ports.
+const MAX_GATHER_PORTS: usize = 8;
+
+/// Pure gather processing logic (gathers from multiple senders into one stream).
 pub struct GatherProcessor {
     count: u64,
 }
@@ -33,6 +36,18 @@ impl NDPluginProcess for GatherProcessor {
 
     fn plugin_type(&self) -> &str {
         "NDPluginGather"
+    }
+
+    fn register_params(
+        &mut self,
+        base: &mut asyn_rs::port::PortDriverBase,
+    ) -> asyn_rs::error::AsynResult<()> {
+        use asyn_rs::param::ParamType;
+        for i in 1..=MAX_GATHER_PORTS {
+            base.create_param(&format!("GATHER_NDARRAY_PORT_{}", i), ParamType::Octet)?;
+            base.create_param(&format!("GATHER_NDARRAY_ADDR_{}", i), ParamType::Int32)?;
+        }
+        Ok(())
     }
 }
 

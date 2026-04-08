@@ -68,30 +68,76 @@ impl CalcExpression {
                 CalcToken::Num(n) => stack.push(*n),
                 CalcToken::VarA => stack.push(a),
                 CalcToken::VarB => stack.push(b),
-                CalcToken::Op(op) => {
-                    match op {
-                        CalcOp::Not => {
-                            let v = stack.pop().unwrap_or(0.0);
-                            stack.push(if v == 0.0 { 1.0 } else { 0.0 });
-                        }
-                        _ => {
-                            let rhs = stack.pop().unwrap_or(0.0);
-                            let lhs = stack.pop().unwrap_or(0.0);
-                            let result = match op {
-                                CalcOp::Gt => if lhs > rhs { 1.0 } else { 0.0 },
-                                CalcOp::Lt => if lhs < rhs { 1.0 } else { 0.0 },
-                                CalcOp::Ge => if lhs >= rhs { 1.0 } else { 0.0 },
-                                CalcOp::Le => if lhs <= rhs { 1.0 } else { 0.0 },
-                                CalcOp::Eq => if (lhs - rhs).abs() < f64::EPSILON { 1.0 } else { 0.0 },
-                                CalcOp::Ne => if (lhs - rhs).abs() >= f64::EPSILON { 1.0 } else { 0.0 },
-                                CalcOp::And => if lhs != 0.0 && rhs != 0.0 { 1.0 } else { 0.0 },
-                                CalcOp::Or => if lhs != 0.0 || rhs != 0.0 { 1.0 } else { 0.0 },
-                                CalcOp::Not => unreachable!(),
-                            };
-                            stack.push(result);
-                        }
+                CalcToken::Op(op) => match op {
+                    CalcOp::Not => {
+                        let v = stack.pop().unwrap_or(0.0);
+                        stack.push(if v == 0.0 { 1.0 } else { 0.0 });
                     }
-                }
+                    _ => {
+                        let rhs = stack.pop().unwrap_or(0.0);
+                        let lhs = stack.pop().unwrap_or(0.0);
+                        let result = match op {
+                            CalcOp::Gt => {
+                                if lhs > rhs {
+                                    1.0
+                                } else {
+                                    0.0
+                                }
+                            }
+                            CalcOp::Lt => {
+                                if lhs < rhs {
+                                    1.0
+                                } else {
+                                    0.0
+                                }
+                            }
+                            CalcOp::Ge => {
+                                if lhs >= rhs {
+                                    1.0
+                                } else {
+                                    0.0
+                                }
+                            }
+                            CalcOp::Le => {
+                                if lhs <= rhs {
+                                    1.0
+                                } else {
+                                    0.0
+                                }
+                            }
+                            CalcOp::Eq => {
+                                if (lhs - rhs).abs() < f64::EPSILON {
+                                    1.0
+                                } else {
+                                    0.0
+                                }
+                            }
+                            CalcOp::Ne => {
+                                if (lhs - rhs).abs() >= f64::EPSILON {
+                                    1.0
+                                } else {
+                                    0.0
+                                }
+                            }
+                            CalcOp::And => {
+                                if lhs != 0.0 && rhs != 0.0 {
+                                    1.0
+                                } else {
+                                    0.0
+                                }
+                            }
+                            CalcOp::Or => {
+                                if lhs != 0.0 || rhs != 0.0 {
+                                    1.0
+                                } else {
+                                    0.0
+                                }
+                            }
+                            CalcOp::Not => unreachable!(),
+                        };
+                        stack.push(result);
+                    }
+                },
             }
         }
         stack.pop().unwrap_or(0.0)
@@ -119,11 +165,25 @@ impl CalcExpression {
 
         while i < chars.len() {
             match chars[i] {
-                ' ' | '\t' => { i += 1; }
-                '(' => { tokens.push(RT::LParen); i += 1; }
-                ')' => { tokens.push(RT::RParen); i += 1; }
-                'A' | 'a' => { tokens.push(RT::VarA); i += 1; }
-                'B' | 'b' => { tokens.push(RT::VarB); i += 1; }
+                ' ' | '\t' => {
+                    i += 1;
+                }
+                '(' => {
+                    tokens.push(RT::LParen);
+                    i += 1;
+                }
+                ')' => {
+                    tokens.push(RT::RParen);
+                    i += 1;
+                }
+                'A' | 'a' => {
+                    tokens.push(RT::VarA);
+                    i += 1;
+                }
+                'B' | 'b' => {
+                    tokens.push(RT::VarB);
+                    i += 1;
+                }
                 '>' => {
                     if i + 1 < chars.len() && chars[i + 1] == '=' {
                         tokens.push(RT::Op(CalcOp::Ge));
@@ -188,7 +248,10 @@ impl CalcExpression {
                     // Negative number: at start, or after '(' or after an operator
                     let is_unary_minus = tokens.is_empty()
                         || matches!(tokens.last(), Some(RT::LParen) | Some(RT::Op(_)));
-                    if is_unary_minus && i + 1 < chars.len() && (chars[i + 1].is_ascii_digit() || chars[i + 1] == '.') {
+                    if is_unary_minus
+                        && i + 1 < chars.len()
+                        && (chars[i + 1].is_ascii_digit() || chars[i + 1] == '.')
+                    {
                         i += 1; // skip '-'
                         let start = i;
                         while i < chars.len() && (chars[i].is_ascii_digit() || chars[i] == '.') {
@@ -286,10 +349,10 @@ pub enum BufferStatus {
 
 /// Circular buffer state for pre/post-trigger capture.
 pub struct CircularBuffer {
-    pre_count: usize,
-    post_count: usize,
+    pub(crate) pre_count: usize,
+    pub(crate) post_count: usize,
     buffer: VecDeque<Arc<NDArray>>,
-    trigger_condition: TriggerCondition,
+    pub(crate) trigger_condition: TriggerCondition,
     triggered: bool,
     post_remaining: usize,
     captured: Vec<Arc<NDArray>>,
@@ -300,7 +363,7 @@ pub struct CircularBuffer {
     /// If true, flush buffer immediately on soft trigger.
     flush_on_soft_trigger: bool,
     /// Current buffer status.
-    status: BufferStatus,
+    pub(crate) status: BufferStatus,
 }
 
 impl CircularBuffer {
@@ -360,7 +423,8 @@ impl CircularBuffer {
             if self.post_remaining == 0 {
                 self.triggered = false;
                 // Check if we've reached the preset trigger count
-                if self.preset_trigger_count > 0 && self.trigger_count >= self.preset_trigger_count {
+                if self.preset_trigger_count > 0 && self.trigger_count >= self.preset_trigger_count
+                {
                     self.status = BufferStatus::AcquisitionCompleted;
                 } else {
                     self.status = BufferStatus::BufferFilling;
@@ -372,18 +436,28 @@ impl CircularBuffer {
 
         // Check trigger condition
         let trigger = match &self.trigger_condition {
-            TriggerCondition::AttributeThreshold { name, threshold } => {
-                array.attributes.get(name)
-                    .and_then(|a| a.value.as_f64())
-                    .map(|v| v >= *threshold)
-                    .unwrap_or(false)
-            }
+            TriggerCondition::AttributeThreshold { name, threshold } => array
+                .attributes
+                .get(name)
+                .and_then(|a| a.value.as_f64())
+                .map(|v| v >= *threshold)
+                .unwrap_or(false),
             TriggerCondition::External => false,
-            TriggerCondition::Calc { attr_a, attr_b, expression } => {
-                let a = array.attributes.get(attr_a)
-                    .and_then(|a| a.value.as_f64()).unwrap_or(0.0);
-                let b = array.attributes.get(attr_b)
-                    .and_then(|a| a.value.as_f64()).unwrap_or(0.0);
+            TriggerCondition::Calc {
+                attr_a,
+                attr_b,
+                expression,
+            } => {
+                let a = array
+                    .attributes
+                    .get(attr_a)
+                    .and_then(|a| a.value.as_f64())
+                    .unwrap_or(0.0);
+                let b = array
+                    .attributes
+                    .get(attr_b)
+                    .and_then(|a| a.value.as_f64())
+                    .unwrap_or(0.0);
                 expression.evaluate(a, b) != 0.0
             }
         };
@@ -443,14 +517,44 @@ impl CircularBuffer {
 // --- New CircularBuffProcessor (NDPluginProcess-based) ---
 
 /// CircularBuff processor: maintains ring buffer state, emits captured arrays on trigger.
+#[derive(Default)]
+struct CBParamIndices {
+    control: Option<usize>,
+    status: Option<usize>,
+    trigger_a: Option<usize>,
+    trigger_b: Option<usize>,
+    trigger_a_val: Option<usize>,
+    trigger_b_val: Option<usize>,
+    trigger_calc: Option<usize>,
+    trigger_calc_val: Option<usize>,
+    pre_trigger: Option<usize>,
+    post_trigger: Option<usize>,
+    current_image: Option<usize>,
+    post_count: Option<usize>,
+    soft_trigger: Option<usize>,
+    triggered: Option<usize>,
+    preset_trigger_count: Option<usize>,
+    actual_trigger_count: Option<usize>,
+    flush_on_soft_trigger: Option<usize>,
+}
+
 pub struct CircularBuffProcessor {
     buffer: CircularBuffer,
+    params: CBParamIndices,
+    // cached trigger attribute names and calc expression
+    trigger_a_name: String,
+    trigger_b_name: String,
+    trigger_calc_expr: String,
 }
 
 impl CircularBuffProcessor {
     pub fn new(pre_count: usize, post_count: usize, condition: TriggerCondition) -> Self {
         Self {
             buffer: CircularBuffer::new(pre_count, post_count, condition),
+            params: CBParamIndices::default(),
+            trigger_a_name: String::new(),
+            trigger_b_name: String::new(),
+            trigger_calc_expr: String::new(),
         }
     }
 
@@ -461,15 +565,65 @@ impl CircularBuffProcessor {
     pub fn buffer(&self) -> &CircularBuffer {
         &self.buffer
     }
+
+    /// Rebuild the trigger condition from cached attribute names and calc expression.
+    fn rebuild_trigger_condition(&mut self) {
+        if !self.trigger_calc_expr.is_empty() {
+            if let Some(expr) = CalcExpression::parse(&self.trigger_calc_expr) {
+                self.buffer.trigger_condition = TriggerCondition::Calc {
+                    attr_a: self.trigger_a_name.clone(),
+                    attr_b: self.trigger_b_name.clone(),
+                    expression: expr,
+                };
+                return;
+            }
+        }
+        if !self.trigger_a_name.is_empty() {
+            self.buffer.trigger_condition = TriggerCondition::AttributeThreshold {
+                name: self.trigger_a_name.clone(),
+                threshold: 0.5,
+            };
+        } else {
+            self.buffer.trigger_condition = TriggerCondition::External;
+        }
+    }
 }
 
 impl NDPluginProcess for CircularBuffProcessor {
     fn process_array(&mut self, array: &NDArray, _pool: &NDArrayPool) -> ProcessResult {
+        use ad_core_rs::plugin::runtime::ParamUpdate;
+
         let done = self.buffer.push(Arc::new(array.clone()));
+
+        let mut updates = Vec::new();
+        if let Some(idx) = self.params.status {
+            let status_val = match self.buffer.status() {
+                BufferStatus::Idle => 0,
+                BufferStatus::BufferFilling => 1,
+                BufferStatus::Flushing => 2,
+                BufferStatus::AcquisitionCompleted => 3,
+            };
+            updates.push(ParamUpdate::int32(idx, status_val));
+        }
+        if let Some(idx) = self.params.current_image {
+            updates.push(ParamUpdate::int32(idx, self.buffer.pre_buffer_len() as i32));
+        }
+        if let Some(idx) = self.params.triggered {
+            updates.push(ParamUpdate::int32(
+                idx,
+                if self.buffer.is_triggered() { 1 } else { 0 },
+            ));
+        }
+        if let Some(idx) = self.params.actual_trigger_count {
+            updates.push(ParamUpdate::int32(idx, self.buffer.trigger_count() as i32));
+        }
+
         if done {
-            ProcessResult::arrays(self.buffer.take_captured())
+            let mut result = ProcessResult::arrays(self.buffer.take_captured());
+            result.param_updates = updates;
+            result
         } else {
-            ProcessResult::empty()
+            ProcessResult::sink(updates)
         }
     }
 
@@ -477,7 +631,10 @@ impl NDPluginProcess for CircularBuffProcessor {
         "NDPluginCircularBuff"
     }
 
-    fn register_params(&mut self, base: &mut asyn_rs::port::PortDriverBase) -> asyn_rs::error::AsynResult<()> {
+    fn register_params(
+        &mut self,
+        base: &mut asyn_rs::port::PortDriverBase,
+    ) -> asyn_rs::error::AsynResult<()> {
         use asyn_rs::param::ParamType;
         base.create_param("CIRC_BUFF_CONTROL", ParamType::Int32)?;
         base.create_param("CIRC_BUFF_STATUS", ParamType::Int32)?;
@@ -496,15 +653,84 @@ impl NDPluginProcess for CircularBuffProcessor {
         base.create_param("CIRC_BUFF_PRESET_TRIGGER_COUNT", ParamType::Int32)?;
         base.create_param("CIRC_BUFF_ACTUAL_TRIGGER_COUNT", ParamType::Int32)?;
         base.create_param("CIRC_BUFF_FLUSH_ON_SOFTTRIGGER", ParamType::Int32)?;
+
+        self.params.control = base.find_param("CIRC_BUFF_CONTROL");
+        self.params.status = base.find_param("CIRC_BUFF_STATUS");
+        self.params.trigger_a = base.find_param("CIRC_BUFF_TRIGGER_A");
+        self.params.trigger_b = base.find_param("CIRC_BUFF_TRIGGER_B");
+        self.params.trigger_a_val = base.find_param("CIRC_BUFF_TRIGGER_A_VAL");
+        self.params.trigger_b_val = base.find_param("CIRC_BUFF_TRIGGER_B_VAL");
+        self.params.trigger_calc = base.find_param("CIRC_BUFF_TRIGGER_CALC");
+        self.params.trigger_calc_val = base.find_param("CIRC_BUFF_TRIGGER_CALC_VAL");
+        self.params.pre_trigger = base.find_param("CIRC_BUFF_PRE_TRIGGER");
+        self.params.post_trigger = base.find_param("CIRC_BUFF_POST_TRIGGER");
+        self.params.current_image = base.find_param("CIRC_BUFF_CURRENT_IMAGE");
+        self.params.post_count = base.find_param("CIRC_BUFF_POST_COUNT");
+        self.params.soft_trigger = base.find_param("CIRC_BUFF_SOFT_TRIGGER");
+        self.params.triggered = base.find_param("CIRC_BUFF_TRIGGERED");
+        self.params.preset_trigger_count = base.find_param("CIRC_BUFF_PRESET_TRIGGER_COUNT");
+        self.params.actual_trigger_count = base.find_param("CIRC_BUFF_ACTUAL_TRIGGER_COUNT");
+        self.params.flush_on_soft_trigger = base.find_param("CIRC_BUFF_FLUSH_ON_SOFTTRIGGER");
         Ok(())
+    }
+
+    fn on_param_change(
+        &mut self,
+        reason: usize,
+        params: &ad_core_rs::plugin::runtime::PluginParamSnapshot,
+    ) -> ad_core_rs::plugin::runtime::ParamChangeResult {
+        use ad_core_rs::plugin::runtime::{ParamChangeResult, ParamChangeValue};
+
+        if Some(reason) == self.params.control {
+            let v = params.value.as_i32();
+            if v == 1 {
+                // Start
+                self.buffer.reset();
+                self.buffer.status = BufferStatus::BufferFilling;
+            } else {
+                // Stop
+                self.buffer.status = BufferStatus::Idle;
+            }
+        } else if Some(reason) == self.params.pre_trigger {
+            self.buffer.pre_count = params.value.as_i32().max(0) as usize;
+        } else if Some(reason) == self.params.post_trigger {
+            self.buffer.post_count = params.value.as_i32().max(0) as usize;
+        } else if Some(reason) == self.params.preset_trigger_count {
+            self.buffer
+                .set_preset_trigger_count(params.value.as_i32().max(0) as usize);
+        } else if Some(reason) == self.params.flush_on_soft_trigger {
+            self.buffer
+                .set_flush_on_soft_trigger(params.value.as_i32() != 0);
+        } else if Some(reason) == self.params.soft_trigger {
+            if params.value.as_i32() != 0 {
+                self.buffer.trigger();
+            }
+        } else if Some(reason) == self.params.trigger_a {
+            if let ParamChangeValue::Octet(s) = &params.value {
+                self.trigger_a_name = s.clone();
+                self.rebuild_trigger_condition();
+            }
+        } else if Some(reason) == self.params.trigger_b {
+            if let ParamChangeValue::Octet(s) = &params.value {
+                self.trigger_b_name = s.clone();
+                self.rebuild_trigger_condition();
+            }
+        } else if Some(reason) == self.params.trigger_calc {
+            if let ParamChangeValue::Octet(s) = &params.value {
+                self.trigger_calc_expr = s.clone();
+                self.rebuild_trigger_condition();
+            }
+        }
+
+        ParamChangeResult::updates(vec![])
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use ad_core_rs::attributes::{NDAttrSource, NDAttrValue, NDAttribute};
     use ad_core_rs::ndarray::{NDDataType, NDDimension};
-    use ad_core_rs::attributes::{NDAttribute, NDAttrSource, NDAttrValue};
 
     fn make_array(id: i32) -> Arc<NDArray> {
         let mut arr = NDArray::new(vec![NDDimension::new(4)], NDDataType::UInt8);
@@ -579,10 +805,14 @@ mod tests {
 
     #[test]
     fn test_attribute_trigger() {
-        let mut cb = CircularBuffer::new(1, 1, TriggerCondition::AttributeThreshold {
-            name: "trigger".into(),
-            threshold: 5.0,
-        });
+        let mut cb = CircularBuffer::new(
+            1,
+            1,
+            TriggerCondition::AttributeThreshold {
+                name: "trigger".into(),
+                threshold: 5.0,
+            },
+        );
 
         cb.push(make_array_with_attr(1, 1.0));
         cb.push(make_array_with_attr(2, 2.0));
@@ -605,11 +835,15 @@ mod tests {
     fn test_calc_trigger() {
         // Expression: "A>5" — trigger when attribute A exceeds 5
         let expr = CalcExpression::parse("A>5").unwrap();
-        let mut cb = CircularBuffer::new(1, 1, TriggerCondition::Calc {
-            attr_a: "attr_a".into(),
-            attr_b: "attr_b".into(),
-            expression: expr,
-        });
+        let mut cb = CircularBuffer::new(
+            1,
+            1,
+            TriggerCondition::Calc {
+                attr_a: "attr_a".into(),
+                attr_b: "attr_b".into(),
+                expression: expr,
+            },
+        );
 
         // A=3, should not trigger
         cb.push(make_array_with_attrs(1, 3.0, 0.0));
@@ -668,7 +902,7 @@ mod tests {
 
         // Invalid expression returns None
         assert!(CalcExpression::parse("A=5").is_none()); // single = not supported
-        assert!(CalcExpression::parse("A&B").is_none());  // single & not supported
+        assert!(CalcExpression::parse("A&B").is_none()); // single & not supported
     }
 
     #[test]

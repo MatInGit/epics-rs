@@ -533,12 +533,7 @@ mod tests {
         .unwrap();
 
         let user = AsynUser::new(2).with_timeout(Duration::from_secs(1));
-        let result = send_and_wait(
-            &tx,
-            RequestOp::OctetRead { buf_size: 256 },
-            user,
-        )
-        .unwrap();
+        let result = send_and_wait(&tx, RequestOp::OctetRead { buf_size: 256 }, user).unwrap();
         assert_eq!(&result.data.unwrap()[..5], b"hello");
     }
 
@@ -637,8 +632,8 @@ mod tests {
 
     #[test]
     fn actor_serialization() {
-        use std::sync::atomic::{AtomicUsize, Ordering};
         use std::sync::Arc;
+        use std::sync::atomic::{AtomicUsize, Ordering};
 
         struct CountingDriver {
             base: PortDriverBase,
@@ -653,11 +648,7 @@ mod tests {
             fn base_mut(&mut self) -> &mut PortDriverBase {
                 &mut self.base
             }
-            fn io_write_int32(
-                &mut self,
-                _user: &mut AsynUser,
-                value: i32,
-            ) -> AsynResult<()> {
+            fn io_write_int32(&mut self, _user: &mut AsynUser, value: i32) -> AsynResult<()> {
                 let c = self.concurrent.fetch_add(1, Ordering::SeqCst) + 1;
                 let _ = self.max_concurrent.fetch_max(c, Ordering::SeqCst);
                 std::thread::sleep(Duration::from_millis(1));
@@ -707,7 +698,9 @@ mod tests {
     #[test]
     fn actor_uint32_digital() {
         let mut drv = TestDriver::new();
-        drv.base.create_param("BITS", ParamType::UInt32Digital).unwrap();
+        drv.base
+            .create_param("BITS", ParamType::UInt32Digital)
+            .unwrap();
         let tx = spawn_actor(drv);
 
         let user = AsynUser::new(4).with_timeout(Duration::from_secs(1));
@@ -722,12 +715,7 @@ mod tests {
         .unwrap();
 
         let user = AsynUser::new(4).with_timeout(Duration::from_secs(1));
-        let result = send_and_wait(
-            &tx,
-            RequestOp::UInt32DigitalRead { mask: 0xFF },
-            user,
-        )
-        .unwrap();
+        let result = send_and_wait(&tx, RequestOp::UInt32DigitalRead { mask: 0xFF }, user).unwrap();
         assert_eq!(result.uint_val, Some(0x0F));
     }
 

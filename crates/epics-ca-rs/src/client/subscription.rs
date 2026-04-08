@@ -54,12 +54,18 @@ impl SubscriptionRegistry {
                 };
                 match EpicsValue::from_bytes_array(dbr_type, data, count as usize) {
                     Ok(value) => Snapshot::new(value, 0, 0, SystemTime::now()),
-                    Err(e) => { let _ = rec.callback_tx.send(Err(e)); return; }
+                    Err(e) => {
+                        let _ = rec.callback_tx.send(Err(e));
+                        return;
+                    }
                 }
             } else {
                 match decode_dbr(data_type, data, count as usize) {
                     Ok(s) => s,
-                    Err(e) => { let _ = rec.callback_tx.send(Err(e)); return; }
+                    Err(e) => {
+                        let _ = rec.callback_tx.send(Err(e));
+                        return;
+                    }
                 }
             };
 
@@ -102,7 +108,9 @@ impl SubscriptionRegistry {
         let mut restored = 0u32;
         let mut failed = 0u32;
         // Collect stale subids first (callback receiver dropped)
-        let stale: Vec<u32> = self.subscriptions.values()
+        let stale: Vec<u32> = self
+            .subscriptions
+            .values()
             .filter(|rec| rec.cid == cid && rec.needs_restore && rec.callback_tx.is_closed())
             .map(|rec| rec.subid)
             .collect();

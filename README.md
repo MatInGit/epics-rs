@@ -753,14 +753,6 @@ Test coverage: protocol encoding, wire format golden packets, snapshot generatio
 - Rust 1.85+ (edition 2024)
 - Async runtime (provided by `epics-base-rs` — no direct tokio dependency needed)
 
-### Optional System Dependencies
-
-| Feature | Library | Installation |
-|---------|---------|--------------|
-| `ad-plugins-rs/hdf5` | cmake | `brew install cmake` (macOS) / `apt install cmake` (Debian) / `winget install Kitware.CMake` (Windows) |
-
-The `hdf5` feature builds HDF5 2.0 from bundled source (via `hdf5-metno-src`), so no separate HDF5 installation is needed — only cmake is required. All other crates are pure Rust and require no system libraries.
-
 ## Development Note
 
 AI-assisted tools were used in parts of this project.

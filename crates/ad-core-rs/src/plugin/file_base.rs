@@ -47,6 +47,7 @@ pub struct NDPluginFileBase {
     num_captured: usize,
     is_open: bool,
     mode: NDFileMode,
+    last_written_name: String,
 }
 
 impl NDPluginFileBase {
@@ -64,6 +65,7 @@ impl NDPluginFileBase {
             num_captured: 0,
             is_open: false,
             mode: NDFileMode::Single,
+            last_written_name: String::new(),
         }
     }
 
@@ -74,7 +76,10 @@ impl NDPluginFileBase {
     /// `%d` (with optional width/precision like `%3.3d`) → fileNumber.
     pub fn create_file_name(&self) -> String {
         if self.file_template.is_empty() {
-            format!("{}{}{:04}", self.file_path, self.file_name, self.file_number)
+            format!(
+                "{}{}{:04}",
+                self.file_path, self.file_name, self.file_number
+            )
         } else {
             let mut result = String::new();
             let mut chars = self.file_template.chars().peekable();
@@ -103,18 +108,28 @@ impl NDPluginFileBase {
                         Some('d') => {
                             // Parse width and precision from spec (e.g. "3.3" → width=3, precision=3)
                             let width: usize = if spec.contains('.') {
-                                spec.split('.').next().and_then(|s| s.parse().ok()).unwrap_or(0)
+                                spec.split('.')
+                                    .next()
+                                    .and_then(|s| s.parse().ok())
+                                    .unwrap_or(0)
                             } else {
                                 spec.parse().unwrap_or(0)
                             };
                             let precision: usize = if spec.contains('.') {
-                                spec.split('.').nth(1).and_then(|s| s.parse().ok()).unwrap_or(0)
+                                spec.split('.')
+                                    .nth(1)
+                                    .and_then(|s| s.parse().ok())
+                                    .unwrap_or(0)
                             } else {
                                 0
                             };
                             let pad = width.max(precision);
                             if pad > 0 {
-                                result.push_str(&format!("{:0>width$}", self.file_number, width = pad));
+                                result.push_str(&format!(
+                                    "{:0>width$}",
+                                    self.file_number,
+                                    width = pad
+                                ));
                             } else {
                                 result.push_str(&self.file_number.to_string());
                             }
@@ -144,7 +159,11 @@ impl NDPluginFileBase {
         }
     }
 
-    /// Create directory if needed.
+    /// Return the full file name that was last written.
+    pub fn last_written_name(&self) -> &str {
+        &self.last_written_name
+    }
+
     /// Create directory if needed.
     /// C ADCore behavior: createDir != 0 → create directories.
     /// Positive or negative values both trigger creation (negative = depth hint in C,
@@ -181,6 +200,7 @@ impl NDPluginFileBase {
     ) -> ADResult<()> {
         match self.mode {
             NDFileMode::Single => {
+                self.last_written_name = self.create_file_name();
                 let (write_path, final_path) = self.write_path();
                 writer.open_file(&write_path, NDFileMode::Single, &array)?;
                 writer.write_file(&array)?;
@@ -201,6 +221,7 @@ impl NDPluginFileBase {
             }
             NDFileMode::Stream => {
                 if !self.is_open {
+                    self.last_written_name = self.create_file_name();
                     let (write_path, _) = self.write_path();
                     writer.open_file(&write_path, NDFileMode::Stream, &array)?;
                     self.is_open = true;
@@ -217,6 +238,7 @@ impl NDPluginFileBase {
         if self.capture_buffer.is_empty() {
             return Ok(());
         }
+        self.last_written_name = self.create_file_name();
         let (write_path, final_path) = self.write_path();
         writer.open_file(&write_path, NDFileMode::Capture, &self.capture_buffer[0])?;
         for arr in &self.capture_buffer {
@@ -302,7 +324,12 @@ mod tests {
 
     impl MockWriter {
         fn new(multi: bool) -> Self {
-            Self { opens: Vec::new(), writes: 0, closes: 0, multi }
+            Self {
+                opens: Vec::new(),
+                writes: 0,
+                closes: 0,
+                multi,
+            }
         }
     }
 
@@ -316,7 +343,9 @@ mod tests {
             Ok(())
         }
         fn read_file(&mut self) -> ADResult<NDArray> {
-            Err(crate::error::ADError::UnsupportedConversion("not implemented".into()))
+            Err(crate::error::ADError::UnsupportedConversion(
+                "not implemented".into(),
+            ))
         }
         fn close_file(&mut self) -> ADResult<()> {
             self.closes += 1;

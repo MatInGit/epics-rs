@@ -4,8 +4,8 @@ use std::net::{Ipv4Addr, SocketAddr};
 use std::os::unix::io::AsRawFd;
 use std::time::{Duration, Instant};
 
-use tokio::net::UdpSocket;
 use epics_base_rs::runtime::sync::mpsc;
+use tokio::net::UdpSocket;
 
 use crate::protocol::*;
 
@@ -135,11 +135,9 @@ impl SendBudget {
             return;
         }
         if self.sent_this_window > 0 {
-            let rate =
-                self.responded_this_window as f64 / self.sent_this_window as f64;
+            let rate = self.responded_this_window as f64 / self.sent_this_window as f64;
             if rate > 0.5 {
-                self.frames_per_try =
-                    (self.frames_per_try + 1).min(MAX_FRAMES_PER_TRY);
+                self.frames_per_try = (self.frames_per_try + 1).min(MAX_FRAMES_PER_TRY);
             } else if rate < 0.1 && self.frames_per_try > 1 {
                 self.frames_per_try = 1;
             }
@@ -390,8 +388,7 @@ fn handle_udp_response(
                 } else {
                     std::net::IpAddr::V4(Ipv4Addr::from(hdr.cid.to_be_bytes()))
                 };
-                let server_addr =
-                    SocketAddr::new(server_ip, server_port as u16);
+                let server_addr = SocketAddr::new(server_ip, server_port as u16);
                 let cid = hdr.available;
 
                 // Check penalty box — skip penalized servers so the channel
@@ -414,9 +411,7 @@ fn handle_udp_response(
 
                     // RTT measurement.
                     if let Some(sent_at) = ch.last_sent_at {
-                        let sample = recv_time
-                            .duration_since(sent_at)
-                            .as_secs_f64();
+                        let sample = recv_time.duration_since(sent_at).as_secs_f64();
                         state
                             .rtt_per_path
                             .entry(server_addr)
@@ -426,8 +421,7 @@ fn handle_udp_response(
 
                     state.budget.responded_this_window += 1;
 
-                    let _ = response_tx
-                        .send(SearchResponse::Found { cid, server_addr });
+                    let _ = response_tx.send(SearchResponse::Found { cid, server_addr });
                 }
             }
             _ => {}
@@ -554,8 +548,7 @@ fn build_search_payload(cid: u32, pv_name: &str) -> Vec<u8> {
     search_hdr.cid = cid;
     search_hdr.available = cid;
 
-    let mut payload =
-        Vec::with_capacity(CaHeader::SIZE + pv_payload.len());
+    let mut payload = Vec::with_capacity(CaHeader::SIZE + pv_payload.len());
     payload.extend_from_slice(&search_hdr.to_bytes());
     payload.extend_from_slice(&pv_payload);
     payload
@@ -585,10 +578,7 @@ fn finalize_due_searches(
             ch.last_sent_at = Some(now);
             ch.lane_index += 1;
             let mut period = lane_period(ch.lane_index, base_rtte, max_period);
-            if ch
-                .fast_rescan_until
-                .is_some_and(|until| now < until)
-            {
+            if ch.fast_rescan_until.is_some_and(|until| now < until) {
                 period = period.min(BEACON_FAST_RESCAN_PERIOD);
             } else {
                 ch.fast_rescan_until = None;
@@ -714,8 +704,7 @@ mod tests {
         budget.frames_per_try = 1;
         budget.sent_this_window = 10;
         budget.responded_this_window = 8; // 80% > 50%
-        budget.window_start =
-            Instant::now() - AIMD_WINDOW - Duration::from_millis(1);
+        budget.window_start = Instant::now() - AIMD_WINDOW - Duration::from_millis(1);
         budget.evaluate(Instant::now());
         assert_eq!(budget.frames_per_try, 2);
     }
@@ -726,8 +715,7 @@ mod tests {
         budget.frames_per_try = 5;
         budget.sent_this_window = 10;
         budget.responded_this_window = 0; // 0% < 10%
-        budget.window_start =
-            Instant::now() - AIMD_WINDOW - Duration::from_millis(1);
+        budget.window_start = Instant::now() - AIMD_WINDOW - Duration::from_millis(1);
         budget.evaluate(Instant::now());
         assert_eq!(budget.frames_per_try, 1);
     }
@@ -738,8 +726,7 @@ mod tests {
         budget.frames_per_try = 3;
         budget.sent_this_window = 10;
         budget.responded_this_window = 3; // 30% — between 10% and 50%
-        budget.window_start =
-            Instant::now() - AIMD_WINDOW - Duration::from_millis(1);
+        budget.window_start = Instant::now() - AIMD_WINDOW - Duration::from_millis(1);
         budget.evaluate(Instant::now());
         assert_eq!(budget.frames_per_try, 3);
     }
