@@ -48,11 +48,20 @@ epics-rs reimplements the core components of C/C++ EPICS in Rust:
 
 ## Installation
 
-Add `epics-rs` as a git dependency with feature flags for the modules you need:
+All crates are published on [crates.io](https://crates.io/crates/epics-rs). Add `epics-rs` with the feature flags you need:
 
 ```toml
 [dependencies]
-epics-rs = { git = "https://github.com/epics-rs/epics-rs" }
+epics-rs = { version = "0.8", features = ["ad"] }
+```
+
+This single dependency pulls in everything needed. In your code:
+
+```rust
+use epics_rs::base;        // IOC runtime, records, iocsh
+use epics_rs::ad_core;     // NDArray, driver base
+use epics_rs::ad_plugins;  // Stats, ROI, HDF5, ...
+use epics_rs::asyn;        // port driver framework
 ```
 
 ### Feature Flags
@@ -64,9 +73,9 @@ epics-rs = { git = "https://github.com/epics-rs/epics-rs" }
 | `asyn` | Async port driver framework | no |
 | `motor` | Motor record + SimMotor | no |
 | `ad` | areaDetector (core + 23 plugins) | no |
-| `calc` | Calc expression engine | no |
-| `autosave` | PV save/restore | no |
-| `busy` | Busy record | no |
+| `calc` | Calc expression engine | always |
+| `autosave` | PV save/restore | always |
+| `busy` | Busy record | always |
 | `std` | Standard records (epid, throttle, timestamp) | no |
 | `scaler` | Scaler record (64-channel counter) | no |
 | `optics` | Optics (table, monochromator, slit, filter, BPM) | no |
@@ -74,10 +83,20 @@ epics-rs = { git = "https://github.com/epics-rs/epics-rs" }
 
 ```toml
 # Motor + areaDetector
-epics-rs = { git = "https://github.com/epics-rs/epics-rs", features = ["motor", "ad"] }
+epics-rs = { version = "0.8", features = ["motor", "ad"] }
 
 # Everything
-epics-rs = { git = "https://github.com/epics-rs/epics-rs", features = ["full"] }
+epics-rs = { version = "0.8", features = ["full"] }
+```
+
+### Individual Crates
+
+You can also depend on sub-crates directly if you only need specific functionality:
+
+```toml
+[dependencies]
+ad-plugins-rs = "0.8"   # just the areaDetector plugins
+epics-base-rs = "0.8"   # just the IOC runtime
 ```
 
 ## Workspace Structure
