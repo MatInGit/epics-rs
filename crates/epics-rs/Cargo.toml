@@ -3,7 +3,7 @@ name = "epics-rs"
 version.workspace = true
 edition.workspace = true
 description = "Pure Rust EPICS control system framework"
-license.workspace = true
+license-file = "LICENSE"
 authors.workspace = true
 repository.workspace = true
 

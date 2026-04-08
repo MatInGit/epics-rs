@@ -20,7 +20,7 @@ resolver = "3"
 edition = "2024"
 version = "0.8.0"
 authors = ["Sang Woo Kim <sngwkim915@gmail.com>"]
-license = "EPICS Open License"
+license = "EPICS"
 repository = "https://github.com/epics-rs/epics-rs"
 
 [workspace.dependencies]
