@@ -5,16 +5,105 @@
 use std::sync::Arc;
 
 use epics_base_rs::server::database::PvDatabase;
-use epics_base_rs::types::DbFieldType;
-use epics_pva_rs::pvdata::{FieldDesc, PvStructure};
+use epics_base_rs::types::{DbFieldType, EpicsValue};
+use epics_pva_rs::pvdata::{FieldDesc, PvField, PvStructure, ScalarValue};
 
-use crate::convert::dbf_to_scalar_type;
+use crate::convert::{dbf_to_scalar_type, scalar_to_epics_typed};
 use crate::error::{BridgeError, BridgeResult};
 use crate::monitor::BridgeMonitor;
 use crate::provider::Channel;
 use crate::pvif::{
     NtType, build_field_desc_for_nt, pv_structure_to_epics, snapshot_to_pv_structure,
 };
+
+// ---------------------------------------------------------------------------
+// PutOptions: pvRequest option parsing
+// ---------------------------------------------------------------------------
+
+/// Process mode for put operations.
+///
+/// Corresponds to C++ QSRV's `record._options.process` pvRequest field.
+/// See `pdbsingle.cpp:305-338`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ProcessMode {
+    /// Default: process if record SCAN is Passive.
+    Passive,
+    /// "true": always trigger record processing.
+    Force,
+    /// "false": write value without triggering processing.
+    Inhibit,
+}
+
+/// Options extracted from a pvRequest structure.
+///
+/// Corresponds to C++ QSRV's pvRequest option parsing in `PDBSinglePut` constructor.
+#[derive(Debug, Clone)]
+pub struct PutOptions {
+    pub process: ProcessMode,
+    /// If true, block until record processing completes (uses put_notify).
+    pub block: bool,
+}
+
+impl Default for PutOptions {
+    fn default() -> Self {
+        Self {
+            process: ProcessMode::Passive,
+            block: false,
+        }
+    }
+}
+
+impl PutOptions {
+    /// Extract process/block options from a PvStructure.
+    ///
+    /// Looks for `record._options.process` ("true"|"false"|"passive")
+    /// and `record._options.block` (boolean) fields.
+    pub fn from_pv_request(request: &PvStructure) -> Self {
+        let mut opts = Self::default();
+
+        // Navigate: record -> _options -> process/block
+        let options = request
+            .get_field("record")
+            .and_then(|f| match f {
+                PvField::Structure(s) => s.get_field("_options"),
+                _ => None,
+            })
+            .and_then(|f| match f {
+                PvField::Structure(s) => Some(s),
+                _ => None,
+            });
+
+        if let Some(opt_struct) = options {
+            // process option
+            if let Some(PvField::Scalar(ScalarValue::String(s))) =
+                opt_struct.get_field("process")
+            {
+                opts.process = match s.as_str() {
+                    "true" => ProcessMode::Force,
+                    "false" => ProcessMode::Inhibit,
+                    _ => ProcessMode::Passive,
+                };
+            }
+
+            // block option
+            if let Some(PvField::Scalar(ScalarValue::Boolean(b))) =
+                opt_struct.get_field("block")
+            {
+                opts.block = *b;
+                // No point blocking if we're not processing
+                if opts.process == ProcessMode::Inhibit {
+                    opts.block = false;
+                }
+            }
+        }
+
+        opts
+    }
+}
+
+// ---------------------------------------------------------------------------
+// BridgeChannel
+// ---------------------------------------------------------------------------
 
 /// A PVA channel backed by a single EPICS database record.
 pub struct BridgeChannel {
@@ -62,6 +151,11 @@ impl BridgeChannel {
     pub fn nt_type(&self) -> NtType {
         self.nt_type
     }
+
+    /// The DBF type of the primary value field.
+    pub fn value_dbf(&self) -> DbFieldType {
+        self.value_dbf
+    }
 }
 
 impl Channel for BridgeChannel {
@@ -88,16 +182,56 @@ impl Channel for BridgeChannel {
     }
 
     async fn put(&self, value: &PvStructure) -> BridgeResult<()> {
-        let epics_val =
+        let opts = PutOptions::from_pv_request(value);
+
+        // Extract value from the NormativeType structure
+        let raw_val =
             pv_structure_to_epics(value).ok_or_else(|| BridgeError::TypeMismatch {
                 expected: "extractable value".into(),
                 got: format!("{}", value.struct_id),
             })?;
 
-        self.db
-            .put_record_field_from_ca(&self.record_name, "VAL", epics_val)
-            .await
-            .map_err(|e| BridgeError::PutRejected(e.to_string()))?;
+        // Use typed conversion to match the record's actual DBF type
+        let epics_val = match &raw_val {
+            EpicsValue::Double(_)
+            | EpicsValue::Float(_)
+            | EpicsValue::Short(_)
+            | EpicsValue::Long(_)
+            | EpicsValue::Char(_)
+            | EpicsValue::Enum(_)
+            | EpicsValue::String(_) => {
+                let sv = crate::convert::epics_to_scalar(&raw_val);
+                scalar_to_epics_typed(&sv, self.value_dbf)
+            }
+            // Arrays pass through directly
+            _ => raw_val,
+        };
+
+        match opts.process {
+            ProcessMode::Inhibit => {
+                // Write without processing (like C++ ProcInhibit)
+                self.db
+                    .put_pv(&format!("{}.VAL", self.record_name), epics_val)
+                    .await
+                    .map_err(|e| BridgeError::PutRejected(e.to_string()))?;
+            }
+            ProcessMode::Force | ProcessMode::Passive => {
+                // Write + trigger processing (like C++ ProcForce/ProcPassive)
+                // put_record_field_from_ca returns Option<Receiver> for put_notify
+                let notify_rx = self
+                    .db
+                    .put_record_field_from_ca(&self.record_name, "VAL", epics_val)
+                    .await
+                    .map_err(|e| BridgeError::PutRejected(e.to_string()))?;
+
+                // If block=true, wait for processing to complete
+                if opts.block {
+                    if let Some(rx) = notify_rx {
+                        let _ = rx.await;
+                    }
+                }
+            }
+        }
 
         Ok(())
     }
@@ -107,11 +241,83 @@ impl Channel for BridgeChannel {
         Ok(build_field_desc_for_nt(self.nt_type, scalar_type))
     }
 
-    async fn create_monitor(&self) -> BridgeResult<BridgeMonitor> {
-        Ok(BridgeMonitor::new(
+    async fn create_monitor(&self) -> BridgeResult<crate::group::AnyMonitor> {
+        Ok(crate::group::AnyMonitor::Single(BridgeMonitor::new(
             self.db.clone(),
             self.record_name.clone(),
             self.nt_type,
-        ))
+        )))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn put_options_default() {
+        let opts = PutOptions::default();
+        assert_eq!(opts.process, ProcessMode::Passive);
+        assert!(!opts.block);
+    }
+
+    #[test]
+    fn put_options_from_empty_request() {
+        let req = PvStructure::new("empty");
+        let opts = PutOptions::from_pv_request(&req);
+        assert_eq!(opts.process, ProcessMode::Passive);
+        assert!(!opts.block);
+    }
+
+    #[test]
+    fn put_options_process_true() {
+        let mut options = PvStructure::new("");
+        options.fields.push((
+            "process".into(),
+            PvField::Scalar(ScalarValue::String("true".into())),
+        ));
+        options.fields.push((
+            "block".into(),
+            PvField::Scalar(ScalarValue::Boolean(true)),
+        ));
+
+        let mut record = PvStructure::new("");
+        record
+            .fields
+            .push(("_options".into(), PvField::Structure(options)));
+
+        let mut req = PvStructure::new("request");
+        req.fields
+            .push(("record".into(), PvField::Structure(record)));
+
+        let opts = PutOptions::from_pv_request(&req);
+        assert_eq!(opts.process, ProcessMode::Force);
+        assert!(opts.block);
+    }
+
+    #[test]
+    fn put_options_inhibit_disables_block() {
+        let mut options = PvStructure::new("");
+        options.fields.push((
+            "process".into(),
+            PvField::Scalar(ScalarValue::String("false".into())),
+        ));
+        options.fields.push((
+            "block".into(),
+            PvField::Scalar(ScalarValue::Boolean(true)),
+        ));
+
+        let mut record = PvStructure::new("");
+        record
+            .fields
+            .push(("_options".into(), PvField::Structure(options)));
+
+        let mut req = PvStructure::new("request");
+        req.fields
+            .push(("record".into(), PvField::Structure(record)));
+
+        let opts = PutOptions::from_pv_request(&req);
+        assert_eq!(opts.process, ProcessMode::Inhibit);
+        assert!(!opts.block); // block disabled when process=false
     }
 }

@@ -49,6 +49,8 @@ pub struct GroupMember {
     pub triggers: TriggerDef,
     /// Ordering for put operations.
     pub put_order: i32,
+    /// Optional structure ID for this member (from `+id`).
+    pub struct_id: Option<String>,
 }
 
 /// Defines which group fields are updated when a member's source record changes.
@@ -156,12 +158,18 @@ fn parse_member(field_name: &str, value: &serde_json::Value) -> BridgeResult<Gro
         .and_then(|v| v.as_i64())
         .unwrap_or(0) as i32;
 
+    let struct_id = obj
+        .get("+id")
+        .and_then(|v| v.as_str())
+        .map(|s| s.to_string());
+
     Ok(GroupMember {
         field_name: field_name.to_string(),
         channel,
         mapping,
         triggers,
         put_order,
+        struct_id,
     })
 }
 
@@ -280,5 +288,33 @@ mod tests {
         // Sorted by name
         assert_eq!(groups[0].name, "GRP:a");
         assert_eq!(groups[1].name, "GRP:b");
+    }
+
+    #[test]
+    fn parse_member_id() {
+        let json = r#"{
+            "GRP:id": {
+                "sensor": {
+                    "+channel": "SENSOR:ai",
+                    "+id": "epics:nt/NTScalar:1.0"
+                }
+            }
+        }"#;
+
+        let groups = parse_group_config(json).unwrap();
+        let m = &groups[0].members[0];
+        assert_eq!(m.struct_id.as_deref(), Some("epics:nt/NTScalar:1.0"));
+    }
+
+    #[test]
+    fn parse_member_no_id() {
+        let json = r#"{
+            "GRP:noid": {
+                "val": { "+channel": "REC:val" }
+            }
+        }"#;
+
+        let groups = parse_group_config(json).unwrap();
+        assert!(groups[0].members[0].struct_id.is_none());
     }
 }

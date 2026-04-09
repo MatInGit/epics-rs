@@ -15,7 +15,6 @@ use crate::channel::BridgeChannel;
 use crate::error::{BridgeError, BridgeResult};
 use crate::group::GroupChannel;
 use crate::group_config::GroupPvDef;
-use crate::monitor::BridgeMonitor;
 
 // ---------------------------------------------------------------------------
 // Trait definitions (to be moved to epics-pva-rs)
@@ -75,7 +74,7 @@ pub trait Channel: Send + Sync {
     /// Create a monitor for this channel.
     fn create_monitor(
         &self,
-    ) -> impl std::future::Future<Output = BridgeResult<BridgeMonitor>> + Send;
+    ) -> impl std::future::Future<Output = BridgeResult<crate::group::AnyMonitor>> + Send;
 }
 
 /// PVA Monitor interface.
@@ -138,7 +137,7 @@ impl Channel for AnyChannel {
         }
     }
 
-    async fn create_monitor(&self) -> BridgeResult<BridgeMonitor> {
+    async fn create_monitor(&self) -> BridgeResult<crate::group::AnyMonitor> {
         match self {
             Self::Single(ch) => ch.create_monitor().await,
             Self::Group(ch) => ch.create_monitor().await,

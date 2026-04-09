@@ -84,6 +84,14 @@ pub fn snapshot_to_nt_scalar(snapshot: &Snapshot) -> PvStructure {
             .push(("control".into(), PvField::Structure(build_control(ctrl))));
     }
 
+    // valueAlarm (alarm thresholds from display limits)
+    if let Some(ref disp) = snapshot.display {
+        pv.fields.push((
+            "valueAlarm".into(),
+            PvField::Structure(build_value_alarm(disp)),
+        ));
+    }
+
     pv
 }
 
@@ -205,6 +213,7 @@ pub fn build_nt_scalar_desc(scalar_type: ScalarType) -> FieldDesc {
             ("timeStamp".into(), timestamp_desc()),
             ("display".into(), display_desc()),
             ("control".into(), control_desc()),
+            ("valueAlarm".into(), value_alarm_desc()),
         ],
     }
 }
@@ -386,6 +395,39 @@ fn control_desc() -> FieldDesc {
     }
 }
 
+fn build_value_alarm(disp: &DisplayInfo) -> PvStructure {
+    let mut va = PvStructure::new("valueAlarm_t");
+    va.fields.push((
+        "lowAlarmLimit".into(),
+        PvField::Scalar(ScalarValue::Double(disp.lower_alarm_limit)),
+    ));
+    va.fields.push((
+        "lowWarningLimit".into(),
+        PvField::Scalar(ScalarValue::Double(disp.lower_warning_limit)),
+    ));
+    va.fields.push((
+        "highWarningLimit".into(),
+        PvField::Scalar(ScalarValue::Double(disp.upper_warning_limit)),
+    ));
+    va.fields.push((
+        "highAlarmLimit".into(),
+        PvField::Scalar(ScalarValue::Double(disp.upper_alarm_limit)),
+    ));
+    va
+}
+
+fn value_alarm_desc() -> FieldDesc {
+    FieldDesc::Structure {
+        struct_id: "valueAlarm_t".into(),
+        fields: vec![
+            ("lowAlarmLimit".into(), FieldDesc::Scalar(ScalarType::Double)),
+            ("lowWarningLimit".into(), FieldDesc::Scalar(ScalarType::Double)),
+            ("highWarningLimit".into(), FieldDesc::Scalar(ScalarType::Double)),
+            ("highAlarmLimit".into(), FieldDesc::Scalar(ScalarType::Double)),
+        ],
+    }
+}
+
 fn alarm_severity_string(severity: u16) -> String {
     match severity {
         0 => "NO_ALARM".into(),
@@ -438,6 +480,17 @@ mod tests {
         assert!(pv.get_timestamp().is_some());
         assert!(pv.get_field("display").is_some());
         assert!(pv.get_field("control").is_some());
+        // valueAlarm with alarm thresholds
+        let va = pv.get_field("valueAlarm");
+        assert!(va.is_some());
+        if let Some(PvField::Structure(va_struct)) = va {
+            assert!(va_struct.get_field("lowAlarmLimit").is_some());
+            assert!(va_struct.get_field("highAlarmLimit").is_some());
+            assert!(va_struct.get_field("lowWarningLimit").is_some());
+            assert!(va_struct.get_field("highWarningLimit").is_some());
+        } else {
+            panic!("expected valueAlarm structure");
+        }
     }
 
     #[test]
@@ -529,6 +582,6 @@ mod tests {
     fn field_desc_nt_scalar() {
         let desc = build_nt_scalar_desc(ScalarType::Double);
         assert_eq!(desc.value_scalar_type(), Some(ScalarType::Double));
-        assert_eq!(desc.field_count(), 5);
+        assert_eq!(desc.field_count(), 6); // value, alarm, timeStamp, display, control, valueAlarm
     }
 }

@@ -34,9 +34,9 @@ pub mod monitor;
 pub mod provider;
 pub mod pvif;
 
-pub use channel::BridgeChannel;
+pub use channel::{BridgeChannel, ProcessMode, PutOptions};
 pub use error::{BridgeError, BridgeResult};
-pub use group::GroupChannel;
+pub use group::{AnyMonitor, GroupChannel, GroupMonitor};
 pub use group_config::GroupPvDef;
 pub use monitor::BridgeMonitor;
 pub use provider::{AnyChannel, BridgeProvider, Channel, ChannelProvider, PvaMonitor};
