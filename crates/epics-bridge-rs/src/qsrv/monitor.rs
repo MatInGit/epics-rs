@@ -19,7 +19,7 @@ use epics_base_rs::server::database::PvDatabase;
 use epics_pva_rs::pvdata::PvStructure;
 
 use crate::error::{BridgeError, BridgeResult};
-use super::provider::PvaMonitor;
+use super::provider::{AccessContext, PvaMonitor};
 use super::pvif::{NtType, snapshot_to_pv_structure};
 
 /// A PVA monitor backed by a DbSubscription for a single record.
@@ -27,6 +27,10 @@ use super::pvif::{NtType, snapshot_to_pv_structure};
 /// Tracks overflow statistics: when the internal mpsc channel is full,
 /// events are dropped. The `overflow_count` tracks how many events
 /// were lost (corresponds to C++ BaseMonitor's overflow BitSet).
+///
+/// Carries an [`AccessContext`] so monitor read permission is enforced
+/// in `start()`. Without this, a downstream client denied via `get()`
+/// could still receive value updates by subscribing.
 pub struct BridgeMonitor {
     db: Arc<PvDatabase>,
     record_name: String,
@@ -37,6 +41,8 @@ pub struct BridgeMonitor {
     initial_snapshot: Option<PvStructure>,
     /// Number of monitor events lost due to overflow.
     overflow_count: Arc<AtomicU64>,
+    /// Access control context for read enforcement on start().
+    access: AccessContext,
 }
 
 impl BridgeMonitor {
@@ -49,7 +55,16 @@ impl BridgeMonitor {
             running: false,
             initial_snapshot: None,
             overflow_count: Arc::new(AtomicU64::new(0)),
+            access: AccessContext::allow_all(),
         }
+    }
+
+    /// Inject an access control context. The PVA server (or `BridgeChannel`'s
+    /// own create_monitor) calls this to propagate the channel's identity
+    /// into the monitor.
+    pub fn with_access(mut self, access: AccessContext) -> Self {
+        self.access = access;
+        self
     }
 
     /// Get the number of overflow events (events lost due to queue full).
@@ -62,6 +77,15 @@ impl PvaMonitor for BridgeMonitor {
     async fn start(&mut self) -> BridgeResult<()> {
         if self.running {
             return Ok(());
+        }
+
+        // Read enforcement: a client without read permission must not be
+        // allowed to subscribe to monitor events either.
+        if !self.access.can_read(&self.record_name) {
+            return Err(BridgeError::PutRejected(format!(
+                "monitor read denied for {} (user='{}' host='{}')",
+                self.record_name, self.access.user, self.access.host
+            )));
         }
 
         let sub = DbSubscription::subscribe(&self.db, &self.record_name)

@@ -283,11 +283,23 @@ impl Channel for BridgeChannel {
     }
 
     async fn create_monitor(&self) -> BridgeResult<super::group::AnyMonitor> {
-        Ok(super::group::AnyMonitor::Single(BridgeMonitor::new(
-            self.db.clone(),
-            self.record_name.clone(),
-            self.nt_type,
-        )))
+        // Check read permission up front so a denied client cannot
+        // even obtain a monitor handle. start() also re-checks (defense
+        // in depth: handles created via with_access elsewhere).
+        if !self.access.can_read(&self.record_name) {
+            return Err(BridgeError::PutRejected(format!(
+                "monitor create denied for {} (user='{}' host='{}')",
+                self.record_name, self.access.user, self.access.host
+            )));
+        }
+        Ok(super::group::AnyMonitor::Single(
+            BridgeMonitor::new(
+                self.db.clone(),
+                self.record_name.clone(),
+                self.nt_type,
+            )
+            .with_access(self.access.clone()),
+        ))
     }
 }
 

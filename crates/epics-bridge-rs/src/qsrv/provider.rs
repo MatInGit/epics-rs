@@ -542,4 +542,62 @@ mod tests {
             "ALLOWED channel should pass access check, got: {err}"
         );
     }
+
+    /// Read-deny access control: blocks all reads, allows all writes.
+    /// Used to verify monitor enforcement (which is read).
+    struct WriteOnly;
+    impl AccessControl for WriteOnly {
+        fn can_read(&self, _: &str, _: &str, _: &str) -> bool {
+            false
+        }
+    }
+
+    #[tokio::test]
+    async fn create_monitor_blocks_when_read_denied() {
+        let db = Arc::new(PvDatabase::new());
+        let access = AccessContext::anonymous(Arc::new(WriteOnly));
+        let ch = BridgeChannel::from_cached(
+            db,
+            "PROT".to_string(),
+            super::super::pvif::NtType::Scalar,
+            epics_base_rs::types::DbFieldType::Double,
+        )
+        .with_access(access);
+
+        // create_monitor must reject before even constructing the BridgeMonitor.
+        // AnyMonitor doesn't implement Debug so we destructure manually.
+        let result = ch.create_monitor().await;
+        match result {
+            Ok(_) => panic!("expected monitor create denied, got Ok"),
+            Err(e) => {
+                let err = format!("{e}");
+                assert!(
+                    err.contains("monitor create denied"),
+                    "expected monitor denial message, got: {err}"
+                );
+            }
+        }
+    }
+
+    #[tokio::test]
+    async fn bridge_monitor_start_blocks_when_read_denied() {
+        // Defense-in-depth: even if a monitor is constructed via with_access
+        // bypassing create_monitor, start() must still enforce.
+        let db = Arc::new(PvDatabase::new());
+        let access = AccessContext::anonymous(Arc::new(WriteOnly));
+        let mut monitor = super::super::monitor::BridgeMonitor::new(
+            db,
+            "PROT".to_string(),
+            super::super::pvif::NtType::Scalar,
+        )
+        .with_access(access);
+
+        let result = monitor.start().await;
+        assert!(result.is_err(), "expected monitor start denied");
+        let err = format!("{}", result.unwrap_err());
+        assert!(
+            err.contains("monitor read denied"),
+            "expected start denial, got: {err}"
+        );
+    }
 }

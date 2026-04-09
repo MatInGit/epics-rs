@@ -180,7 +180,19 @@ impl GroupChannel {
     }
 
     /// Read all member values and compose into a single PvStructure.
+    ///
+    /// Internal method. Both `Channel::get()` and `GroupMonitor::poll()`
+    /// (via the cached `group_channel`) call this. Performs an access
+    /// read check on entry — defensive: callers also check, but if a
+    /// new caller is added later this guarantees the policy still holds.
     pub(crate) async fn read_group(&self) -> BridgeResult<PvStructure> {
+        if !self.access.can_read(&self.def.name) {
+            return Err(BridgeError::PutRejected(format!(
+                "read denied for group {} (user='{}' host='{}')",
+                self.def.name, self.access.user, self.access.host
+            )));
+        }
+
         let struct_id = self.def.struct_id.as_deref().unwrap_or("structure");
         let mut pv = PvStructure::new(struct_id);
 
@@ -198,7 +210,15 @@ impl GroupChannel {
     }
 
     /// Read only specific members by field name and compose a partial PvStructure.
+    /// Same access enforcement as [`read_group`].
     async fn read_partial(&self, field_names: &[String]) -> BridgeResult<PvStructure> {
+        if !self.access.can_read(&self.def.name) {
+            return Err(BridgeError::PutRejected(format!(
+                "read denied for group {} (user='{}' host='{}')",
+                self.def.name, self.access.user, self.access.host
+            )));
+        }
+
         let struct_id = self.def.struct_id.as_deref().unwrap_or("structure");
         let mut pv = PvStructure::new(struct_id);
 
@@ -530,10 +550,18 @@ impl super::provider::Channel for GroupChannel {
     }
 
     async fn create_monitor(&self) -> BridgeResult<AnyMonitor> {
-        Ok(AnyMonitor::Group(GroupMonitor::new(
-            self.db.clone(),
-            self.def.clone(),
-        )))
+        // Read enforcement: deny monitor creation when the client lacks
+        // read access. start() also re-checks defensively.
+        if !self.access.can_read(&self.def.name) {
+            return Err(BridgeError::PutRejected(format!(
+                "monitor create denied for group {} (user='{}' host='{}')",
+                self.def.name, self.access.user, self.access.host
+            )));
+        }
+        Ok(AnyMonitor::Group(
+            GroupMonitor::new(self.db.clone(), self.def.clone())
+                .with_access(self.access.clone()),
+        ))
     }
 }
 
@@ -558,6 +586,8 @@ pub struct GroupMonitor {
     running: bool,
     /// Reusable GroupChannel for read_group/read_partial calls.
     /// Created once in start() instead of per-event in poll().
+    /// The internal GroupChannel inherits the same `access` context so
+    /// any read enforcement applied at create_monitor time stays in effect.
     group_channel: Option<GroupChannel>,
     /// Initial complete group snapshot (sent on first poll)
     initial_snapshot: Option<PvStructure>,
@@ -565,6 +595,8 @@ pub struct GroupMonitor {
     event_rx: Option<tokio::sync::mpsc::Receiver<MemberEvent>>,
     /// Handles for spawned per-member tasks
     _tasks: Vec<tokio::task::JoinHandle<()>>,
+    /// Access control context propagated from the parent GroupChannel.
+    access: super::provider::AccessContext,
 }
 
 impl GroupMonitor {
@@ -577,7 +609,14 @@ impl GroupMonitor {
             initial_snapshot: None,
             event_rx: None,
             _tasks: Vec::new(),
+            access: super::provider::AccessContext::allow_all(),
         }
+    }
+
+    /// Inject an access control context. Called by `GroupChannel::create_monitor`.
+    pub fn with_access(mut self, access: super::provider::AccessContext) -> Self {
+        self.access = access;
+        self
     }
 }
 
@@ -585,6 +624,15 @@ impl super::provider::PvaMonitor for GroupMonitor {
     async fn start(&mut self) -> BridgeResult<()> {
         if self.running {
             return Ok(());
+        }
+
+        // Read enforcement: refuse to spin up upstream subscriptions
+        // for a client that lacks read permission on this group.
+        if !self.access.can_read(&self.def.name) {
+            return Err(BridgeError::PutRejected(format!(
+                "monitor read denied for group {} (user='{}' host='{}')",
+                self.def.name, self.access.user, self.access.host
+            )));
         }
 
         // Create fan-in channel for member events
@@ -613,8 +661,11 @@ impl super::provider::PvaMonitor for GroupMonitor {
             }
         }
 
-        // Create a reusable GroupChannel once (instead of per-event in poll)
-        let group_channel = GroupChannel::new(self.db.clone(), self.def.clone());
+        // Create a reusable GroupChannel once (instead of per-event in poll).
+        // Propagate the same access context so any subsequent reads triggered
+        // by trigger evaluation also honor read enforcement.
+        let group_channel = GroupChannel::new(self.db.clone(), self.def.clone())
+            .with_access(self.access.clone());
 
         // Read initial complete group snapshot (like C++ BaseMonitor::connect)
         if let Ok(snapshot) = group_channel.read_group().await {
