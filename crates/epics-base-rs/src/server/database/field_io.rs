@@ -97,6 +97,10 @@ impl PvDatabase {
                 Err(e) => return Err(e),
             };
 
+            // Invalidate metadata cache if this field was a metadata-class field
+            // (EGU/PREC/HOPR/LOPR/alarm-limits/DRVH/DRVL/state-strings).
+            instance.notify_field_written(&field);
+
             // Update scan index if SCAN or PHAS changed
             match common_result {
                 CommonFieldPutResult::ScanChanged {
@@ -193,6 +197,9 @@ impl PvDatabase {
                 }
                 Err(e) => return Err(e),
             }
+
+            // Invalidate metadata cache if a metadata-class field changed.
+            instance.notify_field_written(&field);
 
             // Post monitor events if value or alarm changed
             let new_value = instance.record.get_field(&field);
@@ -334,6 +341,9 @@ impl PvDatabase {
                 }
             };
 
+            // Invalidate metadata cache if a metadata-class field changed.
+            instance.notify_field_written(&field);
+
             instance.common.putf = false;
 
             instance.cleanup_subscribers();
@@ -430,6 +440,8 @@ impl PvDatabase {
                 }
                 Err(e) => return Err(e),
             }
+            // Invalidate metadata cache if a metadata-class field changed.
+            instance.notify_field_written(&field);
             return Ok(());
         }
 

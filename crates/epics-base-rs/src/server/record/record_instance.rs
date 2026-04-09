@@ -1,11 +1,13 @@
 use std::collections::HashMap;
 use std::sync::Arc;
+use std::sync::Mutex as StdMutex;
 use std::sync::atomic::AtomicBool;
 
 use crate::runtime::sync::mpsc;
 
 use crate::error::{CaError, CaResult};
 use crate::server::pv::{MonitorEvent, Subscriber};
+use crate::server::snapshot::{ControlInfo, DisplayInfo, EnumInfo};
 use crate::types::{DbFieldType, EpicsValue};
 
 use super::alarm::{AlarmSeverity, AnalogAlarmConfig};
@@ -15,6 +17,43 @@ use super::record_trait::{
     CommonFieldPutResult, ProcessSnapshot, Record, RecordProcessResult, SubroutineFn,
 };
 use super::scan::ScanType;
+
+/// Cached metadata for a record.
+///
+/// Stores the result of `populate_display_info` / `populate_control_info` /
+/// `populate_enum_info` so subsequent `snapshot_for_field` /
+/// `make_monitor_snapshot` calls can skip rebuilding the metadata. The
+/// cache is invalidated whenever a metadata-class field is written
+/// (EGU, PREC, HOPR, LOPR, alarm limits, DRVH/DRVL, state strings).
+///
+/// In a CA-only IOC this is a CPU win; in a hybrid CA + PVA IOC where
+/// every snapshot needs full metadata for NTScalar serialization, the
+/// cache eliminates redundant per-event populate work.
+#[derive(Clone, Default)]
+pub(crate) struct MetadataSnapshot {
+    pub display: Option<DisplayInfo>,
+    pub control: Option<ControlInfo>,
+    pub enums: Option<EnumInfo>,
+}
+
+/// Returns true if writing to this field should invalidate the metadata
+/// cache. Field name is expected uppercase.
+fn is_metadata_field(name: &str) -> bool {
+    matches!(
+        name,
+        // Display info (analog + integer + motor)
+        "EGU" | "PREC" | "HOPR" | "LOPR" | "HLM" | "LLM"
+        // Alarm limits (used by both display and the analog_alarm config)
+        | "HIHI" | "HIGH" | "LOW" | "LOLO"
+        // Output ctrl limits
+        | "DRVH" | "DRVL"
+        // bi/bo/busy enum strings
+        | "ZNAM" | "ONAM"
+        // mbbi/mbbo state strings (16 levels)
+        | "ZRST" | "ONST" | "TWST" | "THST" | "FRST" | "FVST" | "SXST" | "SVST"
+        | "EIST" | "NIST" | "TEST" | "ELST" | "TVST" | "TTST" | "FTST" | "FFST"
+    )
+}
 
 /// A type-erased record instance stored in the database.
 pub struct RecordInstance {
@@ -42,6 +81,17 @@ pub struct RecordInstance {
     /// Bumped each process cycle. Spawned timers check this to avoid
     /// stale re-processes from accumulated timers.
     pub reprocess_generation: Arc<std::sync::atomic::AtomicU64>,
+    /// Cached metadata (display/control/enums) — `None` means stale or
+    /// not yet built. Populated lazily by `snapshot_for_field` /
+    /// `make_monitor_snapshot` and invalidated by `invalidate_metadata_cache`
+    /// whenever a metadata-class field (EGU/PREC/HOPR/LOPR/limit/state)
+    /// is written.
+    ///
+    /// Wrapped in `std::sync::Mutex` for interior mutability — the
+    /// containing `RecordInstance` is shared via `Arc<RwLock<...>>` from
+    /// `PvDatabase`, and snapshot construction holds a read lock; the
+    /// inner Mutex lets us still mutate the cache from a `&self` method.
+    pub(crate) metadata_cache: StdMutex<Option<MetadataSnapshot>>,
 }
 
 impl RecordInstance {
@@ -74,7 +124,66 @@ impl RecordInstance {
             put_notify_tx: None,
             last_posted: HashMap::new(),
             reprocess_generation: Arc::new(std::sync::atomic::AtomicU64::new(0)),
+            metadata_cache: StdMutex::new(None),
         }
+    }
+
+    /// Invalidate the metadata cache. Called after writing any
+    /// metadata-class field (EGU, PREC, HOPR/LOPR, alarm limits,
+    /// DRVH/DRVL, enum strings). The next snapshot will rebuild the
+    /// cache from the new values.
+    pub fn invalidate_metadata_cache(&self) {
+        if let Ok(mut guard) = self.metadata_cache.lock() {
+            *guard = None;
+        }
+    }
+
+    /// Hook called by the database after a field is written. If the
+    /// field is in the metadata-class set, the cache is invalidated so
+    /// the next snapshot picks up the new value.
+    ///
+    /// Field name is automatically uppercased.
+    pub fn notify_field_written(&self, field: &str) {
+        let upper = field.to_ascii_uppercase();
+        if is_metadata_field(&upper) {
+            self.invalidate_metadata_cache();
+        }
+    }
+
+    /// Returns the cached MetadataSnapshot, building and storing it on
+    /// the first call (or after invalidation). Used by both
+    /// `snapshot_for_field` and `make_monitor_snapshot` so the populate
+    /// cost is paid at most once per metadata-stable interval.
+    fn cached_metadata(&self) -> MetadataSnapshot {
+        // Fast path: cache hit
+        if let Ok(guard) = self.metadata_cache.lock()
+            && let Some(cached) = guard.as_ref()
+        {
+            return cached.clone();
+        }
+
+        // Cache miss: build a fresh metadata snapshot
+        let mut tmp = super::super::snapshot::Snapshot::new(
+            EpicsValue::Double(0.0),
+            0,
+            0,
+            std::time::SystemTime::UNIX_EPOCH,
+        );
+        self.populate_display_info(&mut tmp);
+        self.populate_control_info(&mut tmp);
+        self.populate_enum_info(&mut tmp);
+
+        let meta = MetadataSnapshot {
+            display: tmp.display,
+            control: tmp.control,
+            enums: tmp.enums,
+        };
+
+        // Store back; ignore poisoning (cache is best-effort).
+        if let Ok(mut guard) = self.metadata_cache.lock() {
+            *guard = Some(meta.clone());
+        }
+        meta
     }
 
     /// Check if the record is currently processing (PACT equivalent).
@@ -100,9 +209,17 @@ impl RecordInstance {
             self.common.sevr as u16,
             self.common.time,
         );
-        self.populate_display_info(&mut snap);
-        self.populate_control_info(&mut snap);
-        self.populate_enum_info(&mut snap);
+
+        // Pull display/control/enums from the metadata cache (build on
+        // first call, hit thereafter until invalidated by a metadata-class
+        // field write).
+        let meta = self.cached_metadata();
+        snap.display = meta.display;
+        snap.control = meta.control;
+        snap.enums = meta.enums;
+
+        // Common-field enum mapping (e.g. .SCAN choices) is field-specific
+        // and not part of the per-record cache.
         self.populate_common_enum_info(field, &mut snap);
         Some(snap)
     }
@@ -1147,6 +1264,8 @@ impl RecordInstance {
     }
 
     /// Build a Snapshot for a given value, populated with the record's display metadata.
+    /// Uses the metadata cache so the populate cost is paid at most once
+    /// per metadata-stable interval (cf. `cached_metadata`).
     fn make_monitor_snapshot(&self, value: EpicsValue) -> super::super::snapshot::Snapshot {
         let mut snap = super::super::snapshot::Snapshot::new(
             value,
@@ -1154,9 +1273,10 @@ impl RecordInstance {
             self.common.sevr as u16,
             self.common.time,
         );
-        self.populate_display_info(&mut snap);
-        self.populate_control_info(&mut snap);
-        self.populate_enum_info(&mut snap);
+        let meta = self.cached_metadata();
+        snap.display = meta.display;
+        snap.control = meta.control;
+        snap.enums = meta.enums;
         snap
     }
 
@@ -1256,5 +1376,163 @@ impl RecordInstance {
         for subs in self.subscribers.values_mut() {
             subs.retain(|s| !s.tx.is_closed());
         }
+    }
+}
+
+#[cfg(test)]
+mod metadata_cache_tests {
+    use super::*;
+    use crate::server::records::ai::AiRecord;
+
+    /// Helper: build an AiRecord wrapped in a RecordInstance with EGU/PREC/HOPR/LOPR set.
+    fn ai_instance() -> RecordInstance {
+        let mut rec = AiRecord::default();
+        let _ = rec.put_field("EGU", EpicsValue::String("degC".into()));
+        let _ = rec.put_field("PREC", EpicsValue::Short(2));
+        let _ = rec.put_field("HOPR", EpicsValue::Double(100.0));
+        let _ = rec.put_field("LOPR", EpicsValue::Double(0.0));
+        let _ = rec.put_field("VAL", EpicsValue::Double(25.0));
+        RecordInstance::new("TEMP".to_string(), rec)
+    }
+
+    #[test]
+    fn metadata_field_set_check() {
+        // Sanity check that the metadata field set is recognized.
+        assert!(is_metadata_field("EGU"));
+        assert!(is_metadata_field("PREC"));
+        assert!(is_metadata_field("HOPR"));
+        assert!(is_metadata_field("LOPR"));
+        assert!(is_metadata_field("HIHI"));
+        assert!(is_metadata_field("DRVH"));
+        assert!(is_metadata_field("ZNAM"));
+        assert!(is_metadata_field("ZRST"));
+        assert!(is_metadata_field("FFST"));
+
+        // Non-metadata fields should NOT invalidate the cache
+        assert!(!is_metadata_field("VAL"));
+        assert!(!is_metadata_field("DESC"));
+        assert!(!is_metadata_field("SCAN"));
+        assert!(!is_metadata_field("PHAS"));
+    }
+
+    #[test]
+    fn cache_starts_empty_then_populates_on_first_snapshot() {
+        let inst = ai_instance();
+
+        // Cache starts empty
+        assert!(inst.metadata_cache.lock().unwrap().is_none());
+
+        // First snapshot triggers populate + cache store
+        let snap = inst.snapshot_for_field("VAL").unwrap();
+        let display = snap.display.expect("ai snapshot must have display");
+        assert_eq!(display.units, "degC");
+        assert_eq!(display.precision, 2);
+        assert_eq!(display.upper_disp_limit, 100.0);
+        assert_eq!(display.lower_disp_limit, 0.0);
+
+        // Cache is now populated
+        assert!(inst.metadata_cache.lock().unwrap().is_some());
+    }
+
+    #[test]
+    fn cache_hit_returns_same_metadata() {
+        let inst = ai_instance();
+
+        // Prime the cache
+        let snap1 = inst.snapshot_for_field("VAL").unwrap();
+        let display1 = snap1.display.unwrap();
+
+        // Subsequent snapshots return the same cached metadata
+        let snap2 = inst.snapshot_for_field("VAL").unwrap();
+        let display2 = snap2.display.unwrap();
+
+        assert_eq!(display1.units, display2.units);
+        assert_eq!(display1.precision, display2.precision);
+        assert_eq!(display1.upper_disp_limit, display2.upper_disp_limit);
+        assert_eq!(display1.lower_disp_limit, display2.lower_disp_limit);
+    }
+
+    #[test]
+    fn invalidate_clears_cache() {
+        let inst = ai_instance();
+        let _ = inst.snapshot_for_field("VAL");
+        assert!(inst.metadata_cache.lock().unwrap().is_some());
+
+        inst.invalidate_metadata_cache();
+        assert!(inst.metadata_cache.lock().unwrap().is_none());
+    }
+
+    #[test]
+    fn notify_field_written_invalidates_for_metadata_field() {
+        let inst = ai_instance();
+        let _ = inst.snapshot_for_field("VAL");
+        assert!(inst.metadata_cache.lock().unwrap().is_some());
+
+        // Writing a metadata field should invalidate
+        inst.notify_field_written("EGU");
+        assert!(inst.metadata_cache.lock().unwrap().is_none());
+    }
+
+    #[test]
+    fn notify_field_written_skips_non_metadata_field() {
+        let inst = ai_instance();
+        let _ = inst.snapshot_for_field("VAL");
+        assert!(inst.metadata_cache.lock().unwrap().is_some());
+
+        // Writing a value field should NOT invalidate the cache
+        inst.notify_field_written("VAL");
+        assert!(inst.metadata_cache.lock().unwrap().is_some());
+
+        // Same for DESC
+        inst.notify_field_written("DESC");
+        assert!(inst.metadata_cache.lock().unwrap().is_some());
+    }
+
+    #[test]
+    fn notify_field_written_is_case_insensitive() {
+        let inst = ai_instance();
+        let _ = inst.snapshot_for_field("VAL");
+        assert!(inst.metadata_cache.lock().unwrap().is_some());
+
+        // Lowercase metadata field name should still trigger invalidation
+        inst.notify_field_written("egu");
+        assert!(inst.metadata_cache.lock().unwrap().is_none());
+    }
+
+    #[test]
+    fn cache_picks_up_new_value_after_invalidation() {
+        let mut inst = ai_instance();
+
+        // First snapshot: degC
+        let snap1 = inst.snapshot_for_field("VAL").unwrap();
+        assert_eq!(snap1.display.unwrap().units, "degC");
+
+        // Mutate EGU and invalidate
+        let _ = inst
+            .record
+            .put_field("EGU", EpicsValue::String("mV".into()));
+        inst.notify_field_written("EGU");
+
+        // Second snapshot: mV (rebuilt)
+        let snap2 = inst.snapshot_for_field("VAL").unwrap();
+        assert_eq!(snap2.display.unwrap().units, "mV");
+    }
+
+    #[test]
+    fn make_monitor_snapshot_uses_cache() {
+        let inst = ai_instance();
+        assert!(inst.metadata_cache.lock().unwrap().is_none());
+
+        // make_monitor_snapshot should also populate the cache
+        let snap = inst.make_monitor_snapshot(EpicsValue::Double(42.0));
+        assert!(snap.display.is_some());
+        assert!(inst.metadata_cache.lock().unwrap().is_some());
+
+        // Subsequent call hits cache
+        let snap2 = inst.make_monitor_snapshot(EpicsValue::Double(43.0));
+        let d1 = snap.display.unwrap();
+        let d2 = snap2.display.unwrap();
+        assert_eq!(d1.units, d2.units);
+        assert_eq!(d1.precision, d2.precision);
     }
 }
