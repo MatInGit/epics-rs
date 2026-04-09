@@ -449,6 +449,8 @@ dependencies = [
 name = "epics-bridge-rs"
 version = "0.8.1"
 dependencies = [
+ "chrono",
+ "clap",
  "epics-base-rs",
  "epics-ca-rs",
  "epics-pva-rs",

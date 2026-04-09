@@ -27,20 +27,32 @@
 //!
 //! - [`cache`] — PvCache, GwPvEntry, PvState (5-state FSM)
 //! - [`pvlist`] — `.pvlist` configuration file parser
-//! - `access` — access security adapter (planned)
-//! - `upstream` — CaClient adapter (planned)
-//! - `downstream` — CaServer adapter (planned)
-//! - `stats` — gateway statistics PVs (planned)
-//! - `server` — GatewayServer top-level (planned)
-//!
-//! ## Status
-//!
-//! Skeleton phase. Core data structures and config parser are implemented
-//! and tested. Upstream/downstream adapters and the main event loop will
-//! be added in subsequent PRs.
+//! - [`access`] — access security adapter (epics-base-rs ACF)
+//! - [`upstream`] — CaClient adapter
+//! - [`downstream`] — CaServer adapter
+//! - [`stats`] — gateway statistics PVs
+//! - [`server`] — GatewayServer top-level
 
+pub mod access;
+pub mod beacon;
 pub mod cache;
+pub mod command;
+pub mod downstream;
+pub mod master;
+pub mod putlog;
 pub mod pvlist;
+pub mod server;
+pub mod stats;
+pub mod upstream;
 
-pub use cache::{GwPvEntry, PvCache, PvState};
-pub use pvlist::{PvList, PvListEntry, PvListMatch, EvaluationOrder};
+pub use access::AccessConfig;
+pub use beacon::BeaconAnomaly;
+pub use cache::{CacheTimeouts, GwPvEntry, PvCache, PvState};
+pub use command::{CommandHandler, GatewayCommand};
+pub use downstream::DownstreamServer;
+pub use master::{supervise, RestartPolicy, SuperviseError};
+pub use putlog::{PutLog, PutOutcome};
+pub use pvlist::{EvaluationOrder, PvList, PvListEntry, PvListMatch};
+pub use server::{GatewayConfig, GatewayServer};
+pub use stats::Stats;
+pub use upstream::UpstreamManager;

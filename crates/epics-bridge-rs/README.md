@@ -1,20 +1,115 @@
 # epics-bridge-rs
 
-Pure Rust QSRV equivalent — bridges EPICS database records to pvAccess channels (NTScalar, NTEnum, NTScalarArray, Group PV).
+EPICS protocol bridge/adapter hub for [epics-rs](https://github.com/epics-rs/epics-rs).
+
+Hosts multiple bridge implementations as feature-gated sub-modules:
+
+- **`qsrv`** (default) — Record ↔ pvAccess channels (C++ QSRV equivalent)
+- **`ca_gateway`** (default) — CA fan-out gateway (C++ ca-gateway equivalent)
+- **`pvalink`** (planned) — PVA links for record INP/OUT
+- **`pva_gateway`** (planned) — PVA-to-PVA proxy
 
 No C dependencies. Just `cargo build`.
 
 **Repository:** <https://github.com/epics-rs/epics-rs>
 
-## Overview
+## qsrv — Record ↔ PVA bridge
 
-epics-bridge-rs corresponds to C++ EPICS QSRV (`modules/pva2pva/pdbApp/`). It translates between `epics-base-rs` record state and `epics-pva-rs` PVA data structures, allowing pvAccess clients to read, write, and monitor EPICS database records.
+Corresponds to C++ EPICS QSRV (`modules/pva2pva/pdbApp/`). Translates between `epics-base-rs` record state and `epics-pva-rs` PVA data structures, allowing pvAccess clients to read, write, and monitor EPICS database records.
 
 ```
 PVA Client <--> [epics-pva-rs server] <--> BridgeProvider <--> PvDatabase
 ```
 
 **Status: Experimental** — the PVA server side (socket, protocol handling) will be implemented in `epics-pva-rs` by the spvirit maintainer. This crate provides the application-layer bridge that the server calls into.
+
+## ca_gateway — CA fan-out gateway
+
+Pure Rust port of [EPICS ca-gateway](https://github.com/epics-modules/ca-gateway). A Channel Access proxy that:
+
+- Accepts downstream client connections (CA server side, via `epics-ca-rs`)
+- Connects to upstream IOCs (CA client side, via `epics-ca-rs`)
+- Caches PV values and fans out monitor events to multiple clients
+- Applies access security rules from `.pvlist` (regex-based, with alias backreferences)
+- Tracks per-PV statistics and exposes them as PVs (`gateway:totalPvs`, etc.)
+- Supports auto-restart supervisor (NRESTARTS pattern)
+- Logs put events to a configurable putlog file
+
+```
+Upstream IOCs                Gateway                 Downstream Clients
+┌─────────┐                ┌─────────┐               ┌─────────┐
+│ IOC #1  │ ◄── CaClient ──┤         ├── CaServer ──►│ caget   │
+└─────────┘                │ PvCache │               └─────────┘
+┌─────────┐                │  + ACL  │               ┌─────────┐
+│ IOC #2  │ ◄── CaClient ──┤  + Stats├── CaServer ──►│  CSS    │
+└─────────┘                │         │               └─────────┘
+                           └─────────┘                  (~1000)
+```
+
+### Modules
+
+- `cache` — `PvCache`, `GwPvEntry`, `PvState` (5-state FSM: Dead/Connecting/Inactive/Active/Disconnect), timeout-based cleanup
+- `pvlist` — `.pvlist` parser (ALLOW/DENY/ALIAS, regex backreferences, EVALUATION ORDER)
+- `access` — `.access` ACF parser adapter (via `epics-base-rs`)
+- `upstream` — CaClient adapter, manages per-PV monitor tasks
+- `downstream` — CaServer adapter, hosts shadow `PvDatabase`
+- `stats` — gateway runtime statistics + PV publication
+- `beacon` — beacon anomaly throttle (5-min reconnect inhibit)
+- `putlog` — put-event audit log
+- `command` — runtime command interface (R1/R2/R3/AS/PVL/V)
+- `master` — auto-restart supervisor (NRESTARTS=10, RESTART_INTERVAL=10min)
+- `server` — `GatewayServer` top-level + main event loop
+
+### Binary
+
+```bash
+cargo build --release -p epics-bridge-rs --bin ca-gateway-rs
+./target/release/ca-gateway-rs \
+    --pvlist  example/gateway.pvlist \
+    --access  example/gateway.access \
+    --preload example/preload.txt \
+    --putlog  /var/log/ca-gateway.log
+```
+
+CLI options:
+
+| Option | Description |
+|--------|-------------|
+| `--pvlist <FILE>` | Path to `.pvlist` access list |
+| `--access <FILE>` | Path to `.access` ACF file |
+| `--preload <FILE>` | Pre-subscribe upstream PVs (one per line) |
+| `--putlog <FILE>` | Put-event audit log file |
+| `--port <N>` | CA server TCP port (0 = default 5064) |
+| `--read-only` | Reject all client puts |
+| `--no-stats` | Disable `gateway:*` stats PVs |
+| `--stats-prefix <S>` | Custom stats PV prefix (default `"gateway:"`) |
+| `--heartbeat-interval <N>` | Heartbeat counter period (s; 0 = disable) |
+| `--cleanup-interval <N>` | Cache eviction sweep period (s) |
+| `--stats-interval <N>` | Stats refresh period (s) |
+| `--supervised` | Run under NRESTARTS auto-restart supervisor |
+| `--max-restarts <N>` | Max restarts in window (default 10) |
+| `--restart-window <N>` | Restart window in seconds (default 600) |
+| `--restart-delay <N>` | Delay between restarts in seconds (default 10) |
+
+### Status
+
+Working skeleton with:
+- ✅ Full `.pvlist` parser (ALLOW/DENY/ALIAS, regex backreferences)
+- ✅ ACF integration via `epics-base-rs`
+- ✅ 5-state FSM PV cache with timeout-based cleanup
+- ✅ Upstream client (subscribe/get/put) wired to `epics-ca-rs`
+- ✅ Downstream server hosting a shadow `PvDatabase`
+- ✅ Lazy on-demand search resolution via `PvDatabase::set_search_resolver` hook (no preload required)
+- ✅ Per-host connection tracking via `CaServer::connection_events` broadcast
+- ✅ SIGUSR1 signal handler for runtime command file processing (Unix)
+- ✅ Statistics PVs published by the gateway itself
+- ✅ Heartbeat, cleanup, stats refresh timers
+- ✅ Beacon anomaly throttle
+- ✅ Put-event logger
+- ✅ Runtime command interface (R1/R2/R3/AS/PVL/V)
+- ✅ Auto-restart supervisor
+
+The `--preload` file is still supported as an optional warm-cache mechanism but is no longer required: any name that matches an `ALLOW`/`ALIAS` rule in `.pvlist` is resolved on first downstream search.
 
 ## Features
 
