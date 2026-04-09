@@ -36,7 +36,7 @@ pub use group::{AnyMonitor, GroupChannel, GroupMonitor};
 pub use group_config::GroupPvDef;
 pub use monitor::BridgeMonitor;
 pub use provider::{
-    AccessControl, AllowAllAccess, AnyChannel, BridgeProvider, Channel, ChannelProvider,
-    PvaMonitor,
+    AccessContext, AccessControl, AllowAllAccess, AnyChannel, BridgeProvider, Channel,
+    ChannelProvider, PvaMonitor,
 };
 pub use pvif::{FieldMapping, NtType};

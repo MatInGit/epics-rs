@@ -91,6 +91,68 @@ pub fn set_nested_field(pv: &mut PvStructure, path: &str, value: PvField) {
     set_nested_field(sub, &rest, value);
 }
 
+/// Insert a nested FieldDesc at a dot-separated path.
+///
+/// Counterpart of [`set_nested_field`] for type introspection. Builds
+/// intermediate `Structure` descriptors as needed so the advertised
+/// schema matches the runtime payload shape.
+pub fn set_nested_field_desc(
+    fields: &mut Vec<(String, FieldDesc)>,
+    path: &str,
+    leaf: FieldDesc,
+) {
+    let parts: Vec<&str> = path.split('.').collect();
+    if parts.is_empty() {
+        return;
+    }
+
+    if parts.len() == 1 {
+        if let Some(pos) = fields.iter().position(|(n, _)| n == parts[0]) {
+            fields[pos].1 = leaf;
+        } else {
+            fields.push((parts[0].to_string(), leaf));
+        }
+        return;
+    }
+
+    let first = parts[0];
+    let rest = parts[1..].join(".");
+
+    // Find or create the intermediate structure descriptor
+    let sub_fields: &mut Vec<(String, FieldDesc)> =
+        if let Some(pos) = fields.iter().position(|(n, _)| n == first) {
+            match &mut fields[pos].1 {
+                FieldDesc::Structure { fields: f, .. } => f,
+                other => {
+                    *other = FieldDesc::Structure {
+                        struct_id: String::new(),
+                        fields: Vec::new(),
+                    };
+                    if let FieldDesc::Structure { fields: f, .. } = &mut fields[pos].1 {
+                        f
+                    } else {
+                        unreachable!()
+                    }
+                }
+            }
+        } else {
+            fields.push((
+                first.to_string(),
+                FieldDesc::Structure {
+                    struct_id: String::new(),
+                    fields: Vec::new(),
+                },
+            ));
+            if let FieldDesc::Structure { fields: f, .. } = &mut fields.last_mut().unwrap().1 {
+                f
+            } else {
+                unreachable!()
+            }
+        };
+
+    set_nested_field_desc(sub_fields, &rest, leaf);
+}
+
 // ---------------------------------------------------------------------------
 // GroupChannel
 // ---------------------------------------------------------------------------
@@ -99,11 +161,22 @@ pub fn set_nested_field(pv: &mut PvStructure, path: &str, value: PvField) {
 pub struct GroupChannel {
     db: Arc<PvDatabase>,
     def: GroupPvDef,
+    access: super::provider::AccessContext,
 }
 
 impl GroupChannel {
     pub fn new(db: Arc<PvDatabase>, def: GroupPvDef) -> Self {
-        Self { db, def }
+        Self {
+            db,
+            def,
+            access: super::provider::AccessContext::allow_all(),
+        }
+    }
+
+    /// Inject an access control context (for [`super::provider::BridgeProvider`]).
+    pub fn with_access(mut self, access: super::provider::AccessContext) -> Self {
+        self.access = access;
+        self
     }
 
     /// Read all member values and compose into a single PvStructure.
@@ -295,11 +368,24 @@ impl super::provider::Channel for GroupChannel {
     }
 
     async fn get(&self, request: &PvStructure) -> BridgeResult<PvStructure> {
+        if !self.access.can_read(&self.def.name) {
+            return Err(BridgeError::PutRejected(format!(
+                "read denied for group {} (user='{}' host='{}')",
+                self.def.name, self.access.user, self.access.host
+            )));
+        }
         let full = self.read_group().await?;
         Ok(pvif::filter_by_request(&full, request))
     }
 
     async fn put(&self, value: &PvStructure) -> BridgeResult<()> {
+        if !self.access.can_write(&self.def.name) {
+            return Err(BridgeError::PutRejected(format!(
+                "write denied for group {} (user='{}' host='{}')",
+                self.def.name, self.access.user, self.access.host
+            )));
+        }
+
         let opts = super::channel::PutOptions::from_pv_request(value);
         let use_process = opts.process != super::channel::ProcessMode::Inhibit;
 
@@ -323,7 +409,11 @@ impl super::provider::Channel for GroupChannel {
                     continue;
                 }
 
-                let epics_val = match value.get_field(&member.field_name) {
+                // Use nested lookup so members with dotted field paths
+                // (e.g., "axis.position") resolve correctly. The read
+                // path uses set_nested_field — put must use the same
+                // path semantics.
+                let epics_val = match get_nested_field(value, &member.field_name) {
                     Some(pv_field) => self.convert_member_value(member, pv_field).await,
                     None => None,
                 };
@@ -371,7 +461,8 @@ impl super::provider::Channel for GroupChannel {
                     continue;
                 }
 
-                let pv_field = match value.get_field(&member.field_name) {
+                // Nested-aware lookup (matches read-side set_nested_field)
+                let pv_field = match get_nested_field(value, &member.field_name) {
                     Some(f) => f,
                     None => continue,
                 };
@@ -403,7 +494,7 @@ impl super::provider::Channel for GroupChannel {
 
     async fn get_field(&self) -> BridgeResult<FieldDesc> {
         let struct_id = self.def.struct_id.as_deref().unwrap_or("structure");
-        let mut fields = Vec::new();
+        let mut fields: Vec<(String, FieldDesc)> = Vec::new();
 
         for member in &self.def.members {
             if member.mapping == FieldMapping::Proc {
@@ -412,15 +503,24 @@ impl super::provider::Channel for GroupChannel {
 
             let (nt_type, scalar_type) = self.introspect_member(member).await?;
 
-            let desc = match member.mapping {
+            // Build the leaf descriptor and apply member-level +id if set.
+            let mut desc = match member.mapping {
                 FieldMapping::Scalar => pvif::build_field_desc_for_nt(nt_type, scalar_type),
                 FieldMapping::Plain => FieldDesc::Scalar(scalar_type),
                 FieldMapping::Meta => meta_desc(),
                 FieldMapping::Any => FieldDesc::Scalar(scalar_type),
                 FieldMapping::Proc => continue,
             };
+            if let Some(member_id) = &member.struct_id {
+                if let FieldDesc::Structure { struct_id, .. } = &mut desc {
+                    *struct_id = member_id.clone();
+                }
+            }
 
-            fields.push((member.field_name.clone(), desc));
+            // Place the descriptor at its (possibly nested) path.
+            // The read side uses set_nested_field — introspection must
+            // emit the same shape so clients see consistent type info.
+            set_nested_field_desc(&mut fields, &member.field_name, desc);
         }
 
         Ok(FieldDesc::Structure {
@@ -763,5 +863,82 @@ mod tests {
 
         assert!(get_nested_field(&pv, "a.x").is_some());
         assert!(get_nested_field(&pv, "a.y").is_some());
+    }
+
+    // -----------------------------------------------------------------
+    // FieldDesc nested schema tests (for get_field introspection)
+    // -----------------------------------------------------------------
+
+    #[test]
+    fn nested_desc_simple() {
+        use epics_pva_rs::pvdata::ScalarType;
+
+        let mut fields: Vec<(String, FieldDesc)> = Vec::new();
+        set_nested_field_desc(&mut fields, "x", FieldDesc::Scalar(ScalarType::Double));
+        assert_eq!(fields.len(), 1);
+        assert_eq!(fields[0].0, "x");
+        assert!(matches!(
+            fields[0].1,
+            FieldDesc::Scalar(ScalarType::Double)
+        ));
+    }
+
+    #[test]
+    fn nested_desc_deep() {
+        use epics_pva_rs::pvdata::ScalarType;
+
+        let mut fields: Vec<(String, FieldDesc)> = Vec::new();
+        set_nested_field_desc(
+            &mut fields,
+            "axis.position",
+            FieldDesc::Scalar(ScalarType::Double),
+        );
+        set_nested_field_desc(
+            &mut fields,
+            "axis.velocity",
+            FieldDesc::Scalar(ScalarType::Double),
+        );
+
+        // Should produce: [axis: structure { position: Double, velocity: Double }]
+        assert_eq!(fields.len(), 1);
+        assert_eq!(fields[0].0, "axis");
+        if let FieldDesc::Structure { fields: sub, .. } = &fields[0].1 {
+            assert_eq!(sub.len(), 2);
+            assert_eq!(sub[0].0, "position");
+            assert_eq!(sub[1].0, "velocity");
+        } else {
+            panic!("expected nested structure");
+        }
+    }
+
+    #[test]
+    fn nested_desc_overwrite() {
+        use epics_pva_rs::pvdata::ScalarType;
+
+        let mut fields: Vec<(String, FieldDesc)> = Vec::new();
+        set_nested_field_desc(&mut fields, "x", FieldDesc::Scalar(ScalarType::Int));
+        set_nested_field_desc(&mut fields, "x", FieldDesc::Scalar(ScalarType::Double));
+        assert_eq!(fields.len(), 1);
+        assert!(matches!(
+            fields[0].1,
+            FieldDesc::Scalar(ScalarType::Double)
+        ));
+    }
+
+    #[test]
+    fn nested_desc_mixed_depth() {
+        use epics_pva_rs::pvdata::ScalarType;
+
+        let mut fields: Vec<(String, FieldDesc)> = Vec::new();
+        set_nested_field_desc(&mut fields, "name", FieldDesc::Scalar(ScalarType::String));
+        set_nested_field_desc(
+            &mut fields,
+            "axis.position",
+            FieldDesc::Scalar(ScalarType::Double),
+        );
+
+        assert_eq!(fields.len(), 2);
+        assert_eq!(fields[0].0, "name");
+        assert_eq!(fields[1].0, "axis");
     }
 }

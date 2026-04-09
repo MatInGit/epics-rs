@@ -43,6 +43,60 @@ pub trait AccessControl: Send + Sync {
 pub struct AllowAllAccess;
 impl AccessControl for AllowAllAccess {}
 
+/// Per-channel client identity used for access enforcement.
+///
+/// Carries the access control policy plus the user/host of whichever
+/// downstream client opened this channel. The PVA server is expected to
+/// fill in `user`/`host` from the connection's authentication context;
+/// when no PVA server is wired up yet, both fields are empty strings,
+/// in which case [`AccessControl`] implementations should fall back to
+/// their default (typically permit-all).
+#[derive(Clone)]
+pub struct AccessContext {
+    pub access: Arc<dyn AccessControl>,
+    pub user: String,
+    pub host: String,
+}
+
+impl AccessContext {
+    /// Construct a context for an unauthenticated request (empty user/host).
+    pub fn anonymous(access: Arc<dyn AccessControl>) -> Self {
+        Self {
+            access,
+            user: String::new(),
+            host: String::new(),
+        }
+    }
+
+    /// Construct a context with explicit credentials.
+    pub fn with_identity(access: Arc<dyn AccessControl>, user: String, host: String) -> Self {
+        Self {
+            access,
+            user,
+            host,
+        }
+    }
+
+    /// Allow-all context (used by tests and the default `BridgeProvider`).
+    pub fn allow_all() -> Self {
+        Self::anonymous(Arc::new(AllowAllAccess))
+    }
+
+    pub fn can_read(&self, channel: &str) -> bool {
+        self.access.can_read(channel, &self.user, &self.host)
+    }
+
+    pub fn can_write(&self, channel: &str) -> bool {
+        self.access.can_write(channel, &self.user, &self.host)
+    }
+}
+
+impl Default for AccessContext {
+    fn default() -> Self {
+        Self::allow_all()
+    }
+}
+
 // ---------------------------------------------------------------------------
 // Trait definitions (to be moved to epics-pva-rs)
 // ---------------------------------------------------------------------------
@@ -187,8 +241,9 @@ pub struct BridgeProvider {
     /// Avoids repeated record introspection on every create_channel() call.
     /// Corresponds to C++ PDBProvider's transient_pv_map.
     record_cache: tokio::sync::RwLock<HashMap<String, (NtType, DbFieldType)>>,
-    /// Access control policy.
-    access: Box<dyn AccessControl>,
+    /// Access control policy. Shared with channels via `Arc` so a single
+    /// policy serves all channels and can be swapped atomically.
+    access: Arc<dyn AccessControl>,
 }
 
 impl BridgeProvider {
@@ -197,13 +252,18 @@ impl BridgeProvider {
             db,
             groups: HashMap::new(),
             record_cache: tokio::sync::RwLock::new(HashMap::new()),
-            access: Box::new(AllowAllAccess),
+            access: Arc::new(AllowAllAccess),
         }
     }
 
     /// Set a custom access control policy.
-    pub fn set_access_control(&mut self, access: Box<dyn AccessControl>) {
+    pub fn set_access_control(&mut self, access: Arc<dyn AccessControl>) {
         self.access = access;
+    }
+
+    /// Get a clone of the current access control policy.
+    pub fn access_control(&self) -> Arc<dyn AccessControl> {
+        self.access.clone()
     }
 
     /// Check if a client can write to a channel.
@@ -274,12 +334,36 @@ impl ChannelProvider for BridgeProvider {
     }
 
     async fn create_channel(&self, name: &str) -> BridgeResult<AnyChannel> {
+        // Default: create with allow-all (anonymous) access. PVA server
+        // implementations should call create_channel_for to inject the
+        // real client identity.
+        self.create_channel_for(name, "", "").await
+    }
+}
+
+impl BridgeProvider {
+    /// Create a channel with explicit client identity for access control.
+    ///
+    /// Used by the PVA server when it knows the connecting client's
+    /// authenticated user/host. The trait method [`ChannelProvider::create_channel`]
+    /// delegates to this with empty identity (anonymous mode).
+    pub async fn create_channel_for(
+        &self,
+        name: &str,
+        user: &str,
+        host: &str,
+    ) -> BridgeResult<AnyChannel> {
+        let access_ctx = AccessContext::with_identity(
+            self.access.clone(),
+            user.to_string(),
+            host.to_string(),
+        );
+
         // Check group PVs first
         if let Some(def) = self.groups.get(name) {
-            return Ok(AnyChannel::Group(GroupChannel::new(
-                self.db.clone(),
-                def.clone(),
-            )));
+            return Ok(AnyChannel::Group(
+                GroupChannel::new(self.db.clone(), def.clone()).with_access(access_ctx),
+            ));
         }
 
         // Single record channel — use metadata cache to avoid repeated introspection
@@ -289,12 +373,15 @@ impl ChannelProvider for BridgeProvider {
         {
             let cache = self.record_cache.read().await;
             if let Some(&(nt_type, value_dbf)) = cache.get(record_name) {
-                return Ok(AnyChannel::Single(BridgeChannel::from_cached(
-                    self.db.clone(),
-                    record_name.to_string(),
-                    nt_type,
-                    value_dbf,
-                )));
+                return Ok(AnyChannel::Single(
+                    BridgeChannel::from_cached(
+                        self.db.clone(),
+                        record_name.to_string(),
+                        nt_type,
+                        value_dbf,
+                    )
+                    .with_access(access_ctx),
+                ));
             }
         }
 
@@ -309,9 +396,150 @@ impl ChannelProvider for BridgeProvider {
                 (channel.nt_type(), channel.value_dbf()),
             );
 
-            return Ok(AnyChannel::Single(channel));
+            return Ok(AnyChannel::Single(channel.with_access(access_ctx)));
         }
 
         Err(BridgeError::ChannelNotFound(name.to_string()))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Access control that denies all writes, allows all reads.
+    struct ReadOnly;
+    impl AccessControl for ReadOnly {
+        fn can_write(&self, _: &str, _: &str, _: &str) -> bool {
+            false
+        }
+    }
+
+    /// Access control that denies a specific channel name.
+    struct DenySpecific(String);
+    impl AccessControl for DenySpecific {
+        fn can_read(&self, channel: &str, _: &str, _: &str) -> bool {
+            channel != self.0
+        }
+        fn can_write(&self, channel: &str, _: &str, _: &str) -> bool {
+            channel != self.0
+        }
+    }
+
+    #[test]
+    fn access_context_allow_all() {
+        let ctx = AccessContext::allow_all();
+        assert!(ctx.can_read("ANY"));
+        assert!(ctx.can_write("ANY"));
+    }
+
+    #[test]
+    fn access_context_read_only() {
+        let ctx = AccessContext::anonymous(Arc::new(ReadOnly));
+        assert!(ctx.can_read("X"));
+        assert!(!ctx.can_write("X"));
+    }
+
+    #[test]
+    fn access_context_with_identity() {
+        let ctx = AccessContext::with_identity(
+            Arc::new(AllowAllAccess),
+            "alice".into(),
+            "host1".into(),
+        );
+        assert_eq!(ctx.user, "alice");
+        assert_eq!(ctx.host, "host1");
+    }
+
+    #[test]
+    fn access_context_deny_specific() {
+        let ctx =
+            AccessContext::anonymous(Arc::new(DenySpecific("SECRET".to_string())));
+        assert!(ctx.can_read("PUBLIC"));
+        assert!(!ctx.can_read("SECRET"));
+        assert!(ctx.can_write("PUBLIC"));
+        assert!(!ctx.can_write("SECRET"));
+    }
+
+    #[test]
+    fn provider_set_access_control() {
+        let db = Arc::new(PvDatabase::new());
+        let mut provider = BridgeProvider::new(db);
+        // Default policy
+        assert!(provider.can_read("X", "u", "h"));
+        assert!(provider.can_write("X", "u", "h"));
+
+        // Swap to read-only
+        provider.set_access_control(Arc::new(ReadOnly));
+        assert!(provider.can_read("X", "u", "h"));
+        assert!(!provider.can_write("X", "u", "h"));
+    }
+
+    #[tokio::test]
+    async fn read_only_channel_blocks_writes() {
+        // Construct a channel directly with from_cached + with_access(ReadOnly).
+        // We bypass create_channel here because BridgeChannel::new() requires
+        // a real record in the database (which is non-trivial test setup);
+        // the access enforcement path is identical regardless.
+        let db = Arc::new(PvDatabase::new());
+        let access = AccessContext::anonymous(Arc::new(ReadOnly));
+        let ch = BridgeChannel::from_cached(
+            db,
+            "PROT".to_string(),
+            super::super::pvif::NtType::Scalar,
+            epics_base_rs::types::DbFieldType::Double,
+        )
+        .with_access(access);
+
+        let mut put_struct = PvStructure::new("epics:nt/NTScalar:1.0");
+        put_struct.fields.push((
+            "value".into(),
+            epics_pva_rs::pvdata::PvField::Scalar(
+                epics_pva_rs::pvdata::ScalarValue::Double(2.0),
+            ),
+        ));
+        let result = ch.put(&put_struct).await;
+        assert!(result.is_err(), "expected access denied");
+        let err = format!("{}", result.unwrap_err());
+        assert!(
+            err.contains("denied"),
+            "expected denial message, got: {err}"
+        );
+    }
+
+    #[tokio::test]
+    async fn deny_specific_channel_blocks_named() {
+        let db = Arc::new(PvDatabase::new());
+        let access = AccessContext::anonymous(Arc::new(DenySpecific("BLOCKED".to_string())));
+        let ch = BridgeChannel::from_cached(
+            db.clone(),
+            "BLOCKED".to_string(),
+            super::super::pvif::NtType::Scalar,
+            epics_base_rs::types::DbFieldType::Double,
+        )
+        .with_access(access);
+
+        let req = PvStructure::new("");
+        let result = ch.get(&req).await;
+        assert!(result.is_err(), "expected read denied for BLOCKED");
+
+        // A different channel name with the same policy should NOT be blocked
+        let ok_access =
+            AccessContext::anonymous(Arc::new(DenySpecific("BLOCKED".to_string())));
+        let ch2 = BridgeChannel::from_cached(
+            db,
+            "ALLOWED".to_string(),
+            super::super::pvif::NtType::Scalar,
+            epics_base_rs::types::DbFieldType::Double,
+        )
+        .with_access(ok_access);
+        // Get will fail because no record exists, but it should fail with
+        // RecordNotFound, not access denied.
+        let result = ch2.get(&req).await;
+        let err = format!("{:?}", result.unwrap_err());
+        assert!(
+            !err.contains("denied"),
+            "ALLOWED channel should pass access check, got: {err}"
+        );
     }
 }

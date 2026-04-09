@@ -44,7 +44,7 @@ pub mod ca_gateway;
 // External users can write `epics_bridge_rs::BridgeProvider` directly.
 #[cfg(feature = "qsrv")]
 pub use qsrv::{
-    AccessControl, AllowAllAccess, AnyChannel, AnyMonitor, BridgeChannel, BridgeMonitor,
-    BridgeProvider, Channel, ChannelProvider, FieldMapping, GroupChannel, GroupMonitor,
-    GroupPvDef, NtType, ProcessMode, PutOptions, PvaMonitor,
+    AccessContext, AccessControl, AllowAllAccess, AnyChannel, AnyMonitor, BridgeChannel,
+    BridgeMonitor, BridgeProvider, Channel, ChannelProvider, FieldMapping, GroupChannel,
+    GroupMonitor, GroupPvDef, NtType, ProcessMode, PutOptions, PvaMonitor,
 };

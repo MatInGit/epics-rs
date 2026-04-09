@@ -112,6 +112,8 @@ pub struct BridgeChannel {
     nt_type: NtType,
     /// The DBF type of the primary value field.
     value_dbf: DbFieldType,
+    /// Access control context — checked on every get/put.
+    access: super::provider::AccessContext,
 }
 
 impl BridgeChannel {
@@ -127,7 +129,15 @@ impl BridgeChannel {
             record_name,
             nt_type,
             value_dbf,
+            access: super::provider::AccessContext::allow_all(),
         }
+    }
+
+    /// Inject an access control context. Called by [`super::provider::BridgeProvider`]
+    /// after channel creation when client identity is known.
+    pub fn with_access(mut self, access: super::provider::AccessContext) -> Self {
+        self.access = access;
+        self
     }
 
     /// Create a new channel for a record.
@@ -159,6 +169,7 @@ impl BridgeChannel {
             record_name: record_name.to_string(),
             nt_type,
             value_dbf,
+            access: super::provider::AccessContext::allow_all(),
         })
     }
 
@@ -179,6 +190,13 @@ impl Channel for BridgeChannel {
     }
 
     async fn get(&self, request: &PvStructure) -> BridgeResult<PvStructure> {
+        if !self.access.can_read(&self.record_name) {
+            return Err(BridgeError::PutRejected(format!(
+                "read denied for {} (user='{}' host='{}')",
+                self.record_name, self.access.user, self.access.host
+            )));
+        }
+
         let rec = self
             .db
             .get_record(&self.record_name)
@@ -198,6 +216,13 @@ impl Channel for BridgeChannel {
     }
 
     async fn put(&self, value: &PvStructure) -> BridgeResult<()> {
+        if !self.access.can_write(&self.record_name) {
+            return Err(BridgeError::PutRejected(format!(
+                "write denied for {} (user='{}' host='{}')",
+                self.record_name, self.access.user, self.access.host
+            )));
+        }
+
         let opts = PutOptions::from_pv_request(value);
 
         // Extract value from the NormativeType structure
