@@ -8,10 +8,10 @@ authors.workspace = true
 repository.workspace = true
 
 [features]
-default = ["qsrv"]
+default = ["qsrv", "ca-gateway"]
 # Record ↔ pvAccess channels (C++ QSRV equivalent)
 qsrv = ["dep:epics-pva-rs", "dep:serde", "dep:serde_json"]
-# CA fan-out gateway (planned, C++ ca-gateway equivalent)
+# CA fan-out gateway (C++ ca-gateway equivalent — skeleton phase)
 ca-gateway = ["dep:epics-ca-rs", "dep:regex"]
 # PVA links for record INP/OUT (planned)
 pvalink = ["dep:epics-pva-rs"]

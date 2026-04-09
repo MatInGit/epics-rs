@@ -37,6 +37,9 @@ pub use error::{BridgeError, BridgeResult};
 #[cfg(feature = "qsrv")]
 pub mod qsrv;
 
+#[cfg(feature = "ca-gateway")]
+pub mod ca_gateway;
+
 // Convenience re-exports for the QSRV bridge (default feature).
 // External users can write `epics_bridge_rs::BridgeProvider` directly.
 #[cfg(feature = "qsrv")]
