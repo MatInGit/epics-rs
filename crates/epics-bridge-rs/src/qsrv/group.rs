@@ -6,16 +6,16 @@
 
 use std::sync::Arc;
 
-use epics_base_rs::server::database::db_access::DbSubscription;
 use epics_base_rs::server::database::PvDatabase;
+use epics_base_rs::server::database::db_access::DbSubscription;
 use epics_base_rs::types::DbFieldType;
 use epics_pva_rs::pvdata::{FieldDesc, PvField, PvStructure, ScalarType};
 
 use super::convert::{dbf_to_scalar_type, epics_to_pv_field};
-use crate::error::{BridgeError, BridgeResult};
 use super::group_config::{GroupMember, GroupPvDef, TriggerDef};
 use super::monitor::BridgeMonitor;
 use super::pvif::{self, FieldMapping, NtType};
+use crate::error::{BridgeError, BridgeResult};
 
 // ---------------------------------------------------------------------------
 // Nested field path support
@@ -96,11 +96,7 @@ pub fn set_nested_field(pv: &mut PvStructure, path: &str, value: PvField) {
 /// Counterpart of [`set_nested_field`] for type introspection. Builds
 /// intermediate `Structure` descriptors as needed so the advertised
 /// schema matches the runtime payload shape.
-pub fn set_nested_field_desc(
-    fields: &mut Vec<(String, FieldDesc)>,
-    path: &str,
-    leaf: FieldDesc,
-) {
+pub fn set_nested_field_desc(fields: &mut Vec<(String, FieldDesc)>, path: &str, leaf: FieldDesc) {
     let parts: Vec<&str> = path.split('.').collect();
     if parts.is_empty() {
         return;
@@ -300,17 +296,12 @@ impl GroupChannel {
                 })?;
                 Ok(epics_to_pv_field(&value))
             }
-            FieldMapping::Proc => {
-                Ok(PvField::Scalar(epics_pva_rs::pvdata::ScalarValue::Int(0)))
-            }
+            FieldMapping::Proc => Ok(PvField::Scalar(epics_pva_rs::pvdata::ScalarValue::Int(0))),
         }
     }
 
     /// Introspect a member's actual DBF type and record type from the database.
-    async fn introspect_member(
-        &self,
-        member: &GroupMember,
-    ) -> BridgeResult<(NtType, ScalarType)> {
+    async fn introspect_member(&self, member: &GroupMember) -> BridgeResult<(NtType, ScalarType)> {
         let (record_name, field_name) =
             epics_base_rs::server::database::parse_pv_name(&member.channel);
 
@@ -487,10 +478,7 @@ impl super::provider::Channel for GroupChannel {
                     None => continue,
                 };
 
-                let epics_val = match self
-                    .convert_member_value(member, pv_field)
-                    .await
-                {
+                let epics_val = match self.convert_member_value(member, pv_field).await {
                     Some(v) => v,
                     None => continue,
                 };
@@ -531,10 +519,10 @@ impl super::provider::Channel for GroupChannel {
                 FieldMapping::Any => FieldDesc::Scalar(scalar_type),
                 FieldMapping::Proc => continue,
             };
-            if let Some(member_id) = &member.struct_id {
-                if let FieldDesc::Structure { struct_id, .. } = &mut desc {
-                    *struct_id = member_id.clone();
-                }
+            if let Some(member_id) = &member.struct_id
+                && let FieldDesc::Structure { struct_id, .. } = &mut desc
+            {
+                *struct_id = member_id.clone();
             }
 
             // Place the descriptor at its (possibly nested) path.
@@ -559,8 +547,7 @@ impl super::provider::Channel for GroupChannel {
             )));
         }
         Ok(AnyMonitor::Group(
-            GroupMonitor::new(self.db.clone(), self.def.clone())
-                .with_access(self.access.clone()),
+            GroupMonitor::new(self.db.clone(), self.def.clone()).with_access(self.access.clone()),
         ))
     }
 }
@@ -644,8 +631,7 @@ impl super::provider::PvaMonitor for GroupMonitor {
                 continue;
             }
 
-            let (record_name, _) =
-                epics_base_rs::server::database::parse_pv_name(&member.channel);
+            let (record_name, _) = epics_base_rs::server::database::parse_pv_name(&member.channel);
 
             if let Some(mut sub) = DbSubscription::subscribe(&self.db, record_name).await {
                 let tx = tx.clone();
@@ -664,8 +650,8 @@ impl super::provider::PvaMonitor for GroupMonitor {
         // Create a reusable GroupChannel once (instead of per-event in poll).
         // Propagate the same access context so any subsequent reads triggered
         // by trigger evaluation also honor read enforcement.
-        let group_channel = GroupChannel::new(self.db.clone(), self.def.clone())
-            .with_access(self.access.clone());
+        let group_channel =
+            GroupChannel::new(self.db.clone(), self.def.clone()).with_access(self.access.clone());
 
         // Read initial complete group snapshot (like C++ BaseMonitor::connect)
         if let Ok(snapshot) = group_channel.read_group().await {
@@ -782,7 +768,10 @@ fn meta_desc() -> FieldDesc {
                 FieldDesc::Structure {
                     struct_id: "time_t".into(),
                     fields: vec![
-                        ("secondsPastEpoch".into(), FieldDesc::Scalar(ScalarType::Long)),
+                        (
+                            "secondsPastEpoch".into(),
+                            FieldDesc::Scalar(ScalarType::Long),
+                        ),
                         ("nanoseconds".into(), FieldDesc::Scalar(ScalarType::Int)),
                         ("userTag".into(), FieldDesc::Scalar(ScalarType::Int)),
                     ],
@@ -792,9 +781,7 @@ fn meta_desc() -> FieldDesc {
     }
 }
 
-fn build_alarm_from_snapshot(
-    snapshot: &epics_base_rs::server::snapshot::Snapshot,
-) -> PvStructure {
+fn build_alarm_from_snapshot(snapshot: &epics_base_rs::server::snapshot::Snapshot) -> PvStructure {
     use epics_pva_rs::pvdata::ScalarValue;
     let mut alarm = PvStructure::new("alarm_t");
     alarm.fields.push((
@@ -823,10 +810,14 @@ fn build_timestamp_from_snapshot(
         Ok(d) => (d.as_secs() as i64, d.subsec_nanos() as i32),
         Err(_) => (0, 0),
     };
-    ts.fields
-        .push(("secondsPastEpoch".into(), PvField::Scalar(ScalarValue::Long(secs))));
-    ts.fields
-        .push(("nanoseconds".into(), PvField::Scalar(ScalarValue::Int(nanos))));
+    ts.fields.push((
+        "secondsPastEpoch".into(),
+        PvField::Scalar(ScalarValue::Long(secs)),
+    ));
+    ts.fields.push((
+        "nanoseconds".into(),
+        PvField::Scalar(ScalarValue::Int(nanos)),
+    ));
     ts.fields
         .push(("userTag".into(), PvField::Scalar(ScalarValue::Int(0))));
     ts
@@ -853,7 +844,7 @@ mod tests {
         set_nested_field(
             &mut pv,
             "a.b.c",
-            PvField::Scalar(epics_pva_rs::pvdata::ScalarValue::Double(3.14)),
+            PvField::Scalar(epics_pva_rs::pvdata::ScalarValue::Double(2.5)),
         );
         let a = pv.get_field("a");
         assert!(a.is_some());
@@ -873,11 +864,7 @@ mod tests {
         use epics_pva_rs::pvdata::ScalarValue;
 
         let mut pv = PvStructure::new("test");
-        set_nested_field(
-            &mut pv,
-            "a.b",
-            PvField::Scalar(ScalarValue::Int(99)),
-        );
+        set_nested_field(&mut pv, "a.b", PvField::Scalar(ScalarValue::Int(99)));
 
         // Verify get_nested_field returns the same value
         let field = get_nested_field(&pv, "a.b");
@@ -928,10 +915,7 @@ mod tests {
         set_nested_field_desc(&mut fields, "x", FieldDesc::Scalar(ScalarType::Double));
         assert_eq!(fields.len(), 1);
         assert_eq!(fields[0].0, "x");
-        assert!(matches!(
-            fields[0].1,
-            FieldDesc::Scalar(ScalarType::Double)
-        ));
+        assert!(matches!(fields[0].1, FieldDesc::Scalar(ScalarType::Double)));
     }
 
     #[test]
@@ -970,10 +954,7 @@ mod tests {
         set_nested_field_desc(&mut fields, "x", FieldDesc::Scalar(ScalarType::Int));
         set_nested_field_desc(&mut fields, "x", FieldDesc::Scalar(ScalarType::Double));
         assert_eq!(fields.len(), 1);
-        assert!(matches!(
-            fields[0].1,
-            FieldDesc::Scalar(ScalarType::Double)
-        ));
+        assert!(matches!(fields[0].1, FieldDesc::Scalar(ScalarType::Double)));
     }
 
     #[test]

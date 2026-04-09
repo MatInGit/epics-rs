@@ -34,9 +34,7 @@
 
 use std::path::Path;
 
-use epics_base_rs::server::access_security::{
-    parse_acf, AccessLevel, AccessSecurityConfig,
-};
+use epics_base_rs::server::access_security::{AccessLevel, AccessSecurityConfig, parse_acf};
 
 use crate::error::{BridgeError, BridgeResult};
 
@@ -66,8 +64,8 @@ impl AccessConfig {
 
     /// Parse `.access` content from a string.
     pub fn from_string(content: &str) -> BridgeResult<Self> {
-        let config =
-            parse_acf(content).map_err(|e| BridgeError::GroupConfigError(format!("ACF parse: {e}")))?;
+        let config = parse_acf(content)
+            .map_err(|e| BridgeError::GroupConfigError(format!("ACF parse: {e}")))?;
         Ok(Self {
             config: Some(config),
             allow_all: false,

@@ -14,13 +14,13 @@
 use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};
 
-use epics_base_rs::server::database::db_access::DbSubscription;
 use epics_base_rs::server::database::PvDatabase;
+use epics_base_rs::server::database::db_access::DbSubscription;
 use epics_pva_rs::pvdata::PvStructure;
 
-use crate::error::{BridgeError, BridgeResult};
 use super::provider::{AccessContext, PvaMonitor};
 use super::pvif::{NtType, snapshot_to_pv_structure};
+use crate::error::{BridgeError, BridgeResult};
 
 /// A PVA monitor backed by a DbSubscription for a single record.
 ///
@@ -93,13 +93,11 @@ impl PvaMonitor for BridgeMonitor {
             .ok_or_else(|| BridgeError::RecordNotFound(self.record_name.clone()))?;
 
         // Read initial complete snapshot from the record (like C++ BaseMonitor::connect)
-        let (record_name, _) =
-            epics_base_rs::server::database::parse_pv_name(&self.record_name);
+        let (record_name, _) = epics_base_rs::server::database::parse_pv_name(&self.record_name);
         if let Some(rec) = self.db.get_record(record_name).await {
             let instance = rec.read().await;
             if let Some(snapshot) = instance.snapshot_for_field("VAL") {
-                self.initial_snapshot =
-                    Some(snapshot_to_pv_structure(&snapshot, self.nt_type));
+                self.initial_snapshot = Some(snapshot_to_pv_structure(&snapshot, self.nt_type));
             }
         }
 

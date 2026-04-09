@@ -426,7 +426,7 @@ impl GatewayServer {
         let pvlist = self.pvlist.clone();
 
         Some(tokio::spawn(async move {
-            use tokio::signal::unix::{signal, SignalKind};
+            use tokio::signal::unix::{SignalKind, signal};
             let mut sigusr1 = match signal(SignalKind::user_defined1()) {
                 Ok(s) => s,
                 Err(e) => {
@@ -434,10 +434,11 @@ impl GatewayServer {
                     return;
                 }
             };
-            let handler =
-                CommandHandler::new(cache, pvlist, pvlist_path, access_path);
-            eprintln!("[ca-gateway-rs] SIGUSR1 handler armed (command file: {})",
-                cmd_path.display());
+            let handler = CommandHandler::new(cache, pvlist, pvlist_path, access_path);
+            eprintln!(
+                "[ca-gateway-rs] SIGUSR1 handler armed (command file: {})",
+                cmd_path.display()
+            );
             loop {
                 if sigusr1.recv().await.is_none() {
                     break;

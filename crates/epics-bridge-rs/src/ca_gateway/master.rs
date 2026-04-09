@@ -117,8 +117,8 @@ impl<E: std::fmt::Display + std::fmt::Debug> std::error::Error for SuperviseErro
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::sync::atomic::{AtomicU32, Ordering};
     use std::sync::Arc;
+    use std::sync::atomic::{AtomicU32, Ordering};
 
     #[tokio::test]
     async fn supervise_immediate_success() {

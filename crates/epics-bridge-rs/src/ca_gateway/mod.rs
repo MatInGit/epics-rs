@@ -50,7 +50,7 @@ pub use beacon::BeaconAnomaly;
 pub use cache::{CacheTimeouts, GwPvEntry, PvCache, PvState};
 pub use command::{CommandHandler, GatewayCommand};
 pub use downstream::DownstreamServer;
-pub use master::{supervise, RestartPolicy, SuperviseError};
+pub use master::{RestartPolicy, SuperviseError, supervise};
 pub use putlog::{PutLog, PutOutcome};
 pub use pvlist::{EvaluationOrder, PvList, PvListEntry, PvListMatch};
 pub use server::{GatewayConfig, GatewayServer};

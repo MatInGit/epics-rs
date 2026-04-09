@@ -9,12 +9,12 @@ use epics_base_rs::types::{DbFieldType, EpicsValue};
 use epics_pva_rs::pvdata::{FieldDesc, PvField, PvStructure, ScalarValue};
 
 use super::convert::{dbf_to_scalar_type, scalar_to_epics_typed};
-use crate::error::{BridgeError, BridgeResult};
 use super::monitor::BridgeMonitor;
 use super::provider::Channel;
 use super::pvif::{
     self, NtType, build_field_desc_for_nt, pv_structure_to_epics, snapshot_to_pv_structure,
 };
+use crate::error::{BridgeError, BridgeResult};
 
 // ---------------------------------------------------------------------------
 // PutOptions: pvRequest option parsing
@@ -75,9 +75,7 @@ impl PutOptions {
 
         if let Some(opt_struct) = options {
             // process option
-            if let Some(PvField::Scalar(ScalarValue::String(s))) =
-                opt_struct.get_field("process")
-            {
+            if let Some(PvField::Scalar(ScalarValue::String(s))) = opt_struct.get_field("process") {
                 opts.process = match s.as_str() {
                     "true" => ProcessMode::Force,
                     "false" => ProcessMode::Inhibit,
@@ -86,9 +84,7 @@ impl PutOptions {
             }
 
             // block option
-            if let Some(PvField::Scalar(ScalarValue::Boolean(b))) =
-                opt_struct.get_field("block")
-            {
+            if let Some(PvField::Scalar(ScalarValue::Boolean(b))) = opt_struct.get_field("block") {
                 opts.block = *b;
                 // No point blocking if we're not processing
                 if opts.process == ProcessMode::Inhibit {
@@ -204,12 +200,13 @@ impl Channel for BridgeChannel {
             .ok_or_else(|| BridgeError::RecordNotFound(self.record_name.clone()))?;
 
         let instance = rec.read().await;
-        let snapshot = instance.snapshot_for_field("VAL").ok_or_else(|| {
-            BridgeError::FieldNotFound {
-                record: self.record_name.clone(),
-                field: "VAL".into(),
-            }
-        })?;
+        let snapshot =
+            instance
+                .snapshot_for_field("VAL")
+                .ok_or_else(|| BridgeError::FieldNotFound {
+                    record: self.record_name.clone(),
+                    field: "VAL".into(),
+                })?;
 
         let full = snapshot_to_pv_structure(&snapshot, self.nt_type);
         Ok(pvif::filter_by_request(&full, request))
@@ -226,11 +223,10 @@ impl Channel for BridgeChannel {
         let opts = PutOptions::from_pv_request(value);
 
         // Extract value from the NormativeType structure
-        let raw_val =
-            pv_structure_to_epics(value).ok_or_else(|| BridgeError::TypeMismatch {
-                expected: "extractable value".into(),
-                got: format!("{}", value.struct_id),
-            })?;
+        let raw_val = pv_structure_to_epics(value).ok_or_else(|| BridgeError::TypeMismatch {
+            expected: "extractable value".into(),
+            got: value.struct_id.to_string(),
+        })?;
 
         // Use typed conversion to match the record's actual DBF type
         let epics_val = match &raw_val {
@@ -266,10 +262,8 @@ impl Channel for BridgeChannel {
                     .map_err(|e| BridgeError::PutRejected(e.to_string()))?;
 
                 // If block=true, wait for processing to complete
-                if opts.block {
-                    if let Some(rx) = notify_rx {
-                        let _ = rx.await;
-                    }
+                if opts.block && let Some(rx) = notify_rx {
+                    let _ = rx.await;
                 }
             }
         }
@@ -293,12 +287,8 @@ impl Channel for BridgeChannel {
             )));
         }
         Ok(super::group::AnyMonitor::Single(
-            BridgeMonitor::new(
-                self.db.clone(),
-                self.record_name.clone(),
-                self.nt_type,
-            )
-            .with_access(self.access.clone()),
+            BridgeMonitor::new(self.db.clone(), self.record_name.clone(), self.nt_type)
+                .with_access(self.access.clone()),
         ))
     }
 }
@@ -329,10 +319,9 @@ mod tests {
             "process".into(),
             PvField::Scalar(ScalarValue::String("true".into())),
         ));
-        options.fields.push((
-            "block".into(),
-            PvField::Scalar(ScalarValue::Boolean(true)),
-        ));
+        options
+            .fields
+            .push(("block".into(), PvField::Scalar(ScalarValue::Boolean(true))));
 
         let mut record = PvStructure::new("");
         record
@@ -355,10 +344,9 @@ mod tests {
             "process".into(),
             PvField::Scalar(ScalarValue::String("false".into())),
         ));
-        options.fields.push((
-            "block".into(),
-            PvField::Scalar(ScalarValue::Boolean(true)),
-        ));
+        options
+            .fields
+            .push(("block".into(), PvField::Scalar(ScalarValue::Boolean(true))));
 
         let mut record = PvStructure::new("");
         record

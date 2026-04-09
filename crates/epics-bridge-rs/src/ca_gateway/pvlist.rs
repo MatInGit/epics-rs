@@ -42,18 +42,13 @@ use crate::error::{BridgeError, BridgeResult};
 /// `AllowDeny` (default): match ALLOW rules first; if any matches, DENY rules
 /// can override. `DenyAllow`: match DENY rules first; if any matches, ALLOW
 /// rules can override.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum EvaluationOrder {
     /// `EVALUATION ORDER ALLOW, DENY` (default)
+    #[default]
     AllowDeny,
     /// `EVALUATION ORDER DENY, ALLOW`
     DenyAllow,
-}
-
-impl Default for EvaluationOrder {
-    fn default() -> Self {
-        Self::AllowDeny
-    }
 }
 
 /// One rule in a `.pvlist` file.
@@ -175,14 +170,10 @@ impl PvList {
                 }
             }
             EvaluationOrder::DenyAllow => {
-                // DENY first, ALLOW can override
-                if allow_decision.is_some() {
-                    allow_decision
-                } else if deny_match.is_some() {
-                    None
-                } else {
-                    None
-                }
+                // DENY first, ALLOW can override.
+                // - allow rule matches → grant (overrides any DENY)
+                // - allow rule misses → deny (whether or not a DENY rule matched)
+                allow_decision
             }
         }
     }
@@ -277,12 +268,12 @@ fn strip_comment(line: &str) -> &str {
 fn parse_rule_line(line: &str, lineno: usize) -> BridgeResult<PvListEntry> {
     let mut tokens = line.split_whitespace();
 
-    let pattern_str = tokens.next().ok_or_else(|| {
-        BridgeError::GroupConfigError(format!("line {lineno}: missing pattern"))
-    })?;
-    let keyword = tokens.next().ok_or_else(|| {
-        BridgeError::GroupConfigError(format!("line {lineno}: missing keyword"))
-    })?;
+    let pattern_str = tokens
+        .next()
+        .ok_or_else(|| BridgeError::GroupConfigError(format!("line {lineno}: missing pattern")))?;
+    let keyword = tokens
+        .next()
+        .ok_or_else(|| BridgeError::GroupConfigError(format!("line {lineno}: missing keyword")))?;
 
     let pattern = build_pattern(pattern_str, lineno)?;
 

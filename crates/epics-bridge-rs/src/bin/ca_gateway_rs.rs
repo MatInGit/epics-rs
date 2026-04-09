@@ -13,9 +13,7 @@ use std::process::ExitCode;
 
 use clap::Parser;
 
-use epics_bridge_rs::ca_gateway::{
-    supervise, GatewayConfig, GatewayServer, RestartPolicy,
-};
+use epics_bridge_rs::ca_gateway::{GatewayConfig, GatewayServer, RestartPolicy, supervise};
 
 #[derive(Parser, Debug)]
 #[command(
@@ -95,7 +93,10 @@ async fn run_once(config: GatewayConfig) -> Result<(), String> {
     let server = GatewayServer::build(config)
         .await
         .map_err(|e| format!("build failed: {e}"))?;
-    server.run().await.map_err(|e| format!("runtime error: {e}"))
+    server
+        .run()
+        .await
+        .map_err(|e| format!("runtime error: {e}"))
 }
 
 #[tokio::main(flavor = "multi_thread")]

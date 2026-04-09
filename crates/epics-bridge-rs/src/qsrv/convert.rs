@@ -87,7 +87,13 @@ fn scalar_to_f64(val: &ScalarValue) -> f64 {
         ScalarValue::UShort(v) => *v as f64,
         ScalarValue::UInt(v) => *v as f64,
         ScalarValue::ULong(v) => *v as f64,
-        ScalarValue::Boolean(v) => if *v { 1.0 } else { 0.0 },
+        ScalarValue::Boolean(v) => {
+            if *v {
+                1.0
+            } else {
+                0.0
+            }
+        }
         ScalarValue::String(s) => s.parse().unwrap_or(0.0),
     }
 }
@@ -105,7 +111,13 @@ fn scalar_to_i64(val: &ScalarValue) -> i64 {
         ScalarValue::ULong(v) => *v as i64,
         ScalarValue::Double(v) => *v as i64,
         ScalarValue::Float(v) => *v as i64,
-        ScalarValue::Boolean(v) => if *v { 1 } else { 0 },
+        ScalarValue::Boolean(v) => {
+            if *v {
+                1
+            } else {
+                0
+            }
+        }
         ScalarValue::String(s) => s.parse().unwrap_or(0),
     }
 }
@@ -115,10 +127,7 @@ fn scalar_to_i64(val: &ScalarValue) -> i64 {
 /// Corresponds to C++ dbf_copy.cpp enum string → index reverse lookup.
 /// Returns None if the string doesn't match any choice.
 pub fn enum_string_to_index(choices: &[String], name: &str) -> Option<u16> {
-    choices
-        .iter()
-        .position(|s| s == name)
-        .map(|i| i as u16)
+    choices.iter().position(|s| s == name).map(|i| i as u16)
 }
 
 /// Convert an enum index to its string representation.
@@ -164,7 +173,7 @@ pub fn pv_field_to_epics(field: &PvField) -> Option<EpicsValue> {
             }
             match &arr[0] {
                 ScalarValue::Double(_) => Some(EpicsValue::DoubleArray(
-                    arr.iter().map(|v| scalar_to_f64(v)).collect(),
+                    arr.iter().map(scalar_to_f64).collect(),
                 )),
                 ScalarValue::Float(_) => Some(EpicsValue::FloatArray(
                     arr.iter().map(|v| scalar_to_f64(v) as f32).collect(),
@@ -182,7 +191,7 @@ pub fn pv_field_to_epics(field: &PvField) -> Option<EpicsValue> {
                     arr.iter().map(|v| scalar_to_i64(v) as u16).collect(),
                 )),
                 _ => Some(EpicsValue::DoubleArray(
-                    arr.iter().map(|v| scalar_to_f64(v)).collect(),
+                    arr.iter().map(scalar_to_f64).collect(),
                 )),
             }
         }
@@ -196,7 +205,7 @@ mod tests {
 
     #[test]
     fn roundtrip_double() {
-        let orig = EpicsValue::Double(3.14);
+        let orig = EpicsValue::Double(2.5);
         let sv = epics_to_scalar(&orig);
         let back = scalar_to_epics(&sv);
         assert_eq!(orig, back);
@@ -261,7 +270,7 @@ mod tests {
 
     #[test]
     fn typed_conversion_string_from_numeric() {
-        let sv = ScalarValue::Double(3.14);
+        let sv = ScalarValue::Double(2.5);
         let ev = scalar_to_epics_typed(&sv, DbFieldType::String);
         assert!(matches!(ev, EpicsValue::String(_)));
     }

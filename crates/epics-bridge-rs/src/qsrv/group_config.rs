@@ -24,8 +24,8 @@
 use serde::Deserialize;
 use std::collections::HashMap;
 
-use crate::error::{BridgeError, BridgeResult};
 use super::pvif::FieldMapping;
+use crate::error::{BridgeError, BridgeResult};
 
 /// Definition of a group PV (multiple records composited into one PvStructure).
 #[derive(Debug, Clone)]
@@ -94,10 +94,7 @@ pub fn parse_group_config(json: &str) -> BridgeResult<Vec<GroupPvDef>> {
 ///
 /// The `record_name` is used as channel prefix: if `+channel` is a bare field
 /// name (no `:` separator), it becomes `"record_name.FIELD"`.
-pub fn parse_info_group(
-    record_name: &str,
-    json: &str,
-) -> BridgeResult<Vec<GroupPvDef>> {
+pub fn parse_info_group(record_name: &str, json: &str) -> BridgeResult<Vec<GroupPvDef>> {
     let root: HashMap<String, RawGroupDef> =
         serde_json::from_str(json).map_err(|e| BridgeError::GroupConfigError(e.to_string()))?;
 
@@ -121,10 +118,7 @@ pub fn parse_info_group(
 /// Members are appended to existing groups; new groups are created.
 /// This supports the C++ pattern where multiple records contribute
 /// members to the same group via separate info(Q:group) tags.
-pub fn merge_group_defs(
-    existing: &mut HashMap<String, GroupPvDef>,
-    new_defs: Vec<GroupPvDef>,
-) {
+pub fn merge_group_defs(existing: &mut HashMap<String, GroupPvDef>, new_defs: Vec<GroupPvDef>) {
     for def in new_defs {
         if let Some(existing_def) = existing.get_mut(&def.name) {
             // Merge members into existing group
@@ -202,9 +196,9 @@ fn raw_to_group_def(name: String, raw: RawGroupDef) -> BridgeResult<GroupPvDef> 
 }
 
 fn parse_member(field_name: &str, value: &serde_json::Value) -> BridgeResult<GroupMember> {
-    let obj = value
-        .as_object()
-        .ok_or_else(|| BridgeError::GroupConfigError(format!("field '{field_name}' must be an object")))?;
+    let obj = value.as_object().ok_or_else(|| {
+        BridgeError::GroupConfigError(format!("field '{field_name}' must be an object"))
+    })?;
 
     let channel = obj
         .get("+channel")
@@ -233,10 +227,7 @@ fn parse_member(field_name: &str, value: &serde_json::Value) -> BridgeResult<Gro
         Some(s) => TriggerDef::Fields(s.split(',').map(|f| f.trim().to_string()).collect()),
     };
 
-    let put_order = obj
-        .get("+putorder")
-        .and_then(|v| v.as_i64())
-        .unwrap_or(0) as i32;
+    let put_order = obj.get("+putorder").and_then(|v| v.as_i64()).unwrap_or(0) as i32;
 
     let struct_id = obj
         .get("+id")
@@ -434,19 +425,23 @@ mod tests {
     #[test]
     fn merge_groups() {
         let mut existing = HashMap::new();
-        let defs1 = parse_group_config(r#"{
+        let defs1 = parse_group_config(
+            r#"{
             "GRP:a": {
                 "x": { "+channel": "R1:x" }
             }
-        }"#)
+        }"#,
+        )
         .unwrap();
         merge_group_defs(&mut existing, defs1);
 
-        let defs2 = parse_group_config(r#"{
+        let defs2 = parse_group_config(
+            r#"{
             "GRP:a": {
                 "y": { "+channel": "R2:y" }
             }
-        }"#)
+        }"#,
+        )
         .unwrap();
         merge_group_defs(&mut existing, defs2);
 

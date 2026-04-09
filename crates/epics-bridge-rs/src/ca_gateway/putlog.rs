@@ -108,10 +108,8 @@ mod tests {
 
     #[tokio::test]
     async fn log_to_temp_file() {
-        let temp = std::env::temp_dir().join(format!(
-            "ca_gateway_putlog_test_{}.log",
-            std::process::id()
-        ));
+        let temp =
+            std::env::temp_dir().join(format!("ca_gateway_putlog_test_{}.log", std::process::id()));
         // Cleanup any leftover from previous test runs
         let _ = std::fs::remove_file(&temp);
 

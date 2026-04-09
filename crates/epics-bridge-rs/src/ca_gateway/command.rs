@@ -20,7 +20,7 @@ use tokio::sync::RwLock;
 use crate::error::BridgeResult;
 
 use super::cache::PvCache;
-use super::pvlist::{parse_pvlist_file, PvList};
+use super::pvlist::{PvList, parse_pvlist_file};
 
 /// Commands that can be issued to a running gateway at runtime.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -87,10 +87,7 @@ impl CommandHandler {
     pub async fn dispatch(&self, cmd: GatewayCommand) -> BridgeResult<String> {
         match cmd {
             GatewayCommand::Noop => Ok(String::new()),
-            GatewayCommand::Version => Ok(format!(
-                "ca-gateway-rs {}\n",
-                env!("CARGO_PKG_VERSION")
-            )),
+            GatewayCommand::Version => Ok(format!("ca-gateway-rs {}\n", env!("CARGO_PKG_VERSION"))),
             GatewayCommand::ReportSummary => {
                 let cache = self.cache.read().await;
                 Ok(format!("Summary: {} PVs in cache\n", cache.len()))
@@ -163,8 +160,14 @@ mod tests {
 
     #[test]
     fn parse_known_commands() {
-        assert_eq!(GatewayCommand::parse("R1"), Some(GatewayCommand::ReportFull));
-        assert_eq!(GatewayCommand::parse("r2"), Some(GatewayCommand::ReportSummary));
+        assert_eq!(
+            GatewayCommand::parse("R1"),
+            Some(GatewayCommand::ReportFull)
+        );
+        assert_eq!(
+            GatewayCommand::parse("r2"),
+            Some(GatewayCommand::ReportSummary)
+        );
         assert_eq!(
             GatewayCommand::parse("REPORT_ACCESS"),
             Some(GatewayCommand::ReportAccess)
@@ -184,7 +187,10 @@ mod tests {
     fn parse_blank_and_comment() {
         assert_eq!(GatewayCommand::parse(""), Some(GatewayCommand::Noop));
         assert_eq!(GatewayCommand::parse("   "), Some(GatewayCommand::Noop));
-        assert_eq!(GatewayCommand::parse("# comment"), Some(GatewayCommand::Noop));
+        assert_eq!(
+            GatewayCommand::parse("# comment"),
+            Some(GatewayCommand::Noop)
+        );
     }
 
     #[test]

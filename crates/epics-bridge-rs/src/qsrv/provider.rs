@@ -14,10 +14,10 @@ use epics_pva_rs::pvdata::{FieldDesc, PvStructure};
 use epics_base_rs::types::DbFieldType;
 
 use super::channel::BridgeChannel;
-use crate::error::{BridgeError, BridgeResult};
 use super::group::GroupChannel;
 use super::group_config::GroupPvDef;
 use super::pvif::NtType;
+use crate::error::{BridgeError, BridgeResult};
 
 // ---------------------------------------------------------------------------
 // Access control
@@ -70,11 +70,7 @@ impl AccessContext {
 
     /// Construct a context with explicit credentials.
     pub fn with_identity(access: Arc<dyn AccessControl>, user: String, host: String) -> Self {
-        Self {
-            access,
-            user,
-            host,
-        }
+        Self { access, user, host }
     }
 
     /// Allow-all context (used by tests and the default `BridgeProvider`).
@@ -110,15 +106,10 @@ pub trait ChannelProvider: Send + Sync {
     fn provider_name(&self) -> &str;
 
     /// Check if a channel name exists (for UDP search responses).
-    fn channel_find(
-        &self,
-        name: &str,
-    ) -> impl std::future::Future<Output = bool> + Send;
+    fn channel_find(&self, name: &str) -> impl std::future::Future<Output = bool> + Send;
 
     /// List all available channel names.
-    fn channel_list(
-        &self,
-    ) -> impl std::future::Future<Output = Vec<String>> + Send;
+    fn channel_list(&self) -> impl std::future::Future<Output = Vec<String>> + Send;
 
     /// Create a channel for the given name.
     fn create_channel(
@@ -148,9 +139,7 @@ pub trait Channel: Send + Sync {
     ) -> impl std::future::Future<Output = BridgeResult<()>> + Send;
 
     /// GetField: return the type description (FieldDesc) for introspection.
-    fn get_field(
-        &self,
-    ) -> impl std::future::Future<Output = BridgeResult<FieldDesc>> + Send;
+    fn get_field(&self) -> impl std::future::Future<Output = BridgeResult<FieldDesc>> + Send;
 
     /// Create a monitor for this channel.
     fn create_monitor(
@@ -163,14 +152,10 @@ pub trait Channel: Send + Sync {
 /// Corresponds to C++ `pva::Monitor` / `BaseMonitor`.
 pub trait PvaMonitor: Send + Sync {
     /// Wait for the next update. Returns `None` when the monitor is closed.
-    fn poll(
-        &mut self,
-    ) -> impl std::future::Future<Output = Option<PvStructure>> + Send;
+    fn poll(&mut self) -> impl std::future::Future<Output = Option<PvStructure>> + Send;
 
     /// Start the monitor (begin receiving events).
-    fn start(
-        &mut self,
-    ) -> impl std::future::Future<Output = BridgeResult<()>> + Send;
+    fn start(&mut self) -> impl std::future::Future<Output = BridgeResult<()>> + Send;
 
     /// Stop the monitor.
     fn stop(&mut self) -> impl std::future::Future<Output = ()> + Send;
@@ -353,11 +338,8 @@ impl BridgeProvider {
         user: &str,
         host: &str,
     ) -> BridgeResult<AnyChannel> {
-        let access_ctx = AccessContext::with_identity(
-            self.access.clone(),
-            user.to_string(),
-            host.to_string(),
-        );
+        let access_ctx =
+            AccessContext::with_identity(self.access.clone(), user.to_string(), host.to_string());
 
         // Check group PVs first
         if let Some(def) = self.groups.get(name) {
@@ -442,19 +424,15 @@ mod tests {
 
     #[test]
     fn access_context_with_identity() {
-        let ctx = AccessContext::with_identity(
-            Arc::new(AllowAllAccess),
-            "alice".into(),
-            "host1".into(),
-        );
+        let ctx =
+            AccessContext::with_identity(Arc::new(AllowAllAccess), "alice".into(), "host1".into());
         assert_eq!(ctx.user, "alice");
         assert_eq!(ctx.host, "host1");
     }
 
     #[test]
     fn access_context_deny_specific() {
-        let ctx =
-            AccessContext::anonymous(Arc::new(DenySpecific("SECRET".to_string())));
+        let ctx = AccessContext::anonymous(Arc::new(DenySpecific("SECRET".to_string())));
         assert!(ctx.can_read("PUBLIC"));
         assert!(!ctx.can_read("SECRET"));
         assert!(ctx.can_write("PUBLIC"));
@@ -494,9 +472,7 @@ mod tests {
         let mut put_struct = PvStructure::new("epics:nt/NTScalar:1.0");
         put_struct.fields.push((
             "value".into(),
-            epics_pva_rs::pvdata::PvField::Scalar(
-                epics_pva_rs::pvdata::ScalarValue::Double(2.0),
-            ),
+            epics_pva_rs::pvdata::PvField::Scalar(epics_pva_rs::pvdata::ScalarValue::Double(2.0)),
         ));
         let result = ch.put(&put_struct).await;
         assert!(result.is_err(), "expected access denied");
@@ -524,8 +500,7 @@ mod tests {
         assert!(result.is_err(), "expected read denied for BLOCKED");
 
         // A different channel name with the same policy should NOT be blocked
-        let ok_access =
-            AccessContext::anonymous(Arc::new(DenySpecific("BLOCKED".to_string())));
+        let ok_access = AccessContext::anonymous(Arc::new(DenySpecific("BLOCKED".to_string())));
         let ch2 = BridgeChannel::from_cached(
             db,
             "ALLOWED".to_string(),

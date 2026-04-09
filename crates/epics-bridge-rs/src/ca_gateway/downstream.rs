@@ -24,8 +24,8 @@ use std::sync::Arc;
 
 use epics_base_rs::server::database::PvDatabase;
 use epics_ca_rs::server::{CaServer, ServerConnectionEvent};
-use tokio::sync::broadcast;
 use tokio::sync::Mutex;
+use tokio::sync::broadcast;
 
 use crate::error::BridgeResult;
 
@@ -62,9 +62,7 @@ impl DownstreamServer {
 
     /// Subscribe to connection lifecycle events. Must be called BEFORE
     /// [`run`] (which moves the server out of the Mutex).
-    pub async fn connection_events(
-        &self,
-    ) -> Option<broadcast::Receiver<ServerConnectionEvent>> {
+    pub async fn connection_events(&self) -> Option<broadcast::Receiver<ServerConnectionEvent>> {
         let mut guard = self.server.lock().await;
         guard.as_mut().map(|s| s.connection_events())
     }

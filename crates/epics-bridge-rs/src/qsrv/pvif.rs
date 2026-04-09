@@ -59,8 +59,10 @@ pub fn snapshot_to_nt_scalar(snapshot: &Snapshot) -> PvStructure {
     let mut pv = PvStructure::new("epics:nt/NTScalar:1.0");
 
     // value
-    pv.fields
-        .push(("value".into(), PvField::Scalar(epics_to_scalar(&snapshot.value))));
+    pv.fields.push((
+        "value".into(),
+        PvField::Scalar(epics_to_scalar(&snapshot.value)),
+    ));
 
     // alarm
     pv.fields
@@ -112,7 +114,12 @@ pub fn snapshot_to_nt_enum(snapshot: &Snapshot) -> PvStructure {
     let choices: Vec<ScalarValue> = snapshot
         .enums
         .as_ref()
-        .map(|e| e.strings.iter().map(|s| ScalarValue::String(s.clone())).collect())
+        .map(|e| {
+            e.strings
+                .iter()
+                .map(|s| ScalarValue::String(s.clone()))
+                .collect()
+        })
         .unwrap_or_default();
 
     let mut value_struct = PvStructure::new("enum_t");
@@ -194,7 +201,9 @@ pub fn pv_structure_to_epics(pv: &PvStructure) -> Option<EpicsValue> {
                 let idx = super::convert::scalar_to_epics(sv);
                 match idx {
                     EpicsValue::Enum(v) => Some(EpicsValue::Enum(v)),
-                    other => Some(EpicsValue::Enum(other.to_f64().map(|f| f as u16).unwrap_or(0))),
+                    other => Some(EpicsValue::Enum(
+                        other.to_f64().map(|f| f as u16).unwrap_or(0),
+                    )),
                 }
             } else {
                 None
@@ -257,9 +266,10 @@ fn filter_by_spec(pv: &PvStructure, spec: &PvStructure) -> PvStructure {
         match (sub_spec, value) {
             // Both are structures: recurse
             (PvField::Structure(s_spec), PvField::Structure(s_val)) => {
-                result
-                    .fields
-                    .push((name.clone(), PvField::Structure(filter_by_spec(s_val, s_spec))));
+                result.fields.push((
+                    name.clone(),
+                    PvField::Structure(filter_by_spec(s_val, s_spec)),
+                ));
             }
             // Spec is structure but value is scalar/array: include as-is
             // (the spec just selects the field, doesn't restructure it)
@@ -365,12 +375,18 @@ fn build_timestamp(time: SystemTime, user_tag: i32) -> PvStructure {
     // PVA timestamps use EPICS epoch (1990-01-01), but for now use UNIX epoch
     // to match the Rust SystemTime. Epoch adjustment can be added when
     // epics-pva-rs server serialization handles it.
-    ts.fields
-        .push(("secondsPastEpoch".into(), PvField::Scalar(ScalarValue::Long(secs))));
-    ts.fields
-        .push(("nanoseconds".into(), PvField::Scalar(ScalarValue::Int(nanos))));
-    ts.fields
-        .push(("userTag".into(), PvField::Scalar(ScalarValue::Int(user_tag))));
+    ts.fields.push((
+        "secondsPastEpoch".into(),
+        PvField::Scalar(ScalarValue::Long(secs)),
+    ));
+    ts.fields.push((
+        "nanoseconds".into(),
+        PvField::Scalar(ScalarValue::Int(nanos)),
+    ));
+    ts.fields.push((
+        "userTag".into(),
+        PvField::Scalar(ScalarValue::Int(user_tag)),
+    ));
     ts
 }
 
@@ -413,10 +429,8 @@ fn build_control(ctrl: &ControlInfo) -> PvStructure {
         "limitHigh".into(),
         PvField::Scalar(ScalarValue::Double(ctrl.upper_ctrl_limit)),
     ));
-    c.fields.push((
-        "minStep".into(),
-        PvField::Scalar(ScalarValue::Double(0.0)),
-    ));
+    c.fields
+        .push(("minStep".into(), PvField::Scalar(ScalarValue::Double(0.0))));
     c
 }
 
@@ -435,7 +449,10 @@ fn timestamp_desc() -> FieldDesc {
     FieldDesc::Structure {
         struct_id: "time_t".into(),
         fields: vec![
-            ("secondsPastEpoch".into(), FieldDesc::Scalar(ScalarType::Long)),
+            (
+                "secondsPastEpoch".into(),
+                FieldDesc::Scalar(ScalarType::Long),
+            ),
             ("nanoseconds".into(), FieldDesc::Scalar(ScalarType::Int)),
             ("userTag".into(), FieldDesc::Scalar(ScalarType::Int)),
         ],
@@ -492,10 +509,22 @@ fn value_alarm_desc() -> FieldDesc {
     FieldDesc::Structure {
         struct_id: "valueAlarm_t".into(),
         fields: vec![
-            ("lowAlarmLimit".into(), FieldDesc::Scalar(ScalarType::Double)),
-            ("lowWarningLimit".into(), FieldDesc::Scalar(ScalarType::Double)),
-            ("highWarningLimit".into(), FieldDesc::Scalar(ScalarType::Double)),
-            ("highAlarmLimit".into(), FieldDesc::Scalar(ScalarType::Double)),
+            (
+                "lowAlarmLimit".into(),
+                FieldDesc::Scalar(ScalarType::Double),
+            ),
+            (
+                "lowWarningLimit".into(),
+                FieldDesc::Scalar(ScalarType::Double),
+            ),
+            (
+                "highWarningLimit".into(),
+                FieldDesc::Scalar(ScalarType::Double),
+            ),
+            (
+                "highAlarmLimit".into(),
+                FieldDesc::Scalar(ScalarType::Double),
+            ),
         ],
     }
 }
@@ -679,10 +708,9 @@ mod tests {
 
         // Request only "value" field
         let mut field_spec = PvStructure::new("");
-        field_spec.fields.push((
-            "value".into(),
-            PvField::Structure(PvStructure::new("")),
-        ));
+        field_spec
+            .fields
+            .push(("value".into(), PvField::Structure(PvStructure::new(""))));
         let mut req = PvStructure::new("");
         req.fields
             .push(("field".into(), PvField::Structure(field_spec)));
@@ -698,14 +726,12 @@ mod tests {
         let pv = snapshot_to_nt_scalar(&snap);
 
         let mut field_spec = PvStructure::new("");
-        field_spec.fields.push((
-            "value".into(),
-            PvField::Structure(PvStructure::new("")),
-        ));
-        field_spec.fields.push((
-            "alarm".into(),
-            PvField::Structure(PvStructure::new("")),
-        ));
+        field_spec
+            .fields
+            .push(("value".into(), PvField::Structure(PvStructure::new(""))));
+        field_spec
+            .fields
+            .push(("alarm".into(), PvField::Structure(PvStructure::new(""))));
         let mut req = PvStructure::new("");
         req.fields
             .push(("field".into(), PvField::Structure(field_spec)));
@@ -722,10 +748,9 @@ mod tests {
         // Build request: {field: {alarm: {severity: {}}}}
         // — only return alarm.severity, not other alarm fields
         let mut alarm_spec = PvStructure::new("");
-        alarm_spec.fields.push((
-            "severity".into(),
-            PvField::Structure(PvStructure::new("")),
-        ));
+        alarm_spec
+            .fields
+            .push(("severity".into(), PvField::Structure(PvStructure::new(""))));
 
         let mut field_spec = PvStructure::new("");
         field_spec
@@ -753,8 +778,12 @@ mod tests {
     fn field_desc_nt_enum_index_ushort() {
         let desc = build_nt_enum_desc();
         if let FieldDesc::Structure { fields, .. } = &desc {
-            if let Some((_, FieldDesc::Structure { fields: val_fields, .. })) =
-                fields.iter().find(|(n, _)| n == "value")
+            if let Some((
+                _,
+                FieldDesc::Structure {
+                    fields: val_fields, ..
+                },
+            )) = fields.iter().find(|(n, _)| n == "value")
             {
                 let index_field = val_fields.iter().find(|(n, _)| n == "index");
                 assert!(matches!(
