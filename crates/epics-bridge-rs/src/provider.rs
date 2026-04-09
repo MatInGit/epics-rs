@@ -17,6 +17,30 @@ use crate::group::GroupChannel;
 use crate::group_config::GroupPvDef;
 
 // ---------------------------------------------------------------------------
+// Access control
+// ---------------------------------------------------------------------------
+
+/// Access control interface for PVA channels.
+///
+/// Corresponds to C++ QSRV's per-channel ASCLIENT checks.
+/// Default implementation allows all access.
+pub trait AccessControl: Send + Sync {
+    /// Check if the client can read this channel.
+    fn can_read(&self, _channel: &str, _user: &str, _host: &str) -> bool {
+        true
+    }
+
+    /// Check if the client can write to this channel.
+    fn can_write(&self, _channel: &str, _user: &str, _host: &str) -> bool {
+        true
+    }
+}
+
+/// Default access control that allows all operations.
+pub struct AllowAllAccess;
+impl AccessControl for AllowAllAccess {}
+
+// ---------------------------------------------------------------------------
 // Trait definitions (to be moved to epics-pva-rs)
 // ---------------------------------------------------------------------------
 
@@ -151,10 +175,16 @@ impl Channel for AnyChannel {
 
 /// Bridge ChannelProvider that exposes EPICS database records as PVA channels.
 ///
-/// Corresponds to C++ `PDBProvider`.
+/// Corresponds to C++ `PDBProvider`. Includes channel caching for reuse
+/// and pluggable access control.
 pub struct BridgeProvider {
     db: Arc<PvDatabase>,
     groups: HashMap<String, GroupPvDef>,
+    /// Channel cache: reuse channels for repeated requests.
+    /// Corresponds to C++ PDBProvider's transient_pv_map.
+    channel_cache: tokio::sync::RwLock<HashMap<String, Arc<AnyChannel>>>,
+    /// Access control policy.
+    access: Box<dyn AccessControl>,
 }
 
 impl BridgeProvider {
@@ -162,7 +192,24 @@ impl BridgeProvider {
         Self {
             db,
             groups: HashMap::new(),
+            channel_cache: tokio::sync::RwLock::new(HashMap::new()),
+            access: Box::new(AllowAllAccess),
         }
+    }
+
+    /// Set a custom access control policy.
+    pub fn set_access_control(&mut self, access: Box<dyn AccessControl>) {
+        self.access = access;
+    }
+
+    /// Check if a client can write to a channel.
+    pub fn can_write(&self, channel: &str, user: &str, host: &str) -> bool {
+        self.access.can_write(channel, user, host)
+    }
+
+    /// Check if a client can read from a channel.
+    pub fn can_read(&self, channel: &str, user: &str, host: &str) -> bool {
+        self.access.can_read(channel, user, host)
     }
 
     /// Load group PV definitions from a JSON config string.
@@ -180,6 +227,13 @@ impl BridgeProvider {
         self.load_group_config(&content)
     }
 
+    /// Load group definitions from a record's info(Q:group, ...) tag.
+    pub fn load_info_group(&mut self, record_name: &str, json: &str) -> BridgeResult<()> {
+        let defs = crate::group_config::parse_info_group(record_name, json)?;
+        crate::group_config::merge_group_defs(&mut self.groups, defs);
+        Ok(())
+    }
+
     /// Access the underlying database.
     pub fn database(&self) -> &Arc<PvDatabase> {
         &self.db
@@ -188,6 +242,11 @@ impl BridgeProvider {
     /// Access group definitions.
     pub fn groups(&self) -> &HashMap<String, GroupPvDef> {
         &self.groups
+    }
+
+    /// Clear the channel cache.
+    pub async fn clear_cache(&self) {
+        self.channel_cache.write().await.clear();
     }
 }
 

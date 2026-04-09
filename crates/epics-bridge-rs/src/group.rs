@@ -18,6 +18,80 @@ use crate::monitor::BridgeMonitor;
 use crate::pvif::{self, FieldMapping, NtType};
 
 // ---------------------------------------------------------------------------
+// Nested field path support
+// ---------------------------------------------------------------------------
+
+/// Navigate a dot-separated field path (e.g., "a.b.c") within a PvStructure,
+/// returning the leaf PvField. Corresponds to C++ QSRV `FieldName`.
+pub fn get_nested_field<'a>(pv: &'a PvStructure, path: &str) -> Option<&'a PvField> {
+    let parts: Vec<&str> = path.split('.').collect();
+    if parts.is_empty() {
+        return None;
+    }
+
+    let mut current_struct = pv;
+    for (i, part) in parts.iter().enumerate() {
+        let field = current_struct.get_field(part)?;
+        if i == parts.len() - 1 {
+            return Some(field);
+        }
+        match field {
+            PvField::Structure(s) => current_struct = s,
+            _ => return None, // intermediate path element is not a structure
+        }
+    }
+    None
+}
+
+/// Set a value at a dot-separated field path within a PvStructure.
+/// Creates intermediate structures as needed.
+pub fn set_nested_field(pv: &mut PvStructure, path: &str, value: PvField) {
+    let parts: Vec<&str> = path.split('.').collect();
+    if parts.is_empty() {
+        return;
+    }
+
+    if parts.len() == 1 {
+        // Simple case: direct field
+        if let Some(pos) = pv.fields.iter().position(|(n, _)| n == parts[0]) {
+            pv.fields[pos].1 = value;
+        } else {
+            pv.fields.push((parts[0].to_string(), value));
+        }
+        return;
+    }
+
+    // Navigate/create intermediate structures
+    let first = parts[0];
+    let rest = parts[1..].join(".");
+
+    // Find or create the intermediate structure
+    let sub = if let Some(pos) = pv.fields.iter().position(|(n, _)| n == first) {
+        if let PvField::Structure(ref mut s) = pv.fields[pos].1 {
+            s
+        } else {
+            // Replace non-structure with empty structure
+            pv.fields[pos].1 = PvField::Structure(PvStructure::new(""));
+            if let PvField::Structure(ref mut s) = pv.fields[pos].1 {
+                s
+            } else {
+                unreachable!()
+            }
+        }
+    } else {
+        pv.fields
+            .push((first.to_string(), PvField::Structure(PvStructure::new(""))));
+        if let PvField::Structure(ref mut s) = pv.fields.last_mut().unwrap().1 {
+            s
+        } else {
+            unreachable!()
+        }
+    };
+
+    set_nested_field(sub, &rest, value);
+}
+
+// ---------------------------------------------------------------------------
 // GroupChannel
 // ---------------------------------------------------------------------------
 
@@ -43,7 +117,28 @@ impl GroupChannel {
             }
 
             let field = self.read_member(member).await?;
-            pv.fields.push((member.field_name.clone(), field));
+            // Support nested field paths (e.g., "a.b.c")
+            set_nested_field(&mut pv, &member.field_name, field);
+        }
+
+        Ok(pv)
+    }
+
+    /// Read only specific members by field name and compose a partial PvStructure.
+    async fn read_partial(&self, field_names: &[String]) -> BridgeResult<PvStructure> {
+        let struct_id = self.def.struct_id.as_deref().unwrap_or("structure");
+        let mut pv = PvStructure::new(struct_id);
+
+        for member in &self.def.members {
+            if member.mapping == FieldMapping::Proc {
+                continue;
+            }
+            if !field_names.contains(&member.field_name) {
+                continue;
+            }
+
+            let field = self.read_member(member).await?;
+            set_nested_field(&mut pv, &member.field_name, field);
         }
 
         Ok(pv)
@@ -162,29 +257,68 @@ impl crate::provider::Channel for GroupChannel {
         let mut ordered: Vec<&GroupMember> = self.def.members.iter().collect();
         ordered.sort_by_key(|m| m.put_order);
 
-        for member in ordered {
-            let pv_field = match value.get_field(&member.field_name) {
-                Some(f) => f,
-                None => continue,
-            };
+        if self.def.atomic {
+            // Atomic put: collect all values first, then write in order.
+            // In C++ QSRV this uses DBManyLocker to hold all record locks
+            // simultaneously. Since epics-base-rs doesn't expose multi-lock,
+            // we write sequentially but without yielding between writes.
+            let mut writes: Vec<(&GroupMember, Option<epics_base_rs::types::EpicsValue>)> =
+                Vec::new();
 
-            let (record_name, field_name) =
-                epics_base_rs::server::database::parse_pv_name(&member.channel);
+            for member in &ordered {
+                let pv_field = match value.get_field(&member.field_name) {
+                    Some(f) => f,
+                    None => {
+                        writes.push((member, None));
+                        continue;
+                    }
+                };
+                let epics_val = crate::convert::pv_field_to_epics(pv_field);
+                writes.push((member, epics_val));
+            }
 
-            if member.mapping == FieldMapping::Proc {
-                self.db
-                    .process_record(record_name)
-                    .await
-                    .map_err(|e| BridgeError::PutRejected(e.to_string()))?;
-            } else {
-                let epics_val = match crate::convert::pv_field_to_epics(pv_field) {
-                    Some(v) => v,
+            for (member, val) in writes {
+                let (record_name, field_name) =
+                    epics_base_rs::server::database::parse_pv_name(&member.channel);
+
+                if member.mapping == FieldMapping::Proc {
+                    self.db
+                        .process_record(record_name)
+                        .await
+                        .map_err(|e| BridgeError::PutRejected(e.to_string()))?;
+                } else if let Some(epics_val) = val {
+                    self.db
+                        .put_record_field_from_ca(record_name, field_name, epics_val)
+                        .await
+                        .map_err(|e| BridgeError::PutRejected(e.to_string()))?;
+                }
+            }
+        } else {
+            // Non-atomic put: write each member individually
+            for member in ordered {
+                let pv_field = match value.get_field(&member.field_name) {
+                    Some(f) => f,
                     None => continue,
                 };
-                self.db
-                    .put_record_field_from_ca(record_name, field_name, epics_val)
-                    .await
-                    .map_err(|e| BridgeError::PutRejected(e.to_string()))?;
+
+                let (record_name, field_name) =
+                    epics_base_rs::server::database::parse_pv_name(&member.channel);
+
+                if member.mapping == FieldMapping::Proc {
+                    self.db
+                        .process_record(record_name)
+                        .await
+                        .map_err(|e| BridgeError::PutRejected(e.to_string()))?;
+                } else {
+                    let epics_val = match crate::convert::pv_field_to_epics(pv_field) {
+                        Some(v) => v,
+                        None => continue,
+                    };
+                    self.db
+                        .put_record_field_from_ca(record_name, field_name, epics_val)
+                        .await
+                        .map_err(|e| BridgeError::PutRejected(e.to_string()))?;
+                }
             }
         }
 
@@ -200,7 +334,6 @@ impl crate::provider::Channel for GroupChannel {
                 continue;
             }
 
-            // Introspect actual record field type (not hardcoded Double)
             let (nt_type, scalar_type) = self.introspect_member(member).await?;
 
             let desc = match member.mapping {
@@ -232,19 +365,27 @@ impl crate::provider::Channel for GroupChannel {
 // GroupMonitor
 // ---------------------------------------------------------------------------
 
+/// Event from a group member subscription, sent through the fan-in channel.
+struct MemberEvent {
+    member_index: usize,
+}
+
 /// A PVA monitor for a group PV that subscribes to all member records.
 ///
 /// Corresponds to C++ QSRV's `PDBGroupMonitor` + `pdb_group_event()`.
-/// Subscribes to all members and evaluates trigger rules to determine
-/// which fields to include in each update.
+/// Uses a fan-in channel pattern: each member subscription spawns a task
+/// that forwards events to a single receiver, enabling concurrent wait
+/// across all members.
 pub struct GroupMonitor {
     db: Arc<PvDatabase>,
     def: GroupPvDef,
-    /// Per-member subscriptions: (member_index, subscription)
-    subscriptions: Vec<(usize, DbSubscription)>,
     running: bool,
     /// Initial complete group snapshot (sent on first poll)
     initial_snapshot: Option<PvStructure>,
+    /// Fan-in receiver for member events
+    event_rx: Option<tokio::sync::mpsc::Receiver<MemberEvent>>,
+    /// Handles for spawned per-member tasks
+    _tasks: Vec<tokio::task::JoinHandle<()>>,
 }
 
 impl GroupMonitor {
@@ -252,15 +393,11 @@ impl GroupMonitor {
         Self {
             db,
             def,
-            subscriptions: Vec::new(),
             running: false,
             initial_snapshot: None,
+            event_rx: None,
+            _tasks: Vec::new(),
         }
-    }
-
-    /// Check if a trigger should cause a group update.
-    fn should_notify(trigger: &TriggerDef) -> bool {
-        !matches!(trigger, TriggerDef::None)
     }
 }
 
@@ -270,17 +407,29 @@ impl crate::provider::PvaMonitor for GroupMonitor {
             return Ok(());
         }
 
-        // Subscribe to all members that have triggers (like C++ pdb.cpp:568-586)
+        // Create fan-in channel for member events
+        let (tx, rx) = tokio::sync::mpsc::channel::<MemberEvent>(64);
+
+        // Subscribe to all members that have triggers and spawn forwarding tasks
         for (idx, member) in self.def.members.iter().enumerate() {
-            if !Self::should_notify(&member.triggers) {
+            if matches!(member.triggers, TriggerDef::None) {
                 continue;
             }
 
             let (record_name, _) =
                 epics_base_rs::server::database::parse_pv_name(&member.channel);
 
-            if let Some(sub) = DbSubscription::subscribe(&self.db, record_name).await {
-                self.subscriptions.push((idx, sub));
+            if let Some(mut sub) = DbSubscription::subscribe(&self.db, record_name).await {
+                let tx = tx.clone();
+                let handle = tokio::spawn(async move {
+                    // Forward subscription events to the fan-in channel
+                    while sub.recv_snapshot().await.is_some() {
+                        if tx.send(MemberEvent { member_index: idx }).await.is_err() {
+                            break; // receiver dropped
+                        }
+                    }
+                });
+                self._tasks.push(handle);
             }
         }
 
@@ -290,6 +439,7 @@ impl crate::provider::PvaMonitor for GroupMonitor {
             self.initial_snapshot = Some(snapshot);
         }
 
+        self.event_rx = Some(rx);
         self.running = true;
         Ok(())
     }
@@ -300,38 +450,41 @@ impl crate::provider::PvaMonitor for GroupMonitor {
             return Some(initial);
         }
 
-        if self.subscriptions.is_empty() {
-            return std::future::pending().await;
-        }
+        let rx = self.event_rx.as_mut()?;
 
-        // Wait for any member to change using try_recv poll
-        // (A production implementation would use tokio::select! macro,
-        //  but that requires a fixed number of branches at compile time.
-        //  This polling approach works for the interface design.)
         loop {
-            for (idx, sub) in &mut self.subscriptions {
-                if let Some(_snapshot) = sub.recv_snapshot().await {
-                    // A member changed — evaluate trigger rules
-                    let member = &self.def.members[*idx];
+            let event = rx.recv().await?;
 
-                    match &member.triggers {
-                        TriggerDef::None => continue,
-                        TriggerDef::All | TriggerDef::Fields(_) => {
-                            // Re-read the entire group for a consistent composite snapshot.
-                            // (C++ does selective field update via trigger indices,
-                            //  but full re-read is correct and simpler.)
-                            let group_channel =
-                                GroupChannel::new(self.db.clone(), self.def.clone());
-                            return group_channel.read_group().await.ok();
-                        }
-                    }
+            let member = match self.def.members.get(event.member_index) {
+                Some(m) => m,
+                None => continue,
+            };
+
+            let group_channel = GroupChannel::new(self.db.clone(), self.def.clone());
+
+            match &member.triggers {
+                TriggerDef::None => continue,
+                TriggerDef::All => {
+                    // Re-read entire group
+                    return group_channel.read_group().await.ok();
+                }
+                TriggerDef::Fields(field_names) => {
+                    // Partial update: only re-read triggered fields
+                    return group_channel.read_partial(field_names).await.ok();
                 }
             }
         }
     }
 
     async fn stop(&mut self) {
-        self.subscriptions.clear();
+        // Drop the receiver first to signal tasks to stop
+        self.event_rx = None;
+
+        // Abort spawned tasks
+        for handle in self._tasks.drain(..) {
+            handle.abort();
+        }
+
         self.running = false;
         self.initial_snapshot = None;
     }
@@ -442,4 +595,53 @@ fn build_timestamp_from_snapshot(
     ts.fields
         .push(("userTag".into(), PvField::Scalar(ScalarValue::Int(0))));
     ts
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn nested_field_set_simple() {
+        let mut pv = PvStructure::new("test");
+        set_nested_field(
+            &mut pv,
+            "x",
+            PvField::Scalar(epics_pva_rs::pvdata::ScalarValue::Int(42)),
+        );
+        assert!(pv.get_field("x").is_some());
+    }
+
+    #[test]
+    fn nested_field_set_deep() {
+        let mut pv = PvStructure::new("test");
+        set_nested_field(
+            &mut pv,
+            "a.b.c",
+            PvField::Scalar(epics_pva_rs::pvdata::ScalarValue::Double(3.14)),
+        );
+        let a = pv.get_field("a");
+        assert!(a.is_some());
+        if let Some(PvField::Structure(a_struct)) = a {
+            if let Some(PvField::Structure(b_struct)) = a_struct.get_field("b") {
+                assert!(b_struct.get_field("c").is_some());
+            } else {
+                panic!("expected b structure");
+            }
+        } else {
+            panic!("expected a structure");
+        }
+    }
+
+    #[test]
+    fn nested_field_get() {
+        let mut pv = PvStructure::new("test");
+        set_nested_field(
+            &mut pv,
+            "a.b",
+            PvField::Scalar(epics_pva_rs::pvdata::ScalarValue::Int(99)),
+        );
+        let field = get_nested_field(&pv, "a.b");
+        assert!(field.is_some());
+    }
 }

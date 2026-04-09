@@ -79,6 +79,68 @@ pub fn parse_group_config(json: &str) -> BridgeResult<Vec<GroupPvDef>> {
     Ok(groups)
 }
 
+/// Parse group definitions from a record's `info(Q:group, ...)` tag.
+///
+/// In C++ QSRV, records can declare group membership via:
+/// ```text
+/// record(ai, "TEMP:sensor") {
+///     info(Q:group, {
+///         "TEMP:group": {
+///             "temperature": {"+channel": "VAL", "+type": "plain", "+trigger": "*"}
+///         }
+///     })
+/// }
+/// ```
+///
+/// The `record_name` is used as channel prefix: if `+channel` is a bare field
+/// name (no `:` separator), it becomes `"record_name.FIELD"`.
+pub fn parse_info_group(
+    record_name: &str,
+    json: &str,
+) -> BridgeResult<Vec<GroupPvDef>> {
+    let root: HashMap<String, RawGroupDef> =
+        serde_json::from_str(json).map_err(|e| BridgeError::GroupConfigError(e.to_string()))?;
+
+    let mut groups = Vec::new();
+    for (name, raw) in root {
+        let mut def = raw_to_group_def(name, raw)?;
+        // Apply channel prefix: bare field names get record_name prefix
+        for member in &mut def.members {
+            if !member.channel.contains(':') && !member.channel.contains('.') {
+                member.channel = format!("{}.{}", record_name, member.channel);
+            }
+        }
+        groups.push(def);
+    }
+    groups.sort_by(|a, b| a.name.cmp(&b.name));
+    Ok(groups)
+}
+
+/// Merge additional group definitions into an existing set.
+///
+/// Members are appended to existing groups; new groups are created.
+/// This supports the C++ pattern where multiple records contribute
+/// members to the same group via separate info(Q:group) tags.
+pub fn merge_group_defs(
+    existing: &mut HashMap<String, GroupPvDef>,
+    new_defs: Vec<GroupPvDef>,
+) {
+    for def in new_defs {
+        if let Some(existing_def) = existing.get_mut(&def.name) {
+            // Merge members into existing group
+            existing_def.members.extend(def.members);
+            // Update struct_id if newly specified
+            if def.struct_id.is_some() {
+                existing_def.struct_id = def.struct_id;
+            }
+            // atomic: use explicit setting if provided (C++ uses last-wins)
+            // keep existing unless new def explicitly sets it
+        } else {
+            existing.insert(def.name.clone(), def);
+        }
+    }
+}
+
 // ---------------------------------------------------------------------------
 // Internal JSON deserialization types
 // ---------------------------------------------------------------------------
@@ -316,5 +378,61 @@ mod tests {
 
         let groups = parse_group_config(json).unwrap();
         assert!(groups[0].members[0].struct_id.is_none());
+    }
+
+    #[test]
+    fn parse_info_group_prefix() {
+        let json = r#"{
+            "TEMP:group": {
+                "temperature": {
+                    "+channel": "VAL",
+                    "+type": "plain",
+                    "+trigger": "*"
+                }
+            }
+        }"#;
+
+        let groups = parse_info_group("TEMP:sensor", json).unwrap();
+        // Bare field "VAL" should become "TEMP:sensor.VAL"
+        assert_eq!(groups[0].members[0].channel, "TEMP:sensor.VAL");
+    }
+
+    #[test]
+    fn parse_info_group_absolute_channel() {
+        let json = r#"{
+            "TEMP:group": {
+                "pressure": {
+                    "+channel": "PRESS:ai",
+                    "+type": "scalar"
+                }
+            }
+        }"#;
+
+        let groups = parse_info_group("TEMP:sensor", json).unwrap();
+        // Absolute channel (contains ':') should be kept as-is
+        assert_eq!(groups[0].members[0].channel, "PRESS:ai");
+    }
+
+    #[test]
+    fn merge_groups() {
+        let mut existing = HashMap::new();
+        let defs1 = parse_group_config(r#"{
+            "GRP:a": {
+                "x": { "+channel": "R1:x" }
+            }
+        }"#)
+        .unwrap();
+        merge_group_defs(&mut existing, defs1);
+
+        let defs2 = parse_group_config(r#"{
+            "GRP:a": {
+                "y": { "+channel": "R2:y" }
+            }
+        }"#)
+        .unwrap();
+        merge_group_defs(&mut existing, defs2);
+
+        let grp = existing.get("GRP:a").unwrap();
+        assert_eq!(grp.members.len(), 2);
     }
 }

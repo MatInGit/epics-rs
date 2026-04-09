@@ -69,7 +69,7 @@ pub fn snapshot_to_nt_scalar(snapshot: &Snapshot) -> PvStructure {
     // timeStamp
     pv.fields.push((
         "timeStamp".into(),
-        PvField::Structure(build_timestamp(snapshot.timestamp)),
+        PvField::Structure(build_timestamp(snapshot.timestamp, snapshot.user_tag)),
     ));
 
     // display
@@ -129,7 +129,7 @@ pub fn snapshot_to_nt_enum(snapshot: &Snapshot) -> PvStructure {
         .push(("alarm".into(), PvField::Structure(build_alarm(snapshot))));
     pv.fields.push((
         "timeStamp".into(),
-        PvField::Structure(build_timestamp(snapshot.timestamp)),
+        PvField::Structure(build_timestamp(snapshot.timestamp, snapshot.user_tag)),
     ));
 
     pv
@@ -153,7 +153,7 @@ pub fn snapshot_to_nt_scalar_array(snapshot: &Snapshot) -> PvStructure {
     // timeStamp
     pv.fields.push((
         "timeStamp".into(),
-        PvField::Structure(build_timestamp(snapshot.timestamp)),
+        PvField::Structure(build_timestamp(snapshot.timestamp, snapshot.user_tag)),
     ));
 
     // display
@@ -197,6 +197,39 @@ pub fn pv_structure_to_epics(pv: &PvStructure) -> Option<EpicsValue> {
             }
         }
     }
+}
+
+// ---------------------------------------------------------------------------
+// pvRequest field selection
+// ---------------------------------------------------------------------------
+
+/// Filter a PvStructure to only include fields requested in pvRequest.
+///
+/// pvRequest is a PvStructure describing which fields the client wants.
+/// If pvRequest has a "field" sub-structure, only those named fields are kept.
+/// If pvRequest is empty or has no "field", return the full structure.
+///
+/// Corresponds to C++ QSRV's pvRequest mask handling.
+pub fn filter_by_request(pv: &PvStructure, request: &PvStructure) -> PvStructure {
+    // Look for "field" sub-structure in request
+    let field_spec = match request.get_field("field") {
+        Some(PvField::Structure(s)) => s,
+        _ => return pv.clone(), // No field filter, return everything
+    };
+
+    // If field spec is empty, return everything
+    if field_spec.fields.is_empty() {
+        return pv.clone();
+    }
+
+    // Filter: only include fields named in the request
+    let mut result = PvStructure::new(&pv.struct_id);
+    for (name, value) in &pv.fields {
+        if field_spec.get_field(name).is_some() {
+            result.fields.push((name.clone(), value.clone()));
+        }
+    }
+    result
 }
 
 // ---------------------------------------------------------------------------
@@ -284,7 +317,7 @@ fn build_alarm(snapshot: &Snapshot) -> PvStructure {
     alarm
 }
 
-fn build_timestamp(time: SystemTime) -> PvStructure {
+fn build_timestamp(time: SystemTime, user_tag: i32) -> PvStructure {
     let mut ts = PvStructure::new("time_t");
     let (secs, nanos) = match time.duration_since(UNIX_EPOCH) {
         Ok(d) => (d.as_secs() as i64, d.subsec_nanos() as i32),
@@ -298,7 +331,7 @@ fn build_timestamp(time: SystemTime) -> PvStructure {
     ts.fields
         .push(("nanoseconds".into(), PvField::Scalar(ScalarValue::Int(nanos))));
     ts.fields
-        .push(("userTag".into(), PvField::Scalar(ScalarValue::Int(0))));
+        .push(("userTag".into(), PvField::Scalar(ScalarValue::Int(user_tag))));
     ts
 }
 
@@ -314,7 +347,7 @@ fn build_display(disp: &DisplayInfo) -> PvStructure {
     ));
     d.fields.push((
         "description".into(),
-        PvField::Scalar(ScalarValue::String(String::new())),
+        PvField::Scalar(ScalarValue::String(disp.description.clone())),
     ));
     d.fields.push((
         "units".into(),
@@ -326,7 +359,7 @@ fn build_display(disp: &DisplayInfo) -> PvStructure {
     ));
     d.fields.push((
         "form".into(),
-        PvField::Scalar(ScalarValue::Int(0)), // Default form
+        PvField::Scalar(ScalarValue::Int(disp.form as i32)),
     ));
     d
 }
@@ -460,12 +493,14 @@ mod tests {
                 upper_warning_limit: 80.0,
                 lower_warning_limit: 10.0,
                 lower_alarm_limit: 5.0,
+                ..Default::default()
             }),
             control: Some(ControlInfo {
                 upper_ctrl_limit: 100.0,
                 lower_ctrl_limit: 0.0,
             }),
             enums: None,
+            user_tag: 0,
         }
     }
 
@@ -507,6 +542,7 @@ mod tests {
             enums: Some(EnumInfo {
                 strings: vec!["Off".into(), "On".into()],
             }),
+            user_tag: 0,
         };
         let pv = snapshot_to_nt_enum(&snap);
 
@@ -563,6 +599,7 @@ mod tests {
             enums: Some(EnumInfo {
                 strings: vec!["A".into(), "B".into(), "C".into()],
             }),
+            user_tag: 0,
         };
         let pv = snapshot_to_nt_enum(&snap);
         let back = pv_structure_to_epics(&pv).unwrap();

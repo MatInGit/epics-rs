@@ -7,8 +7,12 @@
 //!
 //! On `start()`, reads the current record state and stores it as an
 //! initial snapshot, matching C++ BaseMonitor::connect() behavior.
+//!
+//! Tracks overflow events via a counter, corresponding to C++ BaseMonitor's
+//! `inoverflow` flag and overflow BitSet.
 
 use std::sync::Arc;
+use std::sync::atomic::{AtomicU64, Ordering};
 
 use epics_base_rs::server::database::db_access::DbSubscription;
 use epics_base_rs::server::database::PvDatabase;
@@ -19,6 +23,10 @@ use crate::provider::PvaMonitor;
 use crate::pvif::{NtType, snapshot_to_pv_structure};
 
 /// A PVA monitor backed by a DbSubscription for a single record.
+///
+/// Tracks overflow statistics: when the internal mpsc channel is full,
+/// events are dropped. The `overflow_count` tracks how many events
+/// were lost (corresponds to C++ BaseMonitor's overflow BitSet).
 pub struct BridgeMonitor {
     db: Arc<PvDatabase>,
     record_name: String,
@@ -26,8 +34,9 @@ pub struct BridgeMonitor {
     subscription: Option<DbSubscription>,
     running: bool,
     /// Initial complete snapshot sent on first poll() after start().
-    /// Matches C++ BaseMonitor::connect() behavior.
     initial_snapshot: Option<PvStructure>,
+    /// Number of monitor events lost due to overflow.
+    overflow_count: Arc<AtomicU64>,
 }
 
 impl BridgeMonitor {
@@ -39,7 +48,13 @@ impl BridgeMonitor {
             subscription: None,
             running: false,
             initial_snapshot: None,
+            overflow_count: Arc::new(AtomicU64::new(0)),
         }
+    }
+
+    /// Get the number of overflow events (events lost due to queue full).
+    pub fn overflow_count(&self) -> u64 {
+        self.overflow_count.load(Ordering::Relaxed)
     }
 }
 

@@ -13,7 +13,7 @@ use crate::error::{BridgeError, BridgeResult};
 use crate::monitor::BridgeMonitor;
 use crate::provider::Channel;
 use crate::pvif::{
-    NtType, build_field_desc_for_nt, pv_structure_to_epics, snapshot_to_pv_structure,
+    self, NtType, build_field_desc_for_nt, pv_structure_to_epics, snapshot_to_pv_structure,
 };
 
 // ---------------------------------------------------------------------------
@@ -163,7 +163,7 @@ impl Channel for BridgeChannel {
         &self.record_name
     }
 
-    async fn get(&self, _request: &PvStructure) -> BridgeResult<PvStructure> {
+    async fn get(&self, request: &PvStructure) -> BridgeResult<PvStructure> {
         let rec = self
             .db
             .get_record(&self.record_name)
@@ -178,7 +178,8 @@ impl Channel for BridgeChannel {
             }
         })?;
 
-        Ok(snapshot_to_pv_structure(&snapshot, self.nt_type))
+        let full = snapshot_to_pv_structure(&snapshot, self.nt_type);
+        Ok(pvif::filter_by_request(&full, request))
     }
 
     async fn put(&self, value: &PvStructure) -> BridgeResult<()> {

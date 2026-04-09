@@ -110,6 +110,25 @@ fn scalar_to_i64(val: &ScalarValue) -> i64 {
     }
 }
 
+/// Resolve an enum string to its index using a list of choice strings.
+///
+/// Corresponds to C++ dbf_copy.cpp enum string → index reverse lookup.
+/// Returns None if the string doesn't match any choice.
+pub fn enum_string_to_index(choices: &[String], name: &str) -> Option<u16> {
+    choices
+        .iter()
+        .position(|s| s == name)
+        .map(|i| i as u16)
+}
+
+/// Convert an enum index to its string representation.
+pub fn enum_index_to_string(choices: &[String], index: u16) -> String {
+    choices
+        .get(index as usize)
+        .cloned()
+        .unwrap_or_else(|| format!("{index}"))
+}
+
 /// Convert EpicsValue to PvField (scalar or array).
 pub fn epics_to_pv_field(val: &EpicsValue) -> PvField {
     match val {

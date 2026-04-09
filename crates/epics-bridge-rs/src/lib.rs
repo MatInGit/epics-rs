@@ -39,5 +39,8 @@ pub use error::{BridgeError, BridgeResult};
 pub use group::{AnyMonitor, GroupChannel, GroupMonitor};
 pub use group_config::GroupPvDef;
 pub use monitor::BridgeMonitor;
-pub use provider::{AnyChannel, BridgeProvider, Channel, ChannelProvider, PvaMonitor};
+pub use provider::{
+    AccessControl, AllowAllAccess, AnyChannel, BridgeProvider, Channel, ChannelProvider,
+    PvaMonitor,
+};
 pub use pvif::{FieldMapping, NtType};
