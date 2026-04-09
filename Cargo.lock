@@ -4,7 +4,7 @@ version = 4
 
 [[package]]
 name = "ad-core-rs"
-version = "0.8.0"
+version = "0.8.1"
 dependencies = [
  "asyn-rs",
  "epics-base-rs",
@@ -17,7 +17,7 @@ dependencies = [
 
 [[package]]
 name = "ad-plugins-rs"
-version = "0.8.0"
+version = "0.8.1"
 dependencies = [
  "ad-core-rs",
  "asyn-rs",
@@ -127,7 +127,7 @@ checksum = "7f202df86484c868dbad7eaa557ef785d5c66295e41b460ef922eca0723b842c"
 
 [[package]]
 name = "asyn-rs"
-version = "0.8.0"
+version = "0.8.1"
 dependencies = [
  "bitflags",
  "criterion",
@@ -428,7 +428,7 @@ checksum = "c34f04666d835ff5d62e058c3995147c06f42fe86ff053337632bca83e42702d"
 
 [[package]]
 name = "epics-base-rs"
-version = "0.8.0"
+version = "0.8.1"
 dependencies = [
  "bytes",
  "chrono",
@@ -446,8 +446,20 @@ dependencies = [
 ]
 
 [[package]]
+name = "epics-bridge-rs"
+version = "0.8.1"
+dependencies = [
+ "epics-base-rs",
+ "epics-pva-rs",
+ "serde",
+ "serde_json",
+ "thiserror",
+ "tokio",
+]
+
+[[package]]
 name = "epics-ca-rs"
-version = "0.8.0"
+version = "0.8.1"
 dependencies = [
  "chrono",
  "clap",
@@ -459,7 +471,7 @@ dependencies = [
 
 [[package]]
 name = "epics-macros-rs"
-version = "0.8.0"
+version = "0.8.1"
 dependencies = [
  "epics-base-rs",
  "proc-macro2",
@@ -469,7 +481,7 @@ dependencies = [
 
 [[package]]
 name = "epics-pva-rs"
-version = "0.8.0"
+version = "0.8.1"
 dependencies = [
  "chrono",
  "clap",
@@ -480,7 +492,7 @@ dependencies = [
 
 [[package]]
 name = "epics-rs"
-version = "0.8.0"
+version = "0.8.1"
 dependencies = [
  "ad-core-rs",
  "ad-plugins-rs",
@@ -885,7 +897,7 @@ checksum = "f8ca58f447f06ed17d5fc4043ce1b10dd205e060fb3ce5b979b8ed8e59ff3f79"
 
 [[package]]
 name = "mini-beamline"
-version = "0.8.0"
+version = "0.8.1"
 dependencies = [
  "ad-core-rs",
  "ad-plugins-rs",
@@ -928,7 +940,7 @@ dependencies = [
 
 [[package]]
 name = "motor-rs"
-version = "0.8.0"
+version = "0.8.1"
 dependencies = [
  "asyn-rs",
  "bitflags",
@@ -1037,7 +1049,7 @@ checksum = "d6790f58c7ff633d8771f42965289203411a5e5c68388703c06e14f24770b41e"
 
 [[package]]
 name = "ophyd-test-ioc"
-version = "0.8.0"
+version = "0.8.1"
 dependencies = [
  "ad-core-rs",
  "ad-plugins-rs",
@@ -1053,7 +1065,7 @@ dependencies = [
 
 [[package]]
 name = "optics-rs"
-version = "0.8.0"
+version = "0.8.1"
 dependencies = [
  "asyn-rs",
  "epics-base-rs",
@@ -1249,7 +1261,7 @@ dependencies = [
 
 [[package]]
 name = "random-signals"
-version = "0.8.0"
+version = "0.8.1"
 dependencies = [
  "epics-base-rs",
  "epics-ca-rs",
@@ -1399,7 +1411,7 @@ dependencies = [
 
 [[package]]
 name = "scaler-rs"
-version = "0.8.0"
+version = "0.8.1"
 dependencies = [
  "asyn-rs",
  "epics-base-rs",
@@ -1419,7 +1431,7 @@ dependencies = [
 
 [[package]]
 name = "scope-ioc"
-version = "0.8.0"
+version = "0.8.1"
 dependencies = [
  "asyn-rs",
  "epics-base-rs",
@@ -1532,7 +1544,7 @@ dependencies = [
 
 [[package]]
 name = "sim-detector"
-version = "0.8.0"
+version = "0.8.1"
 dependencies = [
  "ad-core-rs",
  "ad-plugins-rs",
@@ -1588,7 +1600,7 @@ dependencies = [
 
 [[package]]
 name = "std-rs"
-version = "0.8.0"
+version = "0.8.1"
 dependencies = [
  "asyn-rs",
  "chrono",
