@@ -262,7 +262,9 @@ impl Channel for BridgeChannel {
                     .map_err(|e| BridgeError::PutRejected(e.to_string()))?;
 
                 // If block=true, wait for processing to complete
-                if opts.block && let Some(rx) = notify_rx {
+                if opts.block
+                    && let Some(rx) = notify_rx
+                {
                     let _ = rx.await;
                 }
             }

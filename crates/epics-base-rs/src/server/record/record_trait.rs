@@ -165,6 +165,25 @@ pub trait Record: Send + Sync + 'static {
         Ok(ProcessOutcome::complete())
     }
 
+    /// Optional: report whether this record's last `process()` call
+    /// mutated a metadata-class field (EGU/PREC/HOPR/LOPR/HLM/LLM/
+    /// alarm limits / DRVH/DRVL / state strings).
+    ///
+    /// The framework checks this after every `process()` call and, if
+    /// true, invalidates the record's metadata cache so the next
+    /// snapshot rebuilds from the new values.
+    ///
+    /// Default: `false` — most records never touch metadata fields
+    /// during processing. Override only when your record dynamically
+    /// adjusts limits or unit strings (e.g., a motor that recomputes
+    /// HLM/LLM after a hardware homing operation).
+    ///
+    /// Implementations should reset their internal flag after returning
+    /// `true` so the next cycle starts clean.
+    fn took_metadata_change(&mut self) -> bool {
+        false
+    }
+
     /// Get a field value by name.
     fn get_field(&self, name: &str) -> Option<EpicsValue>;
 

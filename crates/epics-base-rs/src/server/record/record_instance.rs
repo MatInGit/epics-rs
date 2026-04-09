@@ -38,6 +38,16 @@ pub(crate) struct MetadataSnapshot {
 
 /// Returns true if writing to this field should invalidate the metadata
 /// cache. Field name is expected uppercase.
+///
+/// **MUST be kept in sync with `populate_display_info`,
+/// `populate_control_info`, and `populate_enum_info`.** If you add a
+/// new source field there, add it here too — otherwise the cache will
+/// serve stale metadata until some other tracked field is written.
+///
+/// Currently uncovered (because they are not yet populated by any
+/// `populate_*` function): `DESC` (would map to `display.description`
+/// — populate hook missing), `Q:form` info tag (would map to
+/// `display.form`). Add to this set if/when those are wired up.
 fn is_metadata_field(name: &str) -> bool {
     matches!(
         name,
@@ -91,6 +101,38 @@ pub struct RecordInstance {
     /// containing `RecordInstance` is shared via `Arc<RwLock<...>>` from
     /// `PvDatabase`, and snapshot construction holds a read lock; the
     /// inner Mutex lets us still mutate the cache from a `&self` method.
+    ///
+    /// # Cache invariant (CONTRACT)
+    ///
+    /// The cache is **only correct under the following contract**: every
+    /// code path that mutates a metadata-class field (the set defined in
+    /// the file-private `is_metadata_field` predicate) MUST call
+    /// [`RecordInstance::notify_field_written`] (or
+    /// [`RecordInstance::invalidate_metadata_cache`] directly) afterward.
+    ///
+    /// All current write paths in `field_io.rs` already do this. If you
+    /// add a new code path that:
+    ///
+    /// - calls `instance.record.put_field(...)` directly, OR
+    /// - mutates record fields from inside `Record::process()`,
+    ///   `Record::on_put`, or `Record::special` and that mutation could
+    ///   touch a metadata-class field, OR
+    /// - lets a `Box<dyn Record>` implementation expose its own
+    ///   mutation methods that change metadata fields,
+    ///
+    /// then call `instance.notify_field_written(field_name)` to keep the
+    /// cache consistent. Forgetting will produce a stale snapshot —
+    /// monitors will continue to see the old EGU/PREC/limits until the
+    /// next legitimate metadata-field write triggers invalidation.
+    ///
+    /// # Symmetric note for `populate_*` extensions
+    ///
+    /// If a future change adds a new field to `populate_display_info`,
+    /// `populate_control_info`, or `populate_enum_info` (e.g. populating
+    /// `display.form` from a record's `Q:form` info tag, or
+    /// `display.description` from DESC), the new source field name MUST
+    /// also be added to `is_metadata_field` so writes to it invalidate
+    /// the cache.
     pub(crate) metadata_cache: StdMutex<Option<MetadataSnapshot>>,
 }
 
@@ -1079,6 +1121,14 @@ impl RecordInstance {
         // Note: process_local() does not execute ProcessActions — those are
         // handled by the full process_record_with_links() path in processing.rs.
 
+        // If the record reports it modified a metadata-class field during
+        // process(), invalidate the metadata cache so the next snapshot
+        // rebuilds from the new values. Default impl returns false, so
+        // most records pay zero cost here.
+        if self.record.took_metadata_change() {
+            self.invalidate_metadata_cache();
+        }
+
         if process_result == RecordProcessResult::AsyncPending {
             // Async: PACT stays set, no further processing this cycle
             // Don't clear processing flag (guard won't run — we leak it intentionally)
@@ -1534,5 +1584,139 @@ mod metadata_cache_tests {
         let d2 = snap2.display.unwrap();
         assert_eq!(d1.units, d2.units);
         assert_eq!(d1.precision, d2.precision);
+    }
+
+    /// Stub record that simulates a record whose process() mutates an
+    /// internal metadata field. Used to verify that the
+    /// `Record::took_metadata_change()` hook actually triggers cache
+    /// invalidation in `process_local()`.
+    struct MutatingMetaRecord {
+        val: f64,
+        egu: String,
+        took_change: bool,
+    }
+
+    impl Record for MutatingMetaRecord {
+        fn record_type(&self) -> &'static str {
+            "ai" // pretend to be ai so populate_display_info populates EGU
+        }
+        fn process(&mut self) -> CaResult<crate::server::record::ProcessOutcome> {
+            // Simulate dynamic metadata change inside processing
+            self.egu = "kV".to_string();
+            self.took_change = true;
+            Ok(crate::server::record::ProcessOutcome::complete())
+        }
+        fn get_field(&self, name: &str) -> Option<EpicsValue> {
+            match name {
+                "VAL" => Some(EpicsValue::Double(self.val)),
+                "EGU" => Some(EpicsValue::String(self.egu.clone())),
+                "PREC" => Some(EpicsValue::Short(0)),
+                "HOPR" => Some(EpicsValue::Double(0.0)),
+                "LOPR" => Some(EpicsValue::Double(0.0)),
+                _ => None,
+            }
+        }
+        fn put_field(&mut self, name: &str, value: EpicsValue) -> CaResult<()> {
+            match (name, value) {
+                ("VAL", EpicsValue::Double(v)) => {
+                    self.val = v;
+                    Ok(())
+                }
+                ("EGU", EpicsValue::String(s)) => {
+                    self.egu = s;
+                    Ok(())
+                }
+                _ => Err(CaError::FieldNotFound(name.to_string())),
+            }
+        }
+        fn field_list(&self) -> &'static [crate::server::record::FieldDesc] {
+            &[]
+        }
+        fn took_metadata_change(&mut self) -> bool {
+            let was = self.took_change;
+            self.took_change = false; // reset after reporting
+            was
+        }
+    }
+
+    #[test]
+    fn process_local_invalidates_cache_on_took_metadata_change() {
+        let mut inst = RecordInstance::new(
+            "MUT".to_string(),
+            MutatingMetaRecord {
+                val: 1.0,
+                egu: "V".to_string(),
+                took_change: false,
+            },
+        );
+
+        // Build the cache once with the original EGU
+        let snap1 = inst.snapshot_for_field("VAL").unwrap();
+        assert_eq!(snap1.display.unwrap().units, "V");
+        assert!(inst.metadata_cache.lock().unwrap().is_some());
+
+        // Run process_local — the stub record sets took_change inside process()
+        let _ = inst.process_local();
+
+        // Cache should now be invalidated (took_metadata_change returned true)
+        assert!(
+            inst.metadata_cache.lock().unwrap().is_none(),
+            "process_local should invalidate cache when took_metadata_change is true"
+        );
+
+        // Next snapshot picks up the new EGU
+        let snap2 = inst.snapshot_for_field("VAL").unwrap();
+        assert_eq!(snap2.display.unwrap().units, "kV");
+    }
+
+    /// Stub record that does NOT mutate metadata fields. Verifies the
+    /// default `took_metadata_change` returns false and the cache stays.
+    struct StableMetaRecord {
+        val: f64,
+    }
+    impl Record for StableMetaRecord {
+        fn record_type(&self) -> &'static str {
+            "ai"
+        }
+        fn process(&mut self) -> CaResult<crate::server::record::ProcessOutcome> {
+            self.val += 1.0;
+            Ok(crate::server::record::ProcessOutcome::complete())
+        }
+        fn get_field(&self, name: &str) -> Option<EpicsValue> {
+            match name {
+                "VAL" => Some(EpicsValue::Double(self.val)),
+                "EGU" => Some(EpicsValue::String("V".into())),
+                "PREC" => Some(EpicsValue::Short(0)),
+                "HOPR" => Some(EpicsValue::Double(0.0)),
+                "LOPR" => Some(EpicsValue::Double(0.0)),
+                _ => None,
+            }
+        }
+        fn put_field(&mut self, _: &str, _: EpicsValue) -> CaResult<()> {
+            Ok(())
+        }
+        fn field_list(&self) -> &'static [crate::server::record::FieldDesc] {
+            &[]
+        }
+        // took_metadata_change uses default impl (returns false)
+    }
+
+    #[test]
+    fn process_local_keeps_cache_when_no_metadata_change() {
+        let mut inst = RecordInstance::new(
+            "STABLE".to_string(),
+            StableMetaRecord { val: 0.0 },
+        );
+
+        let _ = inst.snapshot_for_field("VAL");
+        assert!(inst.metadata_cache.lock().unwrap().is_some());
+
+        // Run process_local several times — cache should remain intact
+        let _ = inst.process_local();
+        assert!(inst.metadata_cache.lock().unwrap().is_some());
+        let _ = inst.process_local();
+        assert!(inst.metadata_cache.lock().unwrap().is_some());
+        let _ = inst.process_local();
+        assert!(inst.metadata_cache.lock().unwrap().is_some());
     }
 }
