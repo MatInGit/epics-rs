@@ -242,6 +242,51 @@ impl GroupChannel {
 
         Ok((nt_type, dbf_to_scalar_type(value_dbf)))
     }
+
+    /// Look up a member's actual DBF field type from the database.
+    /// Returns `Double` as a fallback if the record/field can't be found.
+    async fn member_dbf_type(&self, member: &GroupMember) -> DbFieldType {
+        let (record_name, field_name) =
+            epics_base_rs::server::database::parse_pv_name(&member.channel);
+
+        let rec = match self.db.get_record(record_name).await {
+            Some(r) => r,
+            None => return DbFieldType::Double,
+        };
+        let instance = rec.read().await;
+        let field_upper = field_name.to_ascii_uppercase();
+        instance
+            .record
+            .field_list()
+            .iter()
+            .find(|f| f.name == field_upper)
+            .map(|f| f.dbf_type)
+            .unwrap_or(DbFieldType::Double)
+    }
+
+    /// Convert an incoming PvField to an EpicsValue typed against the
+    /// member's actual DBF field. This avoids context-free fallback
+    /// conversions (e.g. ScalarValue::Long → EpicsValue::Double).
+    ///
+    /// For arrays and structures, falls back to `pv_field_to_epics`.
+    async fn convert_member_value(
+        &self,
+        member: &GroupMember,
+        pv_field: &epics_pva_rs::pvdata::PvField,
+    ) -> Option<epics_base_rs::types::EpicsValue> {
+        use epics_pva_rs::pvdata::PvField;
+        match pv_field {
+            PvField::Scalar(sv) => {
+                let target = self.member_dbf_type(member).await;
+                Some(super::convert::scalar_to_epics_typed(sv, target))
+            }
+            // Arrays and structures: defer to the fallback array converter.
+            // C++ QSRV uses dbChannelFinalNoElements + DBR types for arrays;
+            // for now we delegate to pv_field_to_epics which preserves
+            // element types.
+            _ => super::convert::pv_field_to_epics(pv_field),
+        }
+    }
 }
 
 impl super::provider::Channel for GroupChannel {
@@ -262,22 +307,26 @@ impl super::provider::Channel for GroupChannel {
         ordered.sort_by_key(|m| m.put_order);
 
         if self.def.atomic {
-            // Atomic put: collect all values first, then write in order.
-            // In C++ QSRV this uses DBManyLocker to hold all record locks
-            // simultaneously. Since epics-base-rs doesn't expose multi-lock,
-            // we write sequentially but without yielding between writes.
+            // Atomic put: convert all values up-front (DBF-typed), then
+            // perform the actual writes in order. In C++ QSRV this uses
+            // DBManyLocker to hold all record locks simultaneously.
+            // Since epics-base-rs doesn't expose multi-lock, we write
+            // sequentially without yielding between writes.
             let mut writes: Vec<(&GroupMember, Option<epics_base_rs::types::EpicsValue>)> =
                 Vec::new();
 
             for member in &ordered {
-                let pv_field = match value.get_field(&member.field_name) {
-                    Some(f) => f,
-                    None => {
-                        writes.push((member, None));
-                        continue;
-                    }
+                if member.mapping == FieldMapping::Proc {
+                    // Proc has no value — write entry stays None,
+                    // process_record() runs in the apply phase
+                    writes.push((member, None));
+                    continue;
+                }
+
+                let epics_val = match value.get_field(&member.field_name) {
+                    Some(pv_field) => self.convert_member_value(member, pv_field).await,
+                    None => None,
                 };
-                let epics_val = super::convert::pv_field_to_epics(pv_field);
                 writes.push((member, epics_val));
             }
 
@@ -305,13 +354,12 @@ impl super::provider::Channel for GroupChannel {
                 }
             }
         } else {
-            // Non-atomic put: write each member individually
+            // Non-atomic put: write each member individually.
+            // IMPORTANT: Proc members are checked BEFORE the request-field
+            // lookup because they have no value to read — process_record()
+            // must run regardless of whether the request contains that field
+            // (matches C++ pdbgroup.cpp:300+ allowProc semantics).
             for member in ordered {
-                let pv_field = match value.get_field(&member.field_name) {
-                    Some(f) => f,
-                    None => continue,
-                };
-
                 let (record_name, field_name) =
                     epics_base_rs::server::database::parse_pv_name(&member.channel);
 
@@ -320,22 +368,32 @@ impl super::provider::Channel for GroupChannel {
                         .process_record(record_name)
                         .await
                         .map_err(|e| BridgeError::PutRejected(e.to_string()))?;
+                    continue;
+                }
+
+                let pv_field = match value.get_field(&member.field_name) {
+                    Some(f) => f,
+                    None => continue,
+                };
+
+                let epics_val = match self
+                    .convert_member_value(member, pv_field)
+                    .await
+                {
+                    Some(v) => v,
+                    None => continue,
+                };
+
+                if use_process {
+                    self.db
+                        .put_record_field_from_ca(record_name, field_name, epics_val)
+                        .await
+                        .map_err(|e| BridgeError::PutRejected(e.to_string()))?;
                 } else {
-                    let epics_val = match super::convert::pv_field_to_epics(pv_field) {
-                        Some(v) => v,
-                        None => continue,
-                    };
-                    if use_process {
-                        self.db
-                            .put_record_field_from_ca(record_name, field_name, epics_val)
-                            .await
-                            .map_err(|e| BridgeError::PutRejected(e.to_string()))?;
-                    } else {
-                        self.db
-                            .put_pv(&format!("{record_name}.{field_name}"), epics_val)
-                            .await
-                            .map_err(|e| BridgeError::PutRejected(e.to_string()))?;
-                    }
+                    self.db
+                        .put_pv(&format!("{record_name}.{field_name}"), epics_val)
+                        .await
+                        .map_err(|e| BridgeError::PutRejected(e.to_string()))?;
                 }
             }
         }
