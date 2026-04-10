@@ -812,9 +812,9 @@ async fn run_coordinator(
     let mut pending_wait_connected: HashMap<u32, Vec<oneshot::Sender<()>>> = HashMap::new();
     let mut pending_found: HashMap<u32, SocketAddr> = HashMap::new();
     let mut subscriptions = SubscriptionRegistry::new();
-    let mut read_waiters: HashMap<u32, oneshot::Sender<CaResult<(u16, u32, Vec<u8>)>>> =
+    let mut read_waiters: HashMap<u32, (u32, oneshot::Sender<CaResult<(u16, u32, Vec<u8>)>>)> =
         HashMap::new();
-    let mut write_waiters: HashMap<u32, oneshot::Sender<CaResult<()>>> = HashMap::new();
+    let mut write_waiters: HashMap<u32, (u32, oneshot::Sender<CaResult<()>>)> = HashMap::new();
     // Reverse index: server_addr -> set of cids last seen on that server.
     // Keep disconnected channels indexed so beacon anomalies can trigger
     // immediate re-search for the affected IOC.
@@ -956,16 +956,21 @@ async fn run_coordinator(
 
                         // Clear channel on server + clean reverse index
                         if let Some(ch) = channels.get(&cid) {
-                            if ch.state == ChannelState::Connected {
+                            if ch.state.is_operational() {
                                 let _ = transport_tx.send(TransportCommand::ClearChannel {
                                     cid,
                                     sid: ch.sid,
                                     server_addr: ch.server_addr.unwrap(),
                                 });
                             }
-                            // Cancel search if still searching
-                            if ch.state == ChannelState::Searching {
-                                let _ = search_tx.send(SearchRequest::Cancel { cid });
+                            // Cancel search for any non-connected state
+                            match ch.state {
+                                ChannelState::Searching
+                                | ChannelState::Connecting
+                                | ChannelState::Disconnected => {
+                                    let _ = search_tx.send(SearchRequest::Cancel { cid });
+                                }
+                                _ => {}
                             }
                             if let Some(addr) = ch.server_addr {
                                 remove_server_channel(&mut server_channels, addr, cid);
@@ -973,11 +978,11 @@ async fn run_coordinator(
                         }
                         channels.remove(&cid);
                     }
-                    CoordRequest::ReadNotify { cid: _, ioid, reply } => {
-                        read_waiters.insert(ioid, reply);
+                    CoordRequest::ReadNotify { cid, ioid, reply } => {
+                        read_waiters.insert(ioid, (cid, reply));
                     }
-                    CoordRequest::WriteNotify { cid: _, ioid, value: _, reply } => {
-                        write_waiters.insert(ioid, reply);
+                    CoordRequest::WriteNotify { cid, ioid, value: _, reply } => {
+                        write_waiters.insert(ioid, (cid, reply));
                     }
                     CoordRequest::Shutdown { reply } => {
                         // Send ClearChannel for all connected channels
@@ -998,21 +1003,32 @@ async fn run_coordinator(
                     CoordRequest::ForceRescanServer { server_addr } => {
                         diag.beacon_anomalies.fetch_add(1, Ordering::Relaxed);
                         diag.record(DiagEvent::BeaconAnomaly { server: server_addr });
-                        // Beacon anomaly: rescan Disconnected/Searching channels
-                        // for this server. Connected channels are left alone —
-                        // if the IOC truly restarted, TCP will break on its own.
-                        if let Some(cids) = server_channels.get(&server_addr) {
-                            for &cid in cids {
-                                if let Some(ch) = channels.get(&cid) {
-                                    if ch.state == ChannelState::Disconnected
-                                        || ch.state == ChannelState::Searching
-                                    {
-                                        let _ = search_tx.send(SearchRequest::Schedule {
-                                            cid,
-                                            pv_name: ch.pv_name.clone(),
-                                            reason: SearchReason::BeaconAnomaly,
-                                            initial_lane: 0,
-                                        });
+                        // Like the C CA client (libca), rescan ALL disconnected/
+                        // searching channels on any beacon anomaly.  The beacon
+                        // address may use INADDR_ANY and won't match our stored
+                        // server_addr, so a per-server lookup is unreliable.
+                        let mut probed_servers = HashSet::new();
+                        for ch in channels.values() {
+                            if ch.state == ChannelState::Disconnected
+                                || ch.state == ChannelState::Searching
+                            {
+                                let _ = search_tx.send(SearchRequest::Schedule {
+                                    cid: ch.cid,
+                                    pv_name: ch.pv_name.clone(),
+                                    reason: SearchReason::BeaconAnomaly,
+                                    initial_lane: 0,
+                                });
+                            } else if ch.state.is_operational() {
+                                // Beacon anomaly on a connected server: send
+                                // immediate echo probe to detect dead TCP faster
+                                // (matches C EPICS beaconAnomaly watchdog flag).
+                                if let Some(addr) = ch.server_addr {
+                                    if probed_servers.insert(addr) {
+                                        let _ = transport_tx.send(
+                                            TransportCommand::EchoProbe {
+                                                server_addr: addr,
+                                            },
+                                        );
                                     }
                                 }
                             }
@@ -1093,19 +1109,19 @@ async fn run_coordinator(
                         }
                     }
                     TransportEvent::ReadResponse { ioid, data_type, count, data } => {
-                        if let Some(waiter) = read_waiters.remove(&ioid) {
+                        if let Some((_, waiter)) = read_waiters.remove(&ioid) {
                             let _ = waiter.send(Ok((data_type, count, data)));
                         }
                     }
                     TransportEvent::ReadError { ioid, eca_status } => {
-                        if let Some(waiter) = read_waiters.remove(&ioid) {
+                        if let Some((_, waiter)) = read_waiters.remove(&ioid) {
                             let _ = waiter.send(Err(CaError::Protocol(
                                 format!("server returned ECA error {eca_status:#06x}")
                             )));
                         }
                     }
                     TransportEvent::WriteResponse { ioid, status } => {
-                        if let Some(waiter) = write_waiters.remove(&ioid) {
+                        if let Some((_, waiter)) = write_waiters.remove(&ioid) {
                             if status == 1 || status == ECA_NORMAL {
                                 let _ = waiter.send(Ok(()));
                             } else {
@@ -1154,7 +1170,7 @@ async fn run_coordinator(
                         // Logged in transport layer; no further action needed
                     }
                     TransportEvent::TcpClosed { server_addr } => {
-                        handle_disconnect(&mut channels, &mut subscriptions, &search_tx, server_addr, &diag);
+                        handle_disconnect(&mut channels, &mut subscriptions, &mut server_channels, &search_tx, server_addr, &diag, &mut read_waiters, &mut write_waiters);
                     }
                     TransportEvent::ServerDisconnect { cid, server_addr } => {
                         // Single channel disconnect (CA_PROTO_SERVER_DISCONN)
@@ -1205,19 +1221,23 @@ async fn run_coordinator(
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 fn handle_disconnect(
     channels: &mut HashMap<u32, ChannelInner>,
     subscriptions: &mut SubscriptionRegistry,
+    server_channels: &mut HashMap<SocketAddr, HashSet<u32>>,
     search_tx: &mpsc::UnboundedSender<SearchRequest>,
     server_addr: SocketAddr,
     diag: &CaDiagnostics,
+    read_waiters: &mut HashMap<u32, (u32, oneshot::Sender<CaResult<(u16, u32, Vec<u8>)>>)>,
+    write_waiters: &mut HashMap<u32, (u32, oneshot::Sender<CaResult<()>>)>,
 ) {
     let mut affected_cids = Vec::new();
     let now = std::time::Instant::now();
 
     for ch in channels.values_mut() {
-        if ch.server_addr == Some(server_addr) && ch.state.is_operational()
-            || ch.state == ChannelState::Connecting
+        if ch.server_addr == Some(server_addr)
+            && (ch.state.is_operational() || ch.state == ChannelState::Connecting)
         {
             ch.state = ChannelState::Disconnected;
             affected_cids.push(ch.cid);
@@ -1235,7 +1255,10 @@ fn handle_disconnect(
             } else {
                 ch.reconnect_count = ch.reconnect_count.saturating_add(1);
             }
-            let initial_lane = ch.reconnect_count.min(8);
+            // Minimum lane 1 for bulk disconnects so the search engine
+            // applies jitter and prevents a reconnection storm (similar
+            // to C EPICS disconnectGovernorTimer batching).
+            let initial_lane = ch.reconnect_count.clamp(1, 8);
 
             let _ = search_tx.send(SearchRequest::Schedule {
                 cid: ch.cid,
@@ -1252,7 +1275,34 @@ fn handle_disconnect(
             channels: affected_cids.len(),
         });
     }
+    // Clean up stale server_channels entries so beacon anomaly
+    // lookups don't reference disconnected channels.
+    server_channels.remove(&server_addr);
     subscriptions.mark_disconnected(&affected_cids);
+
+    // Fail pending read/write waiters for affected channels so callers
+    // don't hang forever waiting for a response that will never arrive.
+    let affected: HashSet<u32> = affected_cids.into_iter().collect();
+    let stale_reads: Vec<u32> = read_waiters
+        .iter()
+        .filter(|(_, (cid, _))| affected.contains(cid))
+        .map(|(ioid, _)| *ioid)
+        .collect();
+    for ioid in stale_reads {
+        if let Some((_, sender)) = read_waiters.remove(&ioid) {
+            let _ = sender.send(Err(CaError::Disconnected));
+        }
+    }
+    let stale_writes: Vec<u32> = write_waiters
+        .iter()
+        .filter(|(_, (cid, _))| affected.contains(cid))
+        .map(|(ioid, _)| *ioid)
+        .collect();
+    for ioid in stale_writes {
+        if let Some((_, sender)) = write_waiters.remove(&ioid) {
+            let _ = sender.send(Err(CaError::Disconnected));
+        }
+    }
 }
 
 fn remove_server_channel(

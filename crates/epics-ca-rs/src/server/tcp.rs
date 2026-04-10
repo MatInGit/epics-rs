@@ -493,7 +493,7 @@ async fn dispatch_message(
                 if is_notify {
                     let mut resp = CaHeader::new(CA_PROTO_WRITE_NOTIFY);
                     resp.data_type = write_type as u16;
-                    resp.count = 1;
+                    resp.count = hdr.count;
                     resp.cid = ECA_NOWTACCESS;
                     resp.available = ioid;
                     let mut w = writer.lock().await;
@@ -504,6 +504,7 @@ async fn dispatch_message(
             }
 
             let count = hdr.actual_count() as usize;
+            let write_count = hdr.count; // Echo back in response (matches C EPICS)
             let new_value = match EpicsValue::from_bytes_array(write_type, payload, count) {
                 Ok(v) => v,
                 Err(_) => {
@@ -556,7 +557,7 @@ async fn dispatch_message(
 
                         let mut resp = CaHeader::new(CA_PROTO_WRITE_NOTIFY);
                         resp.data_type = write_type as u16;
-                        resp.count = 1;
+                        resp.count = write_count;
                         resp.cid = eca_status;
                         resp.available = ioid;
 
@@ -760,12 +761,12 @@ async fn dispatch_message(
             let pv_name = String::from_utf8_lossy(&payload[..end]).to_string();
 
             if db.has_name(&pv_name).await {
-                // Reply: data_type = tcp_port, cid = 0xFFFFFFFF, available = client's cid
+                // Reply: data_type = tcp_port, cid = 0 (INADDR_ANY), available = client's cid
                 // 8-byte payload containing CA_MINOR_VERSION as u16
                 let mut resp = CaHeader::new(CA_PROTO_SEARCH);
                 resp.data_type = state.tcp_port;
                 resp.set_payload_size(8, 0);
-                resp.cid = 0xFFFF_FFFF;
+                resp.cid = 0; // INADDR_ANY — client uses TCP peer addr
                 resp.available = hdr.available;
 
                 let mut search_payload = [0u8; 8];
@@ -784,6 +785,8 @@ async fn dispatch_message(
             let cid = hdr.available;
             if let Some(_entry) = state.channels.remove(&sid) {
                 let mut resp = CaHeader::new(CA_PROTO_CLEAR_CHANNEL);
+                resp.data_type = hdr.data_type;
+                resp.count = hdr.count;
                 resp.cid = sid;
                 resp.available = cid;
                 let mut w = writer.lock().await;

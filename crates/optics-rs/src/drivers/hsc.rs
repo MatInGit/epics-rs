@@ -429,11 +429,9 @@ impl HscPollLoop {
     /// matching C EPICS where pollers start after iocInit.
     pub async fn run(mut self) {
         // Wait for StartPolling before entering the active loop.
-        loop {
-            match self.cmd_rx.recv().await {
-                Some(HscPollCommand::StartPolling) => break,
-                Some(HscPollCommand::Shutdown) | None => return,
-            }
+        match self.cmd_rx.recv().await {
+            Some(HscPollCommand::StartPolling) => {}
+            Some(HscPollCommand::Shutdown) | None => return,
         }
 
         // Active polling loop

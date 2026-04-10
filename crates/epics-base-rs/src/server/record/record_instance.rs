@@ -1703,10 +1703,7 @@ mod metadata_cache_tests {
 
     #[test]
     fn process_local_keeps_cache_when_no_metadata_change() {
-        let mut inst = RecordInstance::new(
-            "STABLE".to_string(),
-            StableMetaRecord { val: 0.0 },
-        );
+        let mut inst = RecordInstance::new("STABLE".to_string(), StableMetaRecord { val: 0.0 });
 
         let _ = inst.snapshot_for_field("VAL");
         assert!(inst.metadata_cache.lock().unwrap().is_some());

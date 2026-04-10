@@ -16,6 +16,14 @@ pub async fn run_repeater() -> std::io::Result<()> {
 
     loop {
         let (len, src) = socket.recv_from(&mut buf).await?;
+
+        // C CA clients send a zero-length UDP packet for repeater
+        // registration (backward compat with pre-3.12 repeaters).
+        if len == 0 {
+            register_client(&socket, &mut clients, src).await;
+            continue;
+        }
+
         if len < CaHeader::SIZE {
             continue;
         }
@@ -26,29 +34,34 @@ pub async fn run_repeater() -> std::io::Result<()> {
 
         match hdr.cmmd {
             CA_PROTO_REPEATER_REGISTER => {
-                // Client wants to register. The client's IP is in available field,
-                // but we use the actual source address.
-                clients.insert(src);
-
-                // Send REPEATER_CONFIRM back
-                let mut confirm = CaHeader::new(CA_PROTO_REPEATER_CONFIRM);
-                // Put the client's IP in the available field
-                if let SocketAddr::V4(v4) = src {
-                    confirm.available = u32::from_be_bytes(v4.ip().octets());
-                }
-                let _ = socket.send_to(&confirm.to_bytes(), src).await;
+                register_client(&socket, &mut clients, src).await;
             }
             _ => {
-                // Beacon or other message from server — fan out to all registered clients
-                let data = &buf[..len];
-                // Remove dead clients on send failure
+                // Beacon or other message from server — fan out to all
+                // registered clients.  Fill in available=0 with source IP
+                // so clients can identify the server (matches C repeater).
+                let mut data = buf[..len].to_vec();
+                if len >= CaHeader::SIZE {
+                    let avail_offset = 12; // available field at bytes 12..16
+                    let avail = u32::from_be_bytes([
+                        data[avail_offset],
+                        data[avail_offset + 1],
+                        data[avail_offset + 2],
+                        data[avail_offset + 3],
+                    ]);
+                    if avail == 0 {
+                        if let SocketAddr::V4(v4) = src {
+                            data[avail_offset..avail_offset + 4].copy_from_slice(&v4.ip().octets());
+                        }
+                    }
+                }
+
                 let mut dead = Vec::new();
                 for client in &clients {
-                    // Don't echo back to the source
                     if *client == src {
                         continue;
                     }
-                    if socket.send_to(data, client).await.is_err() {
+                    if socket.send_to(&data, client).await.is_err() {
                         dead.push(*client);
                     }
                 }
@@ -58,6 +71,15 @@ pub async fn run_repeater() -> std::io::Result<()> {
             }
         }
     }
+}
+
+async fn register_client(socket: &UdpSocket, clients: &mut HashSet<SocketAddr>, src: SocketAddr) {
+    clients.insert(src);
+    let mut confirm = CaHeader::new(CA_PROTO_REPEATER_CONFIRM);
+    if let SocketAddr::V4(v4) = src {
+        confirm.available = u32::from_be_bytes(v4.ip().octets());
+    }
+    let _ = socket.send_to(&confirm.to_bytes(), src).await;
 }
 
 /// Try to register with an existing repeater. If none is running, spawn one

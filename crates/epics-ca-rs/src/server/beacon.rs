@@ -30,8 +30,8 @@ pub async fn run_beacon_emitter(server_port: u16, reset: Arc<Notify>) -> CaResul
     loop {
         // Build beacon message: CA_PROTO_RSRV_IS_UP
         let mut hdr = CaHeader::new(CA_PROTO_RSRV_IS_UP);
-        hdr.data_type = server_port;
-        hdr.count = 0;
+        hdr.data_type = CA_MINOR_VERSION;
+        hdr.count = server_port;
         hdr.cid = beacon_id;
         hdr.available = server_ip;
 

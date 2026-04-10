@@ -74,17 +74,19 @@ pub(crate) async fn run_beacon_monitor(coord_tx: mpsc::UnboundedSender<CoordRequ
             continue;
         }
 
-        let server_port = hdr.data_type;
+        // count = server TCP port (CA v4.1+), data_type = protocol version.
+        let server_port = if hdr.count != 0 {
+            hdr.count
+        } else {
+            CA_SERVER_PORT
+        };
         let beacon_id = hdr.cid;
 
-        // server_ip = 0 means "this host" — when relayed through the repeater,
-        // we can't determine the real server IP, so skip.
-        if hdr.available == 0 {
-            continue;
-        }
-
+        // New servers always set available=INADDR_ANY (0).  Use 0.0.0.0
+        // as-is for beacon tracking — each IOC still has a unique port,
+        // matching the approach used by the C CA client (libca).
         let server_ip = Ipv4Addr::from(hdr.available.to_be_bytes());
-        let server_addr = SocketAddr::V4(SocketAddrV4::new(server_ip, server_port as u16));
+        let server_addr = SocketAddr::V4(SocketAddrV4::new(server_ip, server_port));
         let now = Instant::now();
 
         let entry = servers.entry(server_addr).or_insert_with(|| BeaconState {

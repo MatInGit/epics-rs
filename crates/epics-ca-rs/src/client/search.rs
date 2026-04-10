@@ -168,6 +168,12 @@ struct SearchEngineState {
     budget: SendBudget,
     penalty: HashMap<SocketAddr, PenaltyEntry>,
     max_search_period: Duration,
+    /// Sequence number for datagram validation (matches C EPICS
+    /// lastReceivedSeqNo).  Embedded in VERSION header CID field;
+    /// servers echo it back, letting us reject stale responses.
+    dgram_seq: u32,
+    /// Last validated sequence number from a VERSION response.
+    last_valid_seq: Option<u32>,
 }
 
 impl SearchEngineState {
@@ -179,6 +185,8 @@ impl SearchEngineState {
             budget: SendBudget::new(),
             penalty: HashMap::new(),
             max_search_period: parse_max_search_period(),
+            dgram_seq: 0,
+            last_valid_seq: None,
         }
     }
 
@@ -381,9 +389,27 @@ fn handle_udp_response(
         };
 
         match hdr.cmmd {
+            CA_PROTO_VERSION => {
+                // Any VERSION in the datagram marks subsequent SEARCH
+                // responses as fresh.  If the server echoed our
+                // sequenceNoIsValid flag, record the exact seq_no.
+                if hdr.data_type & 0x8000 != 0 {
+                    state.last_valid_seq = Some(hdr.cid);
+                } else {
+                    // Server didn't echo our seq — still accept
+                    // responses in this datagram (older servers,
+                    // or our own Rust IOC, don't echo the flag).
+                    state.last_valid_seq = Some(0);
+                }
+                offset += CaHeader::SIZE + align8(hdr.postsize as usize);
+                continue;
+            }
             CA_PROTO_SEARCH => {
                 let server_port = hdr.data_type;
-                let server_ip = if hdr.cid == 0xFFFFFFFF {
+                // CA v4.8+: cid contains server IP, or 0 (INADDR_ANY)
+                // meaning "use UDP source address" (matches C EPICS
+                // udpiiu.cpp searchRespAction).
+                let server_ip = if hdr.cid == 0 {
                     src.ip()
                 } else {
                     std::net::IpAddr::V4(Ipv4Addr::from(hdr.cid.to_be_bytes()))
@@ -402,6 +428,14 @@ fn handle_udp_response(
                 if penalized {
                     // Don't consume this response — let the channel keep
                     // searching for a better server.
+                    offset += CaHeader::SIZE + align8(hdr.postsize as usize);
+                    continue;
+                }
+
+                // Reject stale responses from previous search rounds.
+                // A valid VERSION with our sequence must precede SEARCH
+                // responses in the same datagram.
+                if state.last_valid_seq.is_none() {
                     offset += CaHeader::SIZE + align8(hdr.postsize as usize);
                     continue;
                 }
@@ -462,10 +496,16 @@ async fn send_due_searches(
         return;
     }
 
-    // VERSION header — one per datagram.
+    // VERSION header — one per datagram.  Embed sequence number in CID
+    // field (with sequenceNoIsValid flag in data_type) so we can reject
+    // stale responses from previous search rounds (matches C EPICS
+    // dgSeqNoAtTimerExpire).
+    state.dgram_seq = state.dgram_seq.wrapping_add(1);
     let version_hdr = {
         let mut h = CaHeader::new(CA_PROTO_VERSION);
         h.count = CA_MINOR_VERSION;
+        h.data_type = 0x8000; // sequenceNoIsValid flag
+        h.cid = state.dgram_seq;
         h.to_bytes()
     };
 

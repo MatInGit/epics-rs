@@ -57,13 +57,13 @@ pub async fn run_udp_search_responder(
                     // Check both simple PVs and record base names
                     if db.has_name(pv_name).await {
                         // Build search response
-                        // cid = server IP (0xFFFFFFFF = "use sender's IP")
+                        // cid = server IP, or 0 (INADDR_ANY) for "use sender's IP"
                         // available = echo client's search ID (from request's available field)
                         let mut resp = CaHeader::new(CA_PROTO_SEARCH);
                         resp.postsize = 8;
                         resp.data_type = tcp_port;
                         resp.count = 0;
-                        resp.cid = 0xFFFFFFFF;
+                        resp.cid = 0; // INADDR_ANY — client uses UDP source addr
                         resp.available = hdr.available;
 
                         // Version header first

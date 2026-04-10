@@ -141,6 +141,7 @@ impl CaServerBuilder {
             autosave_config,
             autosave_manager: None,
             conn_events: None,
+            after_init_hooks: std::sync::Mutex::new(Vec::new()),
         })
     }
 }
@@ -155,6 +156,8 @@ pub struct CaServer {
     /// Optional broadcast channel for connection lifecycle events.
     /// Subscribers (e.g. ca-gateway) get one event per accept/disconnect.
     conn_events: Option<tokio::sync::broadcast::Sender<crate::server::tcp::ServerConnectionEvent>>,
+    /// Callbacks to run after PINI processing (e.g., start pollers).
+    after_init_hooks: std::sync::Mutex<Vec<Box<dyn FnOnce() + Send>>>,
 }
 
 impl CaServer {
@@ -179,7 +182,13 @@ impl CaServer {
             autosave_config,
             autosave_manager,
             conn_events: None,
+            after_init_hooks: std::sync::Mutex::new(Vec::new()),
         }
+    }
+
+    /// Set callbacks to run after PINI processing completes.
+    pub fn set_after_init_hooks(&mut self, hooks: Vec<Box<dyn FnOnce() + Send>>) {
+        *self.after_init_hooks.lock().unwrap() = hooks;
     }
 
     /// Subscribe to connection lifecycle events. Returns a broadcast
@@ -344,7 +353,7 @@ impl CaServer {
                 eprintln!("Beacon emitter exited: {r:?}");
                 r
             }
-            _ = scanner.run() => {
+            _ = scanner.run_with_hooks(self.after_init_hooks.lock().unwrap().drain(..).collect()) => {
                 eprintln!("Scan scheduler exited");
                 Ok(())
             }

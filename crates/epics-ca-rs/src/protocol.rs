@@ -220,9 +220,10 @@ impl CaHeader {
     }
 }
 
-/// Round up to 8-byte alignment
+/// Round up to 8-byte alignment.
+/// Uses saturating_add to prevent overflow on pathological values.
 pub fn align8(size: usize) -> usize {
-    (size + 7) & !7
+    size.saturating_add(7) & !7
 }
 
 /// Build a padded, null-terminated, 8-byte aligned payload from a string
