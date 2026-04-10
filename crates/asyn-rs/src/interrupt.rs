@@ -1,9 +1,8 @@
-use std::sync::Mutex;
 use std::time::SystemTime;
 
 use tokio::sync::broadcast;
 
-use crate::error::{AsynError, AsynResult};
+use crate::error::AsynResult;
 use crate::param::ParamValue;
 
 /// Filter for selecting which interrupts to receive.
@@ -46,53 +45,30 @@ pub struct InterruptValue {
     pub timestamp: SystemTime,
 }
 
-/// Manages interrupt/callback delivery via dual async+sync channels.
+/// Manages interrupt/callback delivery via async broadcast channel.
 ///
-/// - Async subscribers use `tokio::sync::broadcast` (multiple consumers OK).
-/// - Sync subscriber uses `std::sync::mpsc` (one consumer only).
+/// Async subscribers use `tokio::sync::broadcast` (multiple consumers OK).
+/// Filtered subscriptions are created via `register_interrupt_user`.
 pub struct InterruptManager {
     async_tx: broadcast::Sender<InterruptValue>,
-    sync_tx: std::sync::mpsc::Sender<InterruptValue>,
-    /// One-time take: only one sync subscriber allowed.
-    sync_rx: Mutex<Option<std::sync::mpsc::Receiver<InterruptValue>>>,
 }
 
 impl InterruptManager {
     pub fn new(async_capacity: usize) -> Self {
         let (async_tx, _) = broadcast::channel(async_capacity);
-        let (sync_tx, sync_rx) = std::sync::mpsc::channel();
-        Self {
-            async_tx,
-            sync_tx,
-            sync_rx: Mutex::new(Some(sync_rx)),
-        }
+        Self { async_tx }
     }
 
     /// Create an InterruptManager that shares an existing broadcast sender.
     /// This allows subscribing to interrupts from a driver that has been moved
-    /// into an actor. The sync channel is independent (new pair).
+    /// into an actor.
     pub fn from_broadcast_sender(sender: broadcast::Sender<InterruptValue>) -> Self {
-        let (sync_tx, sync_rx) = std::sync::mpsc::channel();
-        Self {
-            async_tx: sender,
-            sync_tx,
-            sync_rx: Mutex::new(Some(sync_rx)),
-        }
+        Self { async_tx: sender }
     }
 
     /// Subscribe for async interrupt delivery. Multiple subscribers OK.
     pub fn subscribe_async(&self) -> broadcast::Receiver<InterruptValue> {
         self.async_tx.subscribe()
-    }
-
-    /// Take the sync receiver. Only one sync subscriber allowed.
-    /// Returns `AlreadySubscribed` on second call.
-    pub fn subscribe_sync(&self) -> AsynResult<std::sync::mpsc::Receiver<InterruptValue>> {
-        self.sync_rx
-            .lock()
-            .unwrap()
-            .take()
-            .ok_or(AsynError::AlreadySubscribed)
     }
 
     /// Clone the broadcast sender. This allows external code to subscribe
@@ -102,12 +78,9 @@ impl InterruptManager {
     }
 
     /// Send an interrupt to all subscribers.
-    /// Silently ignores errors from dropped receivers.
+    /// Silently ignores errors if no receivers are registered.
     pub fn notify(&self, value: InterruptValue) {
-        // Async broadcast — ignore if no receivers
-        let _ = self.async_tx.send(value.clone());
-        // Sync mpsc — ignore if receiver dropped
-        let _ = self.sync_tx.send(value);
+        let _ = self.async_tx.send(value);
     }
 
     /// Register a filtered interrupt subscription.
@@ -159,46 +132,6 @@ impl InterruptManager {
 mod tests {
     use super::*;
 
-    #[test]
-    fn test_sync_subscribe_once() {
-        let im = InterruptManager::new(16);
-        let _rx = im.subscribe_sync().unwrap();
-        assert!(im.subscribe_sync().is_err());
-    }
-
-    #[test]
-    fn test_sync_notify_receive() {
-        let im = InterruptManager::new(16);
-        let rx = im.subscribe_sync().unwrap();
-        im.notify(InterruptValue {
-            reason: 0,
-            addr: 0,
-            value: ParamValue::Int32(42),
-            timestamp: SystemTime::now(),
-        });
-        let v = rx.try_recv().unwrap();
-        assert_eq!(v.reason, 0);
-        if let ParamValue::Int32(n) = v.value {
-            assert_eq!(n, 42);
-        } else {
-            panic!("expected Int32");
-        }
-    }
-
-    #[test]
-    fn test_notify_after_sync_drop() {
-        let im = InterruptManager::new(16);
-        let rx = im.subscribe_sync().unwrap();
-        drop(rx);
-        // Should not panic
-        im.notify(InterruptValue {
-            reason: 0,
-            addr: 0,
-            value: ParamValue::Int32(1),
-            timestamp: SystemTime::now(),
-        });
-    }
-
     #[tokio::test]
     async fn test_async_subscribe_receive() {
         let im = InterruptManager::new(16);
@@ -229,8 +162,6 @@ mod tests {
         assert_eq!(v1.reason, 0);
         assert_eq!(v2.reason, 0);
     }
-
-    // --- Phase 4A: register_interrupt_user tests ---
 
     #[tokio::test]
     async fn test_register_interrupt_user_filter_by_reason() {
@@ -379,5 +310,16 @@ mod tests {
             .unwrap()
             .unwrap();
         assert_eq!(v2.reason, 1);
+    }
+
+    #[test]
+    fn test_notify_no_subscribers_no_panic() {
+        let im = InterruptManager::new(16);
+        im.notify(InterruptValue {
+            reason: 0,
+            addr: 0,
+            value: ParamValue::Int32(1),
+            timestamp: SystemTime::now(),
+        });
     }
 }

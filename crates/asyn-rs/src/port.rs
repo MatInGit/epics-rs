@@ -881,7 +881,7 @@ mod tests {
     #[test]
     fn test_call_param_callbacks() {
         let mut drv = TestDriver::new();
-        let rx = drv.base_mut().interrupts.subscribe_sync().unwrap();
+        let mut rx = drv.base_mut().interrupts.subscribe_async();
 
         drv.base_mut().set_int32_param(0, 0, 100).unwrap();
         drv.base_mut().set_float64_param(1, 0, 2.0).unwrap();
@@ -897,7 +897,7 @@ mod tests {
     #[test]
     fn test_no_callback_for_unchanged() {
         let mut drv = TestDriver::new();
-        let rx = drv.base_mut().interrupts.subscribe_sync().unwrap();
+        let mut rx = drv.base_mut().interrupts.subscribe_async();
 
         drv.base_mut().set_int32_param(0, 0, 5).unwrap();
         drv.base_mut().call_param_callbacks(0).unwrap();
@@ -947,7 +947,7 @@ mod tests {
     #[test]
     fn test_callback_uses_param_timestamp() {
         let mut drv = TestDriver::new();
-        let rx = drv.base_mut().interrupts.subscribe_sync().unwrap();
+        let mut rx = drv.base_mut().interrupts.subscribe_async();
 
         let custom_ts = SystemTime::UNIX_EPOCH + std::time::Duration::from_secs(1_000_000);
         drv.base_mut().set_int32_param(0, 0, 77).unwrap();
@@ -1005,7 +1005,7 @@ mod tests {
 
         let mut base = PortDriverBase::new("test_enum_cb", 1, PortFlags::default());
         base.create_param("MODE", ParamType::Enum).unwrap();
-        let rx = base.interrupts.subscribe_sync().unwrap();
+        let mut rx = base.interrupts.subscribe_async();
 
         struct EnumDriver {
             base: PortDriverBase,
@@ -1074,7 +1074,7 @@ mod tests {
 
         let mut base = PortDriverBase::new("test_gp_cb", 1, PortFlags::default());
         base.create_param("PTR", ParamType::GenericPointer).unwrap();
-        let rx = base.interrupts.subscribe_sync().unwrap();
+        let mut rx = base.interrupts.subscribe_async();
 
         struct GpDriver {
             base: PortDriverBase,
@@ -1235,7 +1235,7 @@ mod tests {
     fn test_timestamp_source_in_callbacks() {
         let mut base = PortDriverBase::new("ts_cb", 1, PortFlags::default());
         base.create_param("V", ParamType::Int32).unwrap();
-        let rx = base.interrupts.subscribe_sync().unwrap();
+        let mut rx = base.interrupts.subscribe_async();
 
         let fixed_ts = SystemTime::UNIX_EPOCH + std::time::Duration::from_secs(123456);
         base.register_timestamp_source(move || fixed_ts);
