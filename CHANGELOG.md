@@ -1,5 +1,56 @@
 # Changelog
 
+## v0.8.3
+
+### asyn-rs
+
+- Remove unbounded sync channel from `InterruptManager`, replacing it with a simpler notification mechanism to eliminate memory leaks when interrupt callbacks accumulate faster than consumed.
+
+### motor-rs
+
+- Fix tight poll loop consuming excessive CPU when motor is in motion.
+- Defer `StartPolling` to `after_init` hook to prevent premature polling during st.cmd and autosave restore.
+- Throttle `StartPolling` and send only on idle-to-active transition, removing redundant poll requests.
+- Clear `last_write` in init to prevent restore-triggered moves.
+- Sync driver position from pass0-restored VAL during initialization.
+
+### epics-base-rs
+
+- Add `after_init` hooks that run after PINI processing, matching C EPICS `initHookAfterIocRun` timing.
+
+### epics-ca-rs
+
+#### Client
+
+- **Fix**: Slow reconnection after IOC restart (~50s → ~5s). Beacon monitor was skipping `available=INADDR_ANY` beacons (all modern IOCs), reading the wrong header field for server port, and doing per-server rescan instead of global rescan.
+- **Fix**: ECHO ping-pong loop causing 50%+ CPU usage. Client was echoing back the server's echo responses, creating a tight infinite loop after the first 30-second idle timeout.
+- **Fix**: Search response `INADDR_ANY` check (`0xFFFFFFFF` → `0`) for C server interoperability.
+- **Fix**: `handle_disconnect` operator precedence bug causing channels on unrelated servers to be incorrectly disconnected.
+- **Fix**: Pending read/write waiters now receive `CaError::Disconnected` on server disconnect instead of hanging forever.
+- **Fix**: `DropChannel` now properly cleans up all channel states (Connecting, Disconnected, Unresponsive).
+- Beacon-TCP watchdog integration: immediate echo probe on beacon anomaly detects dead connections in ~5s instead of ~35s.
+- Send buffer backpressure: close stalled connections at 4096 pending frames.
+- Search datagram sequence validation to reject stale responses from previous rounds.
+- TCP read buffer capped at 1MB to protect against malformed servers.
+- Defensive bounds checks and malformed message logging.
+- `align8` overflow protection with `saturating_add`.
+
+#### Server
+
+- **Fix**: Beacon header field swap (`data_type`/`count` were swapped), breaking C client interop.
+- **Fix**: Search response `INADDR_ANY` sentinel (`0xFFFFFFFF` → `0`), matching C protocol.
+- **Fix**: `WRITE_NOTIFY` response `count` field was hardcoded to 1 instead of echoing the request count.
+- **Fix**: `CLEAR_CHANNEL` response was missing `data_type` and `count` fields.
+
+#### Repeater
+
+- **Fix**: Accept zero-length UDP registration for C client backward compatibility (pre-3.12 protocol).
+- **Fix**: Fill in beacon `available` field with source IP on relay, matching C repeater behavior.
+
+### optics-rs
+
+- Add HSC and QXBPM async driver support with deferred poll start.
+
 ## v0.8.2
 
 ### epics-bridge-rs (new crate)
