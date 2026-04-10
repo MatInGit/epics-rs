@@ -6,6 +6,7 @@ use asyn_rs::user::AsynUser;
 use epics_base_rs::error::CaResult;
 use epics_base_rs::server::device_support::{DeviceReadOutcome, DeviceSupport};
 use epics_base_rs::server::record::{Record, ScanType};
+use epics_base_rs::types::EpicsValue;
 use tokio::sync::mpsc;
 
 use crate::device_state::*;
@@ -23,6 +24,7 @@ pub struct MotorDeviceSupport {
     device_state: SharedDeviceState,
     initialized: bool,
     dtyp_name: String,
+    polling_active: bool,
 }
 
 impl MotorDeviceSupport {
@@ -44,6 +46,7 @@ impl MotorDeviceSupport {
             device_state,
             initialized: false,
             dtyp_name: "asynMotor".to_string(),
+            polling_active: false,
         }
     }
 
@@ -63,7 +66,7 @@ impl MotorDeviceSupport {
     }
 
     /// Execute motor commands and manage poll loop from DeviceActions.
-    fn execute_actions(&self, actions: &DeviceActions) {
+    fn execute_actions(&mut self, actions: &DeviceActions) {
         let user = self.make_user();
         let mut motor = match self.motor.lock() {
             Ok(m) => m,
@@ -121,13 +124,18 @@ impl MotorDeviceSupport {
         }
         drop(motor);
 
-        // Manage poll loop
+        // Manage poll loop — only send StartPolling when transitioning
+        // idle → active to avoid redundant messages while already polling.
         match actions.poll {
             PollDirective::Start => {
-                let _ = self.poll_cmd_tx.try_send(PollCommand::StartPolling);
+                if !self.polling_active {
+                    let _ = self.poll_cmd_tx.try_send(PollCommand::StartPolling);
+                    self.polling_active = true;
+                }
             }
             PollDirective::Stop => {
                 let _ = self.poll_cmd_tx.try_send(PollCommand::StopPolling);
+                self.polling_active = false;
             }
             PollDirective::None => {}
         }
@@ -150,7 +158,19 @@ impl DeviceSupport for MotorDeviceSupport {
             motor_rec.set_device_state(self.device_state.clone());
         }
 
+        // Sync driver position with pass0-restored VAL (if any).
+        // This matches C EPICS init_record which calls set_position so
+        // that motors without absolute encoders start at the saved position.
         let user = self.make_user();
+        if let Some(EpicsValue::Double(val)) = record.get_field("VAL") {
+            if val != 0.0 {
+                let mut motor = self.motor.lock().map_err(|e| {
+                    epics_base_rs::error::CaError::InvalidValue(format!("motor lock: {e}"))
+                })?;
+                let _ = motor.set_position(&user, val);
+            }
+        }
+
         let status = {
             let mut motor = self.motor.lock().map_err(|e| {
                 epics_base_rs::error::CaError::InvalidValue(format!("motor lock: {e}"))
@@ -170,11 +190,14 @@ impl DeviceSupport for MotorDeviceSupport {
         drop(ds);
 
         // Apply initial status to record (sets RBV, clears LVIO, etc.)
+        // Clear last_write so pass0-restored values are not interpreted as
+        // move commands during PINI processing (matches C EPICS init_record).
         if let Some(motor_rec) = record
             .as_any_mut()
             .and_then(|a| a.downcast_mut::<crate::record::MotorRecord>())
         {
             motor_rec.process_motor_info(&status);
+            motor_rec.clear_last_write();
         }
 
         self.initialized = true;

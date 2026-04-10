@@ -77,9 +77,9 @@ impl MotorPollLoop {
 
     /// Run the poll loop. Call from a spawned task.
     pub async fn run(mut self) {
-        // Start active: initial poll triggers I/O Intr so the record
-        // picks up the first motor status (clears LVIO, sets MSTA, etc.)
-        let mut active = true;
+        // Start idle: device support init() sends StartPolling after
+        // iocInit, matching C EPICS where the poller starts in init_record.
+        let mut active = false;
 
         loop {
             if active {

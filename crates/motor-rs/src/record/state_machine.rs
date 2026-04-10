@@ -9,8 +9,7 @@ impl MotorRecord {
             self.stat.msta.contains(MstaFlags::DONE) && !self.stat.msta.contains(MstaFlags::MOVING);
 
         if !driver_done {
-            // Still moving, keep polling
-            effects.request_poll = true;
+            // Still moving — poll loop is already active, just suppress FLNK.
             effects.suppress_forward_link = true;
             return effects;
         }

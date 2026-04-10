@@ -94,6 +94,14 @@ impl MotorRecord {
     pub fn set_event(&mut self, event: MotorEvent) {
         self.pending_event = Some(event);
     }
+
+    /// Clear any pending write command source.
+    ///
+    /// Called by device support init() so that pass0-restored field values
+    /// are not interpreted as move commands during PINI processing.
+    pub fn clear_last_write(&mut self) {
+        self.last_write = None;
+    }
 }
 
 impl Record for MotorRecord {

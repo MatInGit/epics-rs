@@ -57,6 +57,8 @@ pub struct IocRunConfig {
     pub autosave_config: Option<autosave::SaveSetConfig>,
     pub autosave_manager: Option<Arc<autosave::AutosaveManager>>,
     pub shell_commands: Vec<CommandDef>,
+    /// Callbacks to run after PINI processing (e.g., start pollers).
+    pub after_init_hooks: Vec<Box<dyn FnOnce() + Send>>,
 }
 
 /// IOC Application with st.cmd-style startup support.
@@ -74,6 +76,8 @@ pub struct IocApplication {
     startup_script: Option<String>,
     /// Records added via the declarative builder (Phase 7).
     inline_records: Vec<(String, Box<dyn Record>)>,
+    /// Callbacks invoked after iocInit completes (e.g., start pollers).
+    after_init_hooks: Vec<Box<dyn FnOnce() + Send>>,
 }
 
 impl IocApplication {
@@ -91,6 +95,7 @@ impl IocApplication {
             shell_commands: Vec::new(),
             startup_script: None,
             inline_records: Vec::new(),
+            after_init_hooks: Vec::new(),
         }
     }
 
@@ -143,6 +148,15 @@ impl IocApplication {
     /// Use this for runtime commands like `simDetectorReport`.
     pub fn register_shell_command(mut self, cmd: CommandDef) -> Self {
         self.shell_commands.push(cmd);
+        self
+    }
+
+    /// Register a callback to run after iocInit completes.
+    ///
+    /// Use this to start pollers and other periodic tasks that should
+    /// not run during st.cmd execution or autosave restore.
+    pub fn register_after_init(mut self, hook: impl FnOnce() + Send + 'static) -> Self {
+        self.after_init_hooks.push(Box::new(hook));
         self
     }
 
@@ -244,6 +258,7 @@ impl IocApplication {
             shell_commands,
             startup_script,
             inline_records,
+            after_init_hooks,
         } = self;
 
         // Register record type factories with global registry so dbLoadRecords
@@ -383,6 +398,7 @@ impl IocApplication {
             autosave_config,
             autosave_manager,
             shell_commands,
+            after_init_hooks,
         };
         protocol_runner(config).await
     }

@@ -281,6 +281,7 @@ impl asyn_rs::port::PortDriver for QxbpmDriver {
 /// Commands sent to the QXBPM poll loop.
 #[derive(Debug)]
 pub enum QxbpmPollCommand {
+    StartPolling,
     Shutdown,
 }
 
@@ -305,11 +306,25 @@ impl QxbpmPollLoop {
     }
 
     /// Run the poll loop. Call from a spawned task.
+    ///
+    /// Starts idle — waits for `StartPolling` before entering the periodic
+    /// poll cycle. This avoids CPU load during st.cmd and autosave restore,
+    /// matching C EPICS where pollers start after iocInit.
     pub async fn run(mut self) {
+        // Wait for StartPolling before entering the active loop.
+        loop {
+            match self.cmd_rx.recv().await {
+                Some(QxbpmPollCommand::StartPolling) => break,
+                Some(QxbpmPollCommand::Shutdown) | None => return,
+            }
+        }
+
+        // Active polling loop
         loop {
             tokio::select! {
                 cmd = self.cmd_rx.recv() => {
                     match cmd {
+                        Some(QxbpmPollCommand::StartPolling) => {}
                         Some(QxbpmPollCommand::Shutdown) | None => return,
                     }
                 }
@@ -330,13 +345,23 @@ impl QxbpmPollLoop {
 /// Holds QXBPM driver instances created by startup commands.
 pub struct QxbpmHolder {
     drivers: Mutex<HashMap<String, Arc<Mutex<QxbpmDriver>>>>,
+    poll_senders: Mutex<Vec<tokio::sync::mpsc::Sender<QxbpmPollCommand>>>,
 }
 
 impl QxbpmHolder {
     pub fn new() -> Arc<Self> {
         Arc::new(Self {
             drivers: Mutex::new(HashMap::new()),
+            poll_senders: Mutex::new(Vec::new()),
         })
+    }
+
+    /// Start polling on all registered QXBPM drivers.
+    /// Call after iocInit to match C EPICS behavior.
+    pub fn start_all_polling(&self) {
+        for tx in self.poll_senders.lock().unwrap().iter() {
+            let _ = tx.try_send(QxbpmPollCommand::StartPolling);
+        }
     }
 
     /// Register a `simQxbpmCreate` iocsh command.
@@ -408,8 +433,8 @@ impl QxbpmHolder {
                     QxbpmPollLoop::new(cmd_rx, driver.clone(), Duration::from_millis(poll_ms));
 
                 ctx.runtime_handle().spawn(poll_loop.run());
-                let _ = cmd_tx; // kept alive by poll loop's cmd_rx
 
+                holder.poll_senders.lock().unwrap().push(cmd_tx);
                 holder.drivers.lock().unwrap().insert(port.clone(), driver);
                 println!("simQxbpmCreate: port={port} x={x_pos} y={y_pos} poll={poll_ms}ms");
                 Ok(CommandOutcome::Continue)
@@ -427,6 +452,7 @@ impl Default for QxbpmHolder {
     fn default() -> Self {
         Self {
             drivers: Mutex::new(HashMap::new()),
+            poll_senders: Mutex::new(Vec::new()),
         }
     }
 }

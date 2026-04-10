@@ -196,6 +196,7 @@ impl MotorRecord {
         self.stat.dmov = status.done && !status.moving;
 
         if status.moving {
+            // At startup, the poll loop may not be active yet — request it.
             effects.request_poll = true;
             effects.suppress_forward_link = true;
         }

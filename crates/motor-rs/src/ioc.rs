@@ -16,13 +16,23 @@ use crate::sim_motor::SimMotor;
 /// once by the dynamic device support factory during iocInit.
 pub struct SimMotorHolder {
     motors: Mutex<HashMap<String, Option<MotorDeviceSupport>>>,
+    poll_senders: Mutex<Vec<tokio::sync::mpsc::Sender<crate::poll_loop::PollCommand>>>,
 }
 
 impl SimMotorHolder {
     pub fn new() -> Arc<Self> {
         Arc::new(Self {
             motors: Mutex::new(HashMap::new()),
+            poll_senders: Mutex::new(Vec::new()),
         })
+    }
+
+    /// Start polling on all registered motors.
+    /// Call after PINI processing to avoid queue buildup.
+    pub fn start_all_polling(&self) {
+        for tx in self.poll_senders.lock().unwrap().iter() {
+            let _ = tx.try_send(crate::poll_loop::PollCommand::StartPolling);
+        }
     }
 
     /// Create a `simMotorCreate` iocsh command.
@@ -92,14 +102,15 @@ impl SimMotorHolder {
                     record: _,
                     device_support,
                     poll_loop,
-                    poll_cmd_tx: _,
+                    poll_cmd_tx,
                 } = setup;
 
                 let device_support = device_support.with_dtyp_name(dtyp_key.clone());
 
-                // Spawn poll loop on the tokio runtime
+                // Spawn poll loop on the tokio runtime (starts idle)
                 ctx.runtime_handle().spawn(poll_loop.run());
 
+                holder.poll_senders.lock().unwrap().push(poll_cmd_tx);
                 holder
                     .motors
                     .lock()

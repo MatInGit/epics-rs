@@ -346,6 +346,16 @@ async fn main() -> CaResult<()> {
     let qxbpm_holder = optics_rs::drivers::qxbpm::QxbpmHolder::new();
     app = app.register_startup_command(qxbpm_holder.sim_qxbpm_create_command());
 
+    // Start all polling after PINI processing (not during st.cmd or iocInit)
+    let motor_h = motor_holder.clone();
+    let hsc_h = hsc_holder.clone();
+    let qxbpm_h = qxbpm_holder.clone();
+    app = app.register_after_init(move || {
+        motor_h.start_all_polling();
+        hsc_h.start_all_polling();
+        qxbpm_h.start_all_polling();
+    });
+
     // ========================================================================
     // Optics SNL program launcher (replaces C EPICS `seq &program, "macros"`)
     //
