@@ -8,11 +8,13 @@ Inspired by [epicsMQTT](https://github.com/epics-modules/mqtt) (C++ MQTT support
 
 ## Features
 
+- **Generic MQTT** — works with any MQTT broker and topic structure
 - **FLAT payloads** — single values: `INT`, `FLOAT`, `DIGITAL`, `STRING`, `INTARRAY`, `FLOATARRAY`
 - **JSON payloads** — extract nested fields via dot-path (e.g. `sensor.temperature`)
 - **Bidirectional** — input records subscribe, output records publish
 - **Auto-reconnect** — rumqttc handles broker reconnection transparently
-- **Async event loop** — tokio-based, non-blocking MQTT I/O
+- **Connection status PV** — bi record with alarm on disconnect
+- **Zigbee2MQTT builders** — optional device type builders for Z2M (Plug, Light, Switch, TempSensor, Motion, Remote)
 
 ## Topic Address Format
 
@@ -26,7 +28,7 @@ FORMAT:TYPE topic/name [json.field.path]
 |-------|--------|
 | FORMAT | `FLAT`, `JSON` |
 | TYPE | `INT`, `FLOAT`, `DIGITAL`, `STRING`, `INTARRAY`, `FLOATARRAY` |
-| topic | MQTT topic (no wildcards) |
+| topic | MQTT topic (no wildcards, spaces allowed) |
 | json.field.path | Dot-separated path for JSON payloads (required for JSON, forbidden for FLAT) |
 
 Examples:
@@ -38,9 +40,11 @@ JSON:FLOAT sensors/environment humidity
 JSON:INT   sensors/data reading.value
 ```
 
-## Usage
+## Generic MQTT Usage
 
-### Database
+For any MQTT broker and topic structure — no Z2M dependency.
+
+### Database (.db file)
 
 ```
 record(ai, "$(P)Temperature") {
@@ -65,16 +69,14 @@ record(ai, "$(P)Humidity") {
 
 ### Startup Script
 
-Topics must be declared with `mqttAddTopic` before `mqttDriverConfigure`:
-
 ```bash
 # Register topics
 mqttAddTopic("MQTT1", "FLAT:FLOAT sensors/temperature")
 mqttAddTopic("MQTT1", "FLAT:FLOAT actuators/setpoint")
 mqttAddTopic("MQTT1", "JSON:FLOAT sensors/environment humidity")
 
-# Create driver (connects to broker, subscribes to topics)
-mqttDriverConfigure("MQTT1", "mqtt://localhost:1883", "epics-client", 1)
+# Create driver with optional connection status PV
+mqttDriverConfigure("MQTT1", "mqtt://localhost:1883", "epics-client", 1, "TEST:MQTT:Connected")
 
 # Load records
 dbLoadRecords("db/mqtt.db", "P=TEST:,PORT=MQTT1")
@@ -99,12 +101,71 @@ app.startup_script("st.cmd")
     .await
 ```
 
+## Zigbee2MQTT Builders
+
+Optional device type builders that auto-register topics AND create EPICS records — no `.db` file needed. Each builder knows the Z2M JSON payload structure for its device type.
+
+Z2M-specific behavior:
+- ON/OFF normalization on `/set state` topics: `"1"`/`"on"`/`"true"` → `"ON"`, `"0"`/`"off"`/`"false"` → `"OFF"`
+- This normalization only applies to Z2M builder topics, not generic MQTT topics
+
+### Startup Script (Z2M)
+
+```bash
+mqttZ2mPlug("MQTT1",       "TEST:MQTT:", "LR:Plug",     "zigbee2mqtt/living room plug")
+mqttZ2mTempSensor("MQTT1", "TEST:MQTT:", "LR:Sens",     "zigbee2mqtt/living room sensor")
+mqttZ2mLight("MQTT1",      "TEST:MQTT:", "Desk",        "zigbee2mqtt/desk light")
+mqttZ2mSwitch("MQTT1",     "TEST:MQTT:", "Bath:Light",  "zigbee2mqtt/bathroom light")
+mqttZ2mMotion("MQTT1",     "TEST:MQTT:", "ENT:Motion",  "zigbee2mqtt/entrance motion")
+mqttZ2mRemote2("MQTT1",    "TEST:MQTT:", "Bath:Sw",     "zigbee2mqtt/bathroom switch")
+
+mqttDriverConfigure("MQTT1", "mqtt://localhost:1883", "epics-mqtt", 1, "TEST:MQTT:Connected")
+
+iocInit()
+```
+
+### Z2M Device Types
+
+| Command | Records Created | Fields |
+|---------|----------------|--------|
+| `mqttZ2mPlug` | ai, ai, longin, stringin, stringout | power, energy, device_temp, state, set_state |
+| `mqttZ2mTempSensor` | ai, ai, longin | temperature, humidity, battery |
+| `mqttZ2mLight` | longin, longin, stringin, stringout, longout | brightness, color_temp, state, set_state, set_brightness |
+| `mqttZ2mSwitch` | stringin, stringout | state, set_state |
+| `mqttZ2mMotion` | stringin, longin | occupancy, battery |
+| `mqttZ2mRemote2` | stringin, longin | action, battery |
+
+### IOC Binary (with Z2M)
+
+```rust
+use mqtt_rs::ioc::register_mqtt_commands;
+use mqtt_rs::z2m::register_z2m_commands;
+
+let mut app = IocApplication::new();
+app = asyn_rs::adapter::register_asyn_device_support(app);
+app = register_mqtt_commands(app, handle, trace);
+app = register_z2m_commands(app);  // adds mqttZ2m* commands
+```
+
 ## iocsh Commands
+
+### Core
 
 | Command | Arguments | Description |
 |---------|-----------|-------------|
 | `mqttAddTopic` | `portName drvInfo` | Register a topic before driver creation |
-| `mqttDriverConfigure` | `portName brokerUrl clientId [qos]` | Create driver, connect to broker |
+| `mqttDriverConfigure` | `portName brokerUrl clientId [qos] [connPvName]` | Create driver, connect to broker |
+
+### Z2M Builders
+
+| Command | Arguments | Description |
+|---------|-----------|-------------|
+| `mqttZ2mPlug` | `port prefix dev topic` | Smart plug (power/energy/temp/state) |
+| `mqttZ2mTempSensor` | `port prefix dev topic` | Temp/humidity sensor |
+| `mqttZ2mLight` | `port prefix dev topic` | Dimmable light |
+| `mqttZ2mSwitch` | `port prefix dev topic` | On/off switch |
+| `mqttZ2mMotion` | `port prefix dev topic` | Motion sensor |
+| `mqttZ2mRemote2` | `port prefix dev topic` | 2-button remote |
 
 **QoS values:** 0 = at most once, 1 = at least once (default), 2 = exactly once
 
@@ -125,6 +186,7 @@ app.startup_script("st.cmd")
 - [serde_json](https://crates.io/crates/serde_json) — JSON parsing
 - [asyn-rs](../asyn-rs/) — PortDriver framework
 
-## Example
+## Examples
 
-See [`examples/mqtt-ioc/`](../../examples/mqtt-ioc/) for a complete example IOC.
+- [`examples/mqtt-ioc/`](../../examples/mqtt-ioc/) — Z2M device builders demo
+- [`examples/mqtt-ioc/db/mqtt.db`](../../examples/mqtt-ioc/db/mqtt.db) — generic MQTT records (no Z2M)

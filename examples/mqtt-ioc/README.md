@@ -2,8 +2,9 @@
 
 Demonstrates the [mqtt-rs](../../crates/mqtt-rs/) driver with Channel Access.
 
-Connects to an MQTT broker and exposes several record types: float, integer,
-string, JSON field extraction, and digital bitmask.
+Two usage modes:
+- **Z2M builders** (`st.cmd`) — auto-create records for Zigbee2MQTT devices
+- **Generic MQTT** (`db/mqtt.db`) — manual records for any MQTT broker/topic
 
 ## Prerequisites
 
@@ -28,67 +29,69 @@ cargo build --release -p mqtt-ioc
 ./target/release/mqtt_ioc examples/mqtt-ioc/ioc/st.cmd
 ```
 
-## PV Reference
+## Z2M Builder Example
 
-Default prefix: `TEST:MQTT:`
-
-### Input Records (I/O Intr)
-
-| PV | Type | MQTT Topic | Format |
-|----|------|------------|--------|
-| `Temperature` | ai | `sensors/temperature` | FLAT:FLOAT |
-| `Counter` | longin | `sensors/counter` | FLAT:INT |
-| `Status` | stringin | `device/status` | FLAT:STRING |
-| `Humidity` | ai | `sensors/environment` | JSON:FLOAT (`humidity`) |
-| `Pressure` | ai | `sensors/environment` | JSON:FLOAT (`pressure.value`) |
-| `DigitalIn` | mbbiDirect | `sensors/digital` | FLAT:DIGITAL |
-| `Setpoint_RBV` | ai | `actuators/setpoint` | FLAT:FLOAT |
-
-### Output Records
-
-| PV | Type | MQTT Topic | Format |
-|----|------|------------|--------|
-| `Setpoint` | ao | `actuators/setpoint` | FLAT:FLOAT |
-| `Command` | stringout | `device/command` | FLAT:STRING |
-
-## Test
+The default `st.cmd` uses Z2M device type builders. Each line registers MQTT topics and creates EPICS records automatically:
 
 ```bash
-# --- Flat float ---
-# Publish temperature, read via CA
+mqttZ2mPlug("MQTT1",       "TEST:MQTT:", "LR:Plug",  "zigbee2mqtt/living room plug")
+mqttZ2mTempSensor("MQTT1", "TEST:MQTT:", "LR:Sens",  "zigbee2mqtt/living room sensor")
+mqttZ2mLight("MQTT1",      "TEST:MQTT:", "BR1:Desk", "zigbee2mqtt/desk light")
+mqttDriverConfigure("MQTT1", "mqtt://localhost:1883", "epics-mqtt-ioc", 1, "TEST:MQTT:Connected")
+iocInit()
+```
+
+### Test Z2M devices
+
+```bash
+# Monitor connection status
+caget TEST:MQTT:Connected
+
+# Read sensor values
+caget TEST:MQTT:LR:Sens:Temp
+caget TEST:MQTT:LR:Sens:Hum
+
+# Control plug (accepts ON/OFF/1/0/on/off/true/false)
+caput TEST:MQTT:LR:Plug:SetState ON
+caput TEST:MQTT:LR:Plug:SetState 0
+
+# Control light brightness
+caput TEST:MQTT:BR1:Desk:SetBright 128
+caput TEST:MQTT:BR1:Desk:SetState OFF
+
+# Monitor power usage
+camonitor TEST:MQTT:LR:Plug:Power TEST:MQTT:BR1:Plug:Power
+```
+
+## Generic MQTT Example
+
+For non-Z2M topics, use `mqttAddTopic` + `dbLoadRecords` with a `.db` file. See `db/mqtt.db` for examples.
+
+```bash
+# Register topics
+mqttAddTopic("MQTT1", "FLAT:FLOAT sensors/temperature")
+mqttAddTopic("MQTT1", "JSON:FLOAT sensors/environment humidity")
+
+# Create driver
+mqttDriverConfigure("MQTT1", "mqtt://localhost:1883", "epics-client", 1)
+
+# Load records from .db file
+dbLoadRecords("db/mqtt.db", "P=TEST:,R=MQTT:,PORT=MQTT1")
+
+iocInit()
+```
+
+### Test generic MQTT
+
+```bash
+# Publish a value, read via CA
 mosquitto_pub -t sensors/temperature -m "25.3"
-caget TEST:MQTT:Temperature
-# Expected: TEST:MQTT:Temperature 25.3
+caget TEST:MQTT:Example:Temperature
 
-# Write setpoint from EPICS, observe on MQTT
-caput TEST:MQTT:Setpoint 22.0
-mosquitto_sub -t actuators/setpoint
-# Expected: 22
+# Publish JSON, read extracted field
+mosquitto_pub -t sensors/environment -m '{"humidity": 65.2}'
+caget TEST:MQTT:Example:Humidity
 
-# --- Flat integer ---
-mosquitto_pub -t sensors/counter -m "42"
-caget TEST:MQTT:Counter
-# Expected: TEST:MQTT:Counter 42
-
-# --- Flat string ---
-mosquitto_pub -t device/status -m "RUNNING"
-caget TEST:MQTT:Status
-# Expected: TEST:MQTT:Status RUNNING
-
-caput TEST:MQTT:Command "RESET"
-mosquitto_sub -t device/command
-# Expected: RESET
-
-# --- JSON ---
-mosquitto_pub -t sensors/environment \
-  -m '{"humidity": 65.2, "pressure": {"value": 1013.25}}'
-
-caget TEST:MQTT:Humidity
-# Expected: TEST:MQTT:Humidity 65.2
-
-caget TEST:MQTT:Pressure
-# Expected: TEST:MQTT:Pressure 1013.25
-
-# --- Monitor all updates ---
-camonitor TEST:MQTT:Temperature TEST:MQTT:Humidity TEST:MQTT:Counter
+# Monitor updates
+camonitor TEST:MQTT:Example:Temperature TEST:MQTT:Example:Humidity
 ```
