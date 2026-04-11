@@ -95,7 +95,14 @@ impl PortDriver for MovingDotDetector {
                 .unwrap_or(0);
             if value != 0 && acquiring == 0 {
                 self.ad.port_base.set_int32_param(acquire_idx, 0, value)?;
-                // Flush Acquire state immediately so the record reflects the change
+                self.ad
+                    .port_base
+                    .set_int32_param(self.ad.params.acquire_busy, 0, 1)?;
+                self.ad.port_base.set_int32_param(
+                    self.ad.params.status,
+                    0,
+                    ad_core_rs::driver::ADStatus::Acquire as i32,
+                )?;
                 self.ad.port_base.call_param_callbacks(0)?;
                 let _ = self.acq_tx.send(AcqCommand::Start);
             } else if value == 0 && acquiring != 0 {
