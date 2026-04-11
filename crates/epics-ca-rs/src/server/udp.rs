@@ -1,4 +1,5 @@
 use socket2::{Domain, Protocol, Socket, Type};
+use std::net::{Ipv4Addr, SocketAddr};
 use std::sync::Arc;
 use tokio::net::UdpSocket;
 
@@ -57,13 +58,17 @@ pub async fn run_udp_search_responder(
                     // Check both simple PVs and record base names
                     if db.has_name(pv_name).await {
                         // Build search response
-                        // cid = server IP, or 0 (INADDR_ANY) for "use sender's IP"
-                        // available = echo client's search ID (from request's available field)
+                        // cid = server IP so the client knows where to TCP-connect.
+                        // C libca only substitutes INADDR_ANY with the UDP source
+                        // address under specific conditions; some builds/versions
+                        // take cid=0 literally and try to connect to 0.0.0.0.
+                        // Resolve our local interface IP that routes to this client.
+                        let server_ip = local_ip_for(src);
                         let mut resp = CaHeader::new(CA_PROTO_SEARCH);
                         resp.postsize = 8;
                         resp.data_type = tcp_port;
                         resp.count = 0;
-                        resp.cid = 0; // INADDR_ANY — client uses UDP source addr
+                        resp.cid = u32::from_be_bytes(server_ip.octets());
                         resp.available = hdr.available;
 
                         // Version header first
@@ -87,5 +92,21 @@ pub async fn run_udp_search_responder(
 
             offset += msg_len;
         }
+    }
+}
+
+/// Determine the local interface IP that would route to `remote`.
+/// Creates a temporary unconnected UDP socket and "connects" it (no data
+/// is sent — this just lets the OS pick the outgoing interface via routing).
+fn local_ip_for(remote: SocketAddr) -> Ipv4Addr {
+    let Ok(sock) = std::net::UdpSocket::bind("0.0.0.0:0") else {
+        return Ipv4Addr::UNSPECIFIED;
+    };
+    if sock.connect(remote).is_err() {
+        return Ipv4Addr::UNSPECIFIED;
+    }
+    match sock.local_addr() {
+        Ok(SocketAddr::V4(a)) => *a.ip(),
+        _ => Ipv4Addr::UNSPECIFIED,
     }
 }
