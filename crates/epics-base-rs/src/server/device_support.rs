@@ -25,24 +25,46 @@ pub trait WriteCompletion: Send + 'static {
 ///
 /// Allows device support to return side-effect actions (link writes,
 /// delayed reprocess) and signal that it has already performed the
-/// record's compute step (e.g., PID calculation).
+/// Result of a device support `read()` call.
+///
+/// # `ok()` vs `computed()`
+///
+/// This mirrors the C EPICS `read_ai()` return convention:
+///
+/// - **`ok()`** (C return 0): Device support wrote to RVAL. The record's
+///   `process()` will run its built-in conversion (e.g., ai applies
+///   `ROFF → ASLO/AOFF → LINR/ESLO/EOFF → smoothing` to produce VAL
+///   from RVAL).
+///
+/// - **`computed()`** (C return 2): Device support wrote to VAL directly.
+///   The record's `process()` will **skip** its conversion and use the
+///   VAL as-is. Use this when the device support provides engineering
+///   units directly (e.g., soft channel, asyn, custom drivers that
+///   call `record.put_field("VAL", ...)`).
+///
+/// **Common mistake:** returning `ok()` when VAL is set directly causes
+/// the record's conversion to overwrite VAL with a value derived from
+/// RVAL (typically 0), making the read appear broken.
 #[derive(Default)]
 pub struct DeviceReadOutcome {
     /// Actions for the framework to execute (WriteDbLink, ReprocessAfter, etc.)
     pub actions: Vec<ProcessAction>,
-    /// If true, the record's built-in compute (e.g., PID) was already
-    /// performed by device support. The record's process() should skip
-    /// its own computation. This replaces the `pid_done` flag pattern.
+    /// If true, the record's built-in conversion (e.g., ai RVAL→VAL)
+    /// is skipped. Set this when device support writes VAL directly.
     pub did_compute: bool,
 }
 
 impl DeviceReadOutcome {
-    /// Shorthand for a successful read with no actions.
+    /// Device support wrote RVAL; record will run its conversion to produce VAL.
+    ///
+    /// C equivalent: `read_ai()` returns 0.
     pub fn ok() -> Self {
         Self::default()
     }
 
-    /// Shorthand for a read that performed the record's compute step.
+    /// Device support wrote VAL directly; record will skip conversion.
+    ///
+    /// C equivalent: `read_ai()` returns 2.
     pub fn computed() -> Self {
         Self {
             did_compute: true,
