@@ -44,6 +44,7 @@ epics-rs reimplements the core components of C/C++ EPICS in Rust:
 - **Optics** — 6-DOF table record, monochromator/slit/filter/BPM controllers, X-ray absorption data
 - **Standard records** — epid (PID/MaxMin feedback), throttle (rate-limited output), timestamp
 - **Scaler** — 64-channel counter with presets, auto-count, delayed start
+- **MQTT** — MQTT broker bridge with Zigbee2MQTT device type builders
 - **Calc engine** — numeric/string/array expressions
 - **Autosave** — PV save/restore
 
@@ -81,6 +82,7 @@ use epics_rs::asyn;        // port driver framework
 | `std` | Standard records (epid, throttle, timestamp) | no |
 | `scaler` | Scaler record (64-channel counter) | no |
 | `optics` | Optics (table, monochromator, slit, filter, BPM) | no |
+| `mqtt` | MQTT driver (broker bridge + Z2M builders) | no |
 | `full` | Everything | no |
 
 ```toml
@@ -118,11 +120,13 @@ epics-rs/
 │   ├── ad-plugins-rs/    # 23 NDPlugins (Stats, ROI, FFT, TIFF, JPEG, HDF5, etc.)
 │   ├── std-rs/           # Standard records (epid, throttle, timestamp) + device support
 │   ├── scaler-rs/        # Scaler record (64-channel counter) + device support
-│   └── optics-rs/        # Optics (table, monochromator, slit, filter, BPM)
+│   ├── optics-rs/        # Optics (table, monochromator, slit, filter, BPM)
+│   └── mqtt-rs/          # MQTT driver (broker bridge + Zigbee2MQTT builders)
 └── examples/
     ├── scope-ioc/        # Digital oscilloscope simulator
     ├── mini-beamline/    # Beamline simulator with DCM, slit, BPM, detectors
     ├── sim-detector/     # areaDetector simulation driver
+    ├── mqtt-ioc/         # MQTT IOC with Zigbee2MQTT device builders
     └── ...               # Other examples
 ```
 
@@ -140,7 +144,8 @@ epics-rs (umbrella — feature-gated re-exports)
     │       │    └── ad-plugins-rs
     │       ├── std-rs (epid, throttle, timestamp)
     │       ├── scaler-rs (64-channel counter)
-    │       └── optics-rs (table, monochromator, slit, filter, BPM)
+    │       ├── optics-rs (table, monochromator, slit, filter, BPM)
+    │       └── mqtt-rs (MQTT broker bridge)
     │
     ├── epics-ca-rs (Channel Access protocol)
     ├── epics-pva-rs (pvAccess protocol, experimental)
