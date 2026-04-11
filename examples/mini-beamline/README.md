@@ -161,7 +161,7 @@ with plugins under the same prefix (`mini:dot:image1:`, `mini:dot:Stats1:`, etc.
 
 ```bash
 # Build
-cargo build --release -p mini-beamline
+cargo build --release -p mini-beamline --features ioc
 
 # Run
 ./target/release/mini_ioc examples/mini-beamline/ioc/st.cmd
@@ -400,7 +400,7 @@ Motors use the `simMotorCreate` + `dbLoadRecords("motor.template", ...)` pattern
 
 ```bash
 # Release build (optimized)
-cargo build --release -p mini-beamline
+cargo build --release -p mini-beamline --features ioc
 
 # Run
 ./target/release/mini_ioc examples/mini-beamline/ioc/st.cmd

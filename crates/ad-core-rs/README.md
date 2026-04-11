@@ -66,7 +66,7 @@ The `parallel` feature (enabled by default in ad-plugins) uses rayon to parallel
 ### Run SimDetector IOC
 
 ```bash
-cargo run -p sim-detector --bin sim_ioc -- ioc/st.cmd
+cargo run -p sim-detector --features ioc --bin sim_ioc -- ioc/st.cmd
 ```
 
 ### st.cmd

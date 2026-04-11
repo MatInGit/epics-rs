@@ -38,7 +38,7 @@ Plugins are loaded twice — under both `XF:31IDA-BI{Cam:Tbl}:` and `ADSIM:` pre
 ## Build and Run
 
 ```bash
-cargo build --release -p ophyd-test-ioc
+cargo build --release -p ophyd-test-ioc --features ioc
 ./target/release/ophyd_test_ioc examples/ophyd-test-ioc/ioc/st.cmd
 ```
 

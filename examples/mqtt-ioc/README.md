@@ -24,7 +24,7 @@ sudo apt install mosquitto && mosquitto -v
 ## Build and Run
 
 ```bash
-cargo build --release -p mqtt-ioc
+cargo build --release -p mqtt-ioc --features ioc
 
 ./target/release/mqtt_ioc examples/mqtt-ioc/ioc/st.cmd
 ```

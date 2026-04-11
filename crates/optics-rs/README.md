@@ -202,7 +202,7 @@ cargo test -p optics-rs
 Build and run the mini-beamline IOC with a simulated Kohzu double-crystal monochromator:
 
 ```bash
-cargo build --release -p mini-beamline
+cargo build --release -p mini-beamline --features ioc
 ./target/release/mini_ioc examples/mini-beamline/ioc/st.cmd
 ```
 

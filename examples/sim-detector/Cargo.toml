@@ -6,7 +6,6 @@ description = "Simulated areaDetector driver for areadetector-rs"
 publish = false
 
 [features]
-default = ["ioc"]
 ioc = ["dep:epics-base-rs", "dep:ad-plugins-rs", "ad-plugins-rs/ioc", "ad-core-rs/ioc", "asyn-rs/epics"]
 
 [dependencies]
@@ -20,6 +19,7 @@ epics-base-rs = { workspace = true, optional = true }
 [[bin]]
 name = "sim_ioc"
 path = "src/bin/sim_ioc.rs"
+required-features = ["ioc"]
 
 [[example]]
 name = "demo"
