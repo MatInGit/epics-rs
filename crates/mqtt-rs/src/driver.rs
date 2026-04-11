@@ -214,10 +214,7 @@ impl PortDriver for MqttDriver {
     }
 
     fn read_float64_array(&mut self, user: &AsynUser, buf: &mut [f64]) -> AsynResult<usize> {
-        let data = self
-            .base
-            .params
-            .get_float64_array(user.reason, user.addr)?;
+        let data = self.base.params.get_float64_array(user.reason, user.addr)?;
         let n = data.len().min(buf.len());
         buf[..n].copy_from_slice(&data[..n]);
         Ok(n)
@@ -248,10 +245,16 @@ mod tests {
         ]);
 
         assert!(driver.drv_user_create("FLAT:INT test/int_topic").is_ok());
-        assert!(driver.drv_user_create("FLAT:FLOAT test/float_topic").is_ok());
-        assert!(driver
-            .drv_user_create("JSON:FLOAT sensors/data humidity")
-            .is_ok());
+        assert!(
+            driver
+                .drv_user_create("FLAT:FLOAT test/float_topic")
+                .is_ok()
+        );
+        assert!(
+            driver
+                .drv_user_create("JSON:FLOAT sensors/data humidity")
+                .is_ok()
+        );
     }
 
     #[test]
@@ -294,11 +297,11 @@ mod tests {
             .unwrap();
         let mut user = AsynUser::new(reason);
 
-        driver.write_float64(&mut user, 3.14).unwrap();
+        driver.write_float64(&mut user, 3.15).unwrap();
 
         let req = rx.try_recv().unwrap();
         assert_eq!(req.topic, "test/float_topic");
-        assert_eq!(req.payload, "3.14");
+        assert_eq!(req.payload, "3.15");
     }
 
     #[test]

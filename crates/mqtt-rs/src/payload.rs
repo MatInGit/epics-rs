@@ -138,27 +138,32 @@ fn decode_flat(raw: &str, value_type: ValueType) -> MqttResult<DecodedValue> {
 
 fn decode_json(raw: &str, value_type: ValueType, field_path: &str) -> MqttResult<DecodedValue> {
     let json: serde_json::Value = serde_json::from_str(raw)?;
-    let value = extract_json_field(&json, field_path).ok_or_else(|| {
-        MqttError::JsonFieldNotFound(field_path.to_string())
-    })?;
+    let value = extract_json_field(&json, field_path)
+        .ok_or_else(|| MqttError::JsonFieldNotFound(field_path.to_string()))?;
 
     match value_type {
         ValueType::Int => {
-            let v = value
-                .as_i64()
-                .ok_or_else(|| MqttError::ValueConversion(format!("expected integer at '{field_path}', got {value}")))?;
+            let v = value.as_i64().ok_or_else(|| {
+                MqttError::ValueConversion(format!(
+                    "expected integer at '{field_path}', got {value}"
+                ))
+            })?;
             Ok(DecodedValue::Int32(v as i32))
         }
         ValueType::Float => {
-            let v = value
-                .as_f64()
-                .ok_or_else(|| MqttError::ValueConversion(format!("expected number at '{field_path}', got {value}")))?;
+            let v = value.as_f64().ok_or_else(|| {
+                MqttError::ValueConversion(format!(
+                    "expected number at '{field_path}', got {value}"
+                ))
+            })?;
             Ok(DecodedValue::Float64(v))
         }
         ValueType::Digital => {
-            let v = value
-                .as_u64()
-                .ok_or_else(|| MqttError::ValueConversion(format!("expected unsigned at '{field_path}', got {value}")))?;
+            let v = value.as_u64().ok_or_else(|| {
+                MqttError::ValueConversion(format!(
+                    "expected unsigned at '{field_path}', got {value}"
+                ))
+            })?;
             Ok(DecodedValue::UInt32(v as u32))
         }
         ValueType::String => {
@@ -168,16 +173,17 @@ fn decode_json(raw: &str, value_type: ValueType, field_path: &str) -> MqttResult
             };
             Ok(DecodedValue::String(v))
         }
-        ValueType::IntArray | ValueType::FloatArray => {
-            Err(MqttError::UnsupportedType(
-                "JSON array extraction not yet supported".into(),
-            ))
-        }
+        ValueType::IntArray | ValueType::FloatArray => Err(MqttError::UnsupportedType(
+            "JSON array extraction not yet supported".into(),
+        )),
     }
 }
 
 /// Traverse a JSON value using a dot-separated field path.
-fn extract_json_field<'a>(json: &'a serde_json::Value, path: &str) -> Option<&'a serde_json::Value> {
+fn extract_json_field<'a>(
+    json: &'a serde_json::Value,
+    path: &str,
+) -> Option<&'a serde_json::Value> {
     let mut current = json;
     for key in path.split('.') {
         current = current.get(key)?;
@@ -243,8 +249,8 @@ mod tests {
     #[test]
     fn decode_flat_float() {
         let addr = TopicAddress::parse("FLAT:FLOAT test/t").unwrap();
-        let val = decode_payload("3.14", &addr).unwrap();
-        assert_eq!(val, DecodedValue::Float64(3.14));
+        let val = decode_payload("3.15", &addr).unwrap();
+        assert_eq!(val, DecodedValue::Float64(3.15));
     }
 
     #[test]
@@ -348,7 +354,7 @@ mod tests {
     #[test]
     fn encode_flat_values() {
         assert_eq!(encode_flat(&DecodedValue::Int32(42)), "42");
-        assert_eq!(encode_flat(&DecodedValue::Float64(3.14)), "3.14");
+        assert_eq!(encode_flat(&DecodedValue::Float64(3.15)), "3.15");
         assert_eq!(encode_flat(&DecodedValue::UInt32(255)), "255");
         assert_eq!(encode_flat(&DecodedValue::String("hello".into())), "hello");
     }
