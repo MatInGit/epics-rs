@@ -497,9 +497,13 @@ impl DeviceSupport for AsynDeviceSupport {
                 Ok(reason) => {
                     self.reason = reason;
                 }
-                Err(_) => {
+                Err(e) => {
                     // Param not found — this record has no corresponding driver param.
-                    // Silently disable this device support (no-op reads/writes).
+                    eprintln!(
+                        "[asyn] init FAILED: port='{}' drv_info='{}' err={e}",
+                        self.handle.port_name(),
+                        self.drv_info
+                    );
                     self.reason_set = false;
                     return Ok(());
                 }

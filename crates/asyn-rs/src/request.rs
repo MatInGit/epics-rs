@@ -25,6 +25,11 @@ pub enum ParamSetValue {
         addr: i32,
         value: String,
     },
+    Float64Array {
+        reason: usize,
+        addr: i32,
+        value: Vec<f64>,
+    },
 }
 
 /// Operation the worker thread will dispatch to the port driver.

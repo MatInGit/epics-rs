@@ -71,6 +71,11 @@ pub enum ParamUpdate {
         addr: i32,
         value: String,
     },
+    Float64Array {
+        reason: usize,
+        addr: i32,
+        value: Vec<f64>,
+    },
 }
 
 impl ParamUpdate {
@@ -101,6 +106,22 @@ impl ParamUpdate {
     /// Create a Float64 update at a specific addr.
     pub fn float64_addr(reason: usize, addr: i32, value: f64) -> Self {
         Self::Float64 {
+            reason,
+            addr,
+            value,
+        }
+    }
+    /// Create a Float64Array update at addr 0.
+    pub fn float64_array(reason: usize, value: Vec<f64>) -> Self {
+        Self::Float64Array {
+            reason,
+            addr: 0,
+            value,
+        }
+    }
+    /// Create a Float64Array update at a specific addr.
+    pub fn float64_array_addr(reason: usize, addr: i32, value: Vec<f64>) -> Self {
+        Self::Float64Array {
             reason,
             addr,
             value,
@@ -576,6 +597,22 @@ impl<P: NDPluginProcess> SharedProcessorInner<P> {
                     value,
                 } => {
                     let pv = ParamSetValue::Octet {
+                        reason: *reason,
+                        addr: *addr,
+                        value: value.clone(),
+                    };
+                    if *addr == 0 {
+                        addr0_updates.push(pv);
+                    } else {
+                        extra_addr_map.entry(*addr).or_default().push(pv);
+                    }
+                }
+                ParamUpdate::Float64Array {
+                    reason,
+                    addr,
+                    value,
+                } => {
+                    let pv = ParamSetValue::Float64Array {
                         reason: *reason,
                         addr: *addr,
                         value: value.clone(),

@@ -105,7 +105,8 @@ pub mod ioc_support {
         fn read(&mut self, record: &mut dyn Record) -> CaResult<DeviceReadOutcome> {
             let val = self.value.get();
             record.put_field("VAL", epics_base_rs::types::EpicsValue::Double(val))?;
-            Ok(DeviceReadOutcome::ok())
+            // Return computed() to skip ai's RVAL->VAL conversion
+            Ok(DeviceReadOutcome::computed())
         }
 
         fn write(&mut self, _record: &mut dyn Record) -> CaResult<()> {

@@ -452,6 +452,31 @@ impl NDPluginProcess for ROIStatProcessor {
             },
         ));
 
+        // Write time series buffers to params for waveform readback
+        for (i, roi) in self.rois.iter().enumerate() {
+            if !roi.enabled || i >= self.ts_buffers.len() {
+                continue;
+            }
+            let addr = i as i32;
+            let bufs = &self.ts_buffers[i];
+            // stat order: min=0, max=1, mean=2, total=3, net=4
+            if bufs.len() > 0 {
+                updates.push(ParamUpdate::float64_array_addr(p.ts_min_value, addr, bufs[0].clone()));
+            }
+            if bufs.len() > 1 {
+                updates.push(ParamUpdate::float64_array_addr(p.ts_max_value, addr, bufs[1].clone()));
+            }
+            if bufs.len() > 2 {
+                updates.push(ParamUpdate::float64_array_addr(p.ts_mean_value, addr, bufs[2].clone()));
+            }
+            if bufs.len() > 3 {
+                updates.push(ParamUpdate::float64_array_addr(p.ts_total, addr, bufs[3].clone()));
+            }
+            if bufs.len() > 4 {
+                updates.push(ParamUpdate::float64_array_addr(p.ts_net, addr, bufs[4].clone()));
+            }
+        }
+
         ProcessResult::sink(updates)
     }
 

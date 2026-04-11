@@ -492,6 +492,13 @@ impl PortActor {
                         } => {
                             let _ = base.params.set_string(*reason, *addr, value.clone());
                         }
+                        crate::request::ParamSetValue::Float64Array {
+                            reason,
+                            addr,
+                            value,
+                        } => {
+                            let _ = base.params.set_float64_array(*reason, *addr, value.clone());
+                        }
                     }
                 }
                 base.call_param_callbacks(*addr)?;
