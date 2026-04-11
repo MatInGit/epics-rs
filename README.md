@@ -563,7 +563,7 @@ A port of the EPICS [testAsynPortDriver](https://github.com/epics-modules/asyn/b
 **Build and run:**
 
 ```bash
-cargo run --release -p scope-ioc --features ioc --bin scope_ioc -- examples/scope-ioc/ioc/st.cmd
+cargo run --release -p scope-ioc --bin scope_ioc -- examples/scope-ioc/ioc/st.cmd
 ```
 
 The IOC starts an interactive iocsh shell. You can also run the standalone demo (no CA server, just the driver logic):
@@ -615,7 +615,7 @@ Inspired by [caproto's mini_beamline](https://github.com/caproto/caproto/blob/ma
 **Build and run:**
 
 ```bash
-cargo run --release -p mini-beamline --features ioc --bin mini_ioc -- examples/mini-beamline/ioc/st.cmd
+cargo run --release -p mini-beamline --bin mini_ioc -- examples/mini-beamline/ioc/st.cmd
 ```
 
 **Verify with CA tools:**
