@@ -196,6 +196,7 @@ fn acquisition_loop(ctx: AcquisitionContext) {
             let mut frame = NDArray {
                 unique_id: 0,
                 timestamp: ad_core_rs::timestamp::EpicsTimestamp::default(),
+                time_stamp: 0.0,
                 dims,
                 data: NDDataBuffer::U16(u16_data),
                 attributes: ad_core_rs::attributes::NDAttributeList::new(),
@@ -217,26 +218,56 @@ fn acquisition_loop(ctx: AcquisitionContext) {
             frame.unique_id = array_counter;
             frame.timestamp = ad_core_rs::timestamp::EpicsTimestamp::now();
 
-            ctx.port_handle
-                .write_int32_no_wait(ctx.ad.base.array_counter, 0, array_counter);
-            ctx.port_handle
-                .write_int32_no_wait(ctx.ad.num_images_counter, 0, num_counter);
-            ctx.port_handle.write_float64_no_wait(
-                ctx.ad.base.timestamp_rbv,
+            // Update parameters and fire callbacks in one atomic operation.
+            // Using set_params_and_notify instead of write_int32_no_wait avoids
+            // going through the driver's writeInt32 (which is for external writes)
+            // and directly sets params + fires interrupts for I/O Intr records.
+            let info = frame.info();
+            ctx.port_handle.set_params_and_notify(
                 0,
-                frame.timestamp.as_f64(),
+                vec![
+                    asyn_rs::request::ParamSetValue::Int32 {
+                        reason: ctx.ad.base.array_counter,
+                        addr: 0,
+                        value: array_counter,
+                    },
+                    asyn_rs::request::ParamSetValue::Int32 {
+                        reason: ctx.ad.num_images_counter,
+                        addr: 0,
+                        value: num_counter,
+                    },
+                    asyn_rs::request::ParamSetValue::Int32 {
+                        reason: ctx.ad.base.array_size_x,
+                        addr: 0,
+                        value: info.x_size as i32,
+                    },
+                    asyn_rs::request::ParamSetValue::Int32 {
+                        reason: ctx.ad.base.array_size_y,
+                        addr: 0,
+                        value: info.y_size as i32,
+                    },
+                    asyn_rs::request::ParamSetValue::Int32 {
+                        reason: ctx.ad.base.array_size,
+                        addr: 0,
+                        value: info.total_bytes as i32,
+                    },
+                    asyn_rs::request::ParamSetValue::Float64 {
+                        reason: ctx.ad.base.timestamp_rbv,
+                        addr: 0,
+                        value: frame.timestamp.as_f64(),
+                    },
+                    asyn_rs::request::ParamSetValue::Int32 {
+                        reason: ctx.ad.base.epics_ts_sec,
+                        addr: 0,
+                        value: frame.timestamp.sec as i32,
+                    },
+                    asyn_rs::request::ParamSetValue::Int32 {
+                        reason: ctx.ad.base.epics_ts_nsec,
+                        addr: 0,
+                        value: frame.timestamp.nsec as i32,
+                    },
+                ],
             );
-            ctx.port_handle.write_int32_no_wait(
-                ctx.ad.base.epics_ts_sec,
-                0,
-                frame.timestamp.sec as i32,
-            );
-            ctx.port_handle.write_int32_no_wait(
-                ctx.ad.base.epics_ts_nsec,
-                0,
-                frame.timestamp.nsec as i32,
-            );
-            ctx.port_handle.call_param_callbacks_no_wait(0);
 
             if config.array_callbacks {
                 ctx.array_output.lock().publish(Arc::new(frame));

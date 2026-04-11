@@ -1,11 +1,18 @@
 use crate::error::{CaError, CaResult};
-use crate::server::record::{FieldDesc, Record};
+use crate::server::record::{FieldDesc, ProcessOutcome, Record};
 use crate::types::{DbFieldType, EpicsValue};
 
 /// Multi-bit binary input record — manual Record impl for raw↔index conversion.
 pub struct MbbiRecord {
     pub val: u16,
+    pub rval: i32,
+    pub oraw: i32,
+    pub mask: i32,
+    pub shft: i16,
+    pub sdef: bool,
     pub nobt: i16,
+    pub mlst: u16,
+    pub lalm: u16,
     pub zrsv: i16,
     pub onsv: i16,
     pub twsv: i16,
@@ -56,13 +63,25 @@ pub struct MbbiRecord {
     pub ttst: String,
     pub ftst: String,
     pub ffst: String,
+    pub simm: i16,
+    pub siml: String,
+    pub siol: String,
+    pub sims: i16,
+    skip_convert: bool,
 }
 
 impl Default for MbbiRecord {
     fn default() -> Self {
         Self {
             val: 0,
+            rval: 0,
+            oraw: 0,
+            mask: 0,
+            shft: 0,
+            sdef: false,
             nobt: 0,
+            mlst: 0,
+            lalm: 0,
             zrsv: 0,
             onsv: 0,
             twsv: 0,
@@ -82,21 +101,21 @@ impl Default for MbbiRecord {
             unsv: 0,
             cosv: 0,
             zrvl: 0,
-            onvl: 1,
-            twvl: 2,
-            thvl: 3,
-            frvl: 4,
-            fvvl: 5,
-            sxvl: 6,
-            svvl: 7,
-            eivl: 8,
-            nivl: 9,
-            tevl: 10,
-            elvl: 11,
-            tvvl: 12,
-            ttvl: 13,
-            ftvl: 14,
-            ffvl: 15,
+            onvl: 0,
+            twvl: 0,
+            thvl: 0,
+            frvl: 0,
+            fvvl: 0,
+            sxvl: 0,
+            svvl: 0,
+            eivl: 0,
+            nivl: 0,
+            tevl: 0,
+            elvl: 0,
+            tvvl: 0,
+            ttvl: 0,
+            ftvl: 0,
+            ffvl: 0,
             zrst: String::new(),
             onst: String::new(),
             twst: String::new(),
@@ -113,6 +132,11 @@ impl Default for MbbiRecord {
             ttst: String::new(),
             ftst: String::new(),
             ffst: String::new(),
+            simm: 0,
+            siml: String::new(),
+            siol: String::new(),
+            sims: 0,
+            skip_convert: false,
         }
     }
 }
@@ -132,15 +156,33 @@ impl MbbiRecord {
         ]
     }
 
-    /// Convert a raw value from hardware to an enum index by searching *VL fields.
-    fn raw_to_index(&self, raw: i32) -> Option<u16> {
+    fn compute_sdef(&mut self) {
+        let rvs = self.raw_values();
+        let sts: [&String; 16] = [
+            &self.zrst, &self.onst, &self.twst, &self.thst, &self.frst, &self.fvst, &self.sxst,
+            &self.svst, &self.eist, &self.nist, &self.test, &self.elst, &self.tvst, &self.ttst,
+            &self.ftst, &self.ffst,
+        ];
+        self.sdef = false;
+        for i in 0..16 {
+            if rvs[i] != 0 || !sts[i].is_empty() {
+                self.sdef = true;
+                return;
+            }
+        }
+    }
+
+    fn raw_to_val(&self, raw: i32) -> u16 {
+        if !self.sdef {
+            return raw as u16;
+        }
         let rvs = self.raw_values();
         for (i, &rv) in rvs.iter().enumerate() {
             if rv == raw {
-                return Some(i as u16);
+                return i as u16;
             }
         }
-        None
+        65535
     }
 }
 
@@ -149,6 +191,36 @@ static MBBI_FIELDS: &[FieldDesc] = &[
         name: "VAL",
         dbf_type: DbFieldType::Enum,
         read_only: false,
+    },
+    FieldDesc {
+        name: "RVAL",
+        dbf_type: DbFieldType::Long,
+        read_only: false,
+    },
+    FieldDesc {
+        name: "ORAW",
+        dbf_type: DbFieldType::Long,
+        read_only: true,
+    },
+    FieldDesc {
+        name: "MASK",
+        dbf_type: DbFieldType::Long,
+        read_only: false,
+    },
+    FieldDesc {
+        name: "SHFT",
+        dbf_type: DbFieldType::Short,
+        read_only: false,
+    },
+    FieldDesc {
+        name: "MLST",
+        dbf_type: DbFieldType::Enum,
+        read_only: true,
+    },
+    FieldDesc {
+        name: "LALM",
+        dbf_type: DbFieldType::Enum,
+        read_only: true,
     },
     FieldDesc {
         name: "NOBT",
@@ -449,8 +521,36 @@ impl Record for MbbiRecord {
         MBBI_FIELDS
     }
 
+    fn init_record(&mut self, pass: u8) -> CaResult<()> {
+        if pass == 0 {
+            if self.mask == 0 && self.nobt > 0 && self.nobt <= 32 {
+                self.mask = ((1i64 << self.nobt) - 1) as i32;
+            }
+            self.compute_sdef();
+            self.mlst = self.val;
+            self.lalm = self.val;
+            self.oraw = self.rval;
+        }
+        Ok(())
+    }
+
+    fn process(&mut self) -> CaResult<ProcessOutcome> {
+        if !self.skip_convert {
+            let mut rval = self.rval;
+            if self.shft > 0 {
+                rval = ((rval as u32) >> (self.shft as u32)) as i32;
+            }
+            self.val = self.raw_to_val(rval);
+        }
+        self.skip_convert = false;
+        self.oraw = self.rval;
+        Ok(ProcessOutcome::complete())
+    }
+
     fn get_field(&self, name: &str) -> Option<EpicsValue> {
         mbb_get_field!(self, name,
+            "RVAL" => rval: Long, "ORAW" => oraw: Long, "MASK" => mask: Long,
+            "SHFT" => shft: Short, "MLST" => mlst: Enum, "LALM" => lalm: Enum,
             "NOBT" => nobt: Short,
             "ZRSV" => zrsv: Short, "ONSV" => onsv: Short, "TWSV" => twsv: Short, "THSV" => thsv: Short,
             "FRSV" => frsv: Short, "FVSV" => fvsv: Short, "SXSV" => sxsv: Short, "SVSV" => svsv: Short,
@@ -470,6 +570,8 @@ impl Record for MbbiRecord {
 
     fn put_field(&mut self, name: &str, value: EpicsValue) -> CaResult<()> {
         mbb_put_field!(self, name, value,
+            "RVAL" => rval: Long, "ORAW" => oraw: Long, "MASK" => mask: Long,
+            "SHFT" => shft: Short, "MLST" => mlst: Enum, "LALM" => lalm: Enum,
             "NOBT" => nobt: Short,
             "ZRSV" => zrsv: Short, "ONSV" => onsv: Short, "TWSV" => twsv: Short, "THSV" => thsv: Short,
             "FRSV" => frsv: Short, "FVSV" => fvsv: Short, "SXSV" => sxsv: Short, "SVSV" => svsv: Short,
@@ -488,6 +590,10 @@ impl Record for MbbiRecord {
         Ok(())
     }
 
+    fn set_device_did_compute(&mut self, did: bool) {
+        self.skip_convert = did;
+    }
+
     /// Override set_val: convert raw value from hardware → enum index.
     fn set_val(&mut self, value: EpicsValue) -> CaResult<()> {
         let raw = match value {
@@ -500,13 +606,13 @@ impl Record for MbbiRecord {
             }
             _ => return Err(CaError::TypeMismatch("VAL".into())),
         };
-        // Convert raw → index via *VL lookup
-        if let Some(idx) = self.raw_to_index(raw) {
-            self.val = idx;
+        self.rval = raw;
+        let shifted = if self.shft > 0 {
+            ((raw as u32) >> (self.shft as u32)) as i32
         } else {
-            // No match — store raw as index (best effort)
-            self.val = raw as u16;
-        }
+            raw
+        };
+        self.val = self.raw_to_val(shifted);
         Ok(())
     }
 }

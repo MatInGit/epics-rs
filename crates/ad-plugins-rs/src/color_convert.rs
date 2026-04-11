@@ -18,6 +18,10 @@ pub fn bayer_to_rgb1(src: &NDArray, pattern: NDBayerPattern) -> Option<NDArray> 
     let w = src.dims[0].size;
     let h = src.dims[1].size;
 
+    // Read dimension offsets to adjust the bayer phase when offset is odd
+    let offset_x = src.dims[0].offset;
+    let offset_y = src.dims[1].offset;
+
     // Pre-compute source values into a flat f64 vec for efficient random access
     let n = w * h;
     let src_vals: Vec<f64> = (0..n)
@@ -29,13 +33,19 @@ pub fn bayer_to_rgb1(src: &NDArray, pattern: NDBayerPattern) -> Option<NDArray> 
     let mut g = vec![0.0f64; n];
     let mut b = vec![0.0f64; n];
 
-    // Determine which color each pixel position has
-    let (r_row_even, r_col_even) = match pattern {
+    // Determine which color each pixel position has, flipping phase for odd offsets
+    let (mut r_row_even, mut r_col_even) = match pattern {
         NDBayerPattern::RGGB => (true, true),
         NDBayerPattern::GBRG => (true, false),
         NDBayerPattern::GRBG => (false, true),
         NDBayerPattern::BGGR => (false, false),
     };
+    if offset_x % 2 != 0 {
+        r_col_even = !r_col_even;
+    }
+    if offset_y % 2 != 0 {
+        r_row_even = !r_row_even;
+    }
 
     // Helper to demosaic a single row into (r, g, b) slices
     let demosaic_row = |y: usize, r_row: &mut [f64], g_row: &mut [f64], b_row: &mut [f64]| {
@@ -341,7 +351,8 @@ fn detect_color_mode(array: &NDArray) -> NDColorMode {
 pub struct ColorConvertConfig {
     pub target_mode: NDColorMode,
     pub bayer_pattern: NDBayerPattern,
-    pub false_color: bool,
+    /// False color mode: 0=off, 1=Rainbow, 2=Iron. Nonzero is treated as enabled.
+    pub false_color: i32,
 }
 
 /// Pure color conversion processing logic.
@@ -382,7 +393,7 @@ impl NDPluginProcess for ColorConvertProcessor {
         if Some(reason) == self.color_mode_out_idx {
             self.config.target_mode = NDColorMode::from_i32(params.value.as_i32());
         } else if Some(reason) == self.false_color_idx {
-            self.config.false_color = params.value.as_i32() != 0;
+            self.config.false_color = params.value.as_i32();
         }
         ad_core_rs::plugin::runtime::ParamChangeResult::updates(vec![])
     }
@@ -400,7 +411,7 @@ impl NDPluginProcess for ColorConvertProcessor {
         let rgb1 = match src_mode {
             NDColorMode::RGB1 => Some(array.clone()),
             NDColorMode::Mono => {
-                if self.config.false_color {
+                if self.config.false_color != 0 {
                     false_color_mono_to_rgb1(array).or_else(|| color::mono_to_rgb1(array).ok())
                 } else {
                     color::mono_to_rgb1(array).ok()
@@ -434,7 +445,27 @@ impl NDPluginProcess for ColorConvertProcessor {
         };
 
         match result {
-            Some(out) => ProcessResult::arrays(vec![Arc::new(out)]),
+            Some(mut out) => {
+                // C++: set ColorMode attribute on output array
+                let color_mode_val = match target {
+                    NDColorMode::Mono => 0i32,
+                    NDColorMode::Bayer => 1,
+                    NDColorMode::RGB1 => 2,
+                    NDColorMode::RGB2 => 3,
+                    NDColorMode::RGB3 => 4,
+                    NDColorMode::YUV444 => 5,
+                    NDColorMode::YUV422 => 6,
+                    NDColorMode::YUV411 => 7,
+                };
+                use ad_core_rs::attributes::{NDAttrSource, NDAttrValue, NDAttribute};
+                out.attributes.add(NDAttribute {
+                    name: "ColorMode".into(),
+                    description: "Color Mode".into(),
+                    source: NDAttrSource::Driver,
+                    value: NDAttrValue::Int32(color_mode_val),
+                });
+                ProcessResult::arrays(vec![Arc::new(out)])
+            }
             None => ProcessResult::empty(),
         }
     }
@@ -474,7 +505,7 @@ mod tests {
         let config = ColorConvertConfig {
             target_mode: NDColorMode::RGB1,
             bayer_pattern: NDBayerPattern::RGGB,
-            false_color: false,
+            false_color: 0,
         };
         let mut proc = ColorConvertProcessor::new(config);
         let pool = NDArrayPool::new(1_000_000);
@@ -499,7 +530,7 @@ mod tests {
         let config = ColorConvertConfig {
             target_mode: NDColorMode::RGB1,
             bayer_pattern: NDBayerPattern::RGGB,
-            false_color: true,
+            false_color: 1,
         };
         let mut proc = ColorConvertProcessor::new(config);
         let pool = NDArrayPool::new(1_000_000);
@@ -545,7 +576,7 @@ mod tests {
         let config = ColorConvertConfig {
             target_mode: NDColorMode::RGB2,
             bayer_pattern: NDBayerPattern::RGGB,
-            false_color: false,
+            false_color: 0,
         };
         let mut proc = ColorConvertProcessor::new(config);
         let pool = NDArrayPool::new(1_000_000);
@@ -578,7 +609,7 @@ mod tests {
         let config = ColorConvertConfig {
             target_mode: NDColorMode::Mono,
             bayer_pattern: NDBayerPattern::RGGB,
-            false_color: false,
+            false_color: 0,
         };
         let mut proc = ColorConvertProcessor::new(config);
         let pool = NDArrayPool::new(1_000_000);
@@ -653,7 +684,7 @@ mod tests {
         let config = ColorConvertConfig {
             target_mode: NDColorMode::Mono,
             bayer_pattern: NDBayerPattern::RGGB,
-            false_color: false,
+            false_color: 0,
         };
         let mut proc = ColorConvertProcessor::new(config);
         let pool = NDArrayPool::new(1_000_000);
@@ -691,7 +722,7 @@ mod tests {
         let config = ColorConvertConfig {
             target_mode: NDColorMode::Mono,
             bayer_pattern: NDBayerPattern::RGGB,
-            false_color: false,
+            false_color: 0,
         };
         let mut proc = ColorConvertProcessor::new(config);
         let pool = NDArrayPool::new(1_000_000);
@@ -717,7 +748,7 @@ mod tests {
         let config = ColorConvertConfig {
             target_mode: NDColorMode::YUV444,
             bayer_pattern: NDBayerPattern::RGGB,
-            false_color: false,
+            false_color: 0,
         };
         let mut proc = ColorConvertProcessor::new(config);
         let pool = NDArrayPool::new(1_000_000);
@@ -748,7 +779,7 @@ mod tests {
         let config = ColorConvertConfig {
             target_mode: NDColorMode::RGB1,
             bayer_pattern: NDBayerPattern::RGGB,
-            false_color: false,
+            false_color: 0,
         };
         let mut proc = ColorConvertProcessor::new(config);
         let pool = NDArrayPool::new(1_000_000);
@@ -780,7 +811,7 @@ mod tests {
         let config = ColorConvertConfig {
             target_mode: NDColorMode::YUV422,
             bayer_pattern: NDBayerPattern::RGGB,
-            false_color: false,
+            false_color: 0,
         };
         let mut proc = ColorConvertProcessor::new(config);
         let pool = NDArrayPool::new(1_000_000);
@@ -807,7 +838,7 @@ mod tests {
         let config = ColorConvertConfig {
             target_mode: NDColorMode::Mono,
             bayer_pattern: NDBayerPattern::RGGB,
-            false_color: false,
+            false_color: 0,
         };
         let mut proc = ColorConvertProcessor::new(config);
         let pool = NDArrayPool::new(1_000_000);

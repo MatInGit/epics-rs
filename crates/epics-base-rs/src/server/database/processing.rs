@@ -102,6 +102,9 @@ impl PvDatabase {
             let disa = rec.read().await.common.disa;
             if disa == disv {
                 let mut instance = rec.write().await;
+                // Reset nsta/nsev to prevent stale alarm from bleeding into next cycle
+                instance.common.nsta = 0;
+                instance.common.nsev = crate::server::record::AlarmSeverity::NoAlarm;
                 let prev_sevr = instance.common.sevr;
                 let prev_stat = instance.common.stat;
                 instance.common.sevr = diss;
@@ -318,7 +321,8 @@ impl PvDatabase {
                 }
             }
 
-            // Apply INP value
+            // Apply INP value. Soft channel: equivalent to C status=2.
+            let soft_inp_applied = inp_value.is_some();
             if let Some(inp_val) = inp_value {
                 let _ = instance.record.set_val(inp_val);
             }
@@ -343,7 +347,7 @@ impl PvDatabase {
             let is_soft = instance.common.dtyp.is_empty() || instance.common.dtyp == "Soft Channel";
             let is_output = instance.record.can_device_write();
             let mut device_actions: Vec<crate::server::record::ProcessAction> = Vec::new();
-            let mut device_did_compute = false;
+            let mut device_did_compute = soft_inp_applied && is_soft;
             if !is_soft && !is_output {
                 if let Some(mut dev) = instance.device.take() {
                     match dev.read(&mut *instance.record) {
@@ -398,7 +402,9 @@ impl PvDatabase {
 
             // Tell the record whether device support already computed.
             // Records that override set_device_did_compute() use this to
-            // skip their built-in computation (e.g., epid PID).
+            // skip their built-in computation (e.g., ai skips RVAL->VAL).
+            // Note: field_io.rs may have already called set_device_did_compute(true)
+            // for CA puts to VAL. We only set true here, never reset to false.
             if device_did_compute {
                 instance.record.set_device_did_compute(true);
             }
@@ -454,13 +460,8 @@ impl PvDatabase {
                     if changed {
                         if name == "VAL" {
                             if let Some(f) = val.to_f64() {
-                                if instance
-                                    .record
-                                    .put_field("MLST", EpicsValue::Double(f))
-                                    .is_err()
-                                {
-                                    instance.common.mlst = Some(f);
-                                }
+                                instance.put_coerced("MLST", f);
+                                instance.common.mlst = Some(f);
                             }
                         }
                         instance.last_posted.insert(name.clone(), val.clone());
@@ -553,8 +554,15 @@ impl PvDatabase {
                     1 => true, // Don't drive outputs
                     2 => {
                         // Set output to IVOV
+                        // For calcout records, IVOV should be written to OVAL (the
+                        // output value), not VAL. C: prec->oval = prec->ivov
                         if let Some(ivov) = instance.record.get_field("IVOV") {
-                            let _ = instance.record.set_val(ivov);
+                            let rtype = instance.record.record_type();
+                            if rtype == "calcout" {
+                                let _ = instance.record.put_field("OVAL", ivov);
+                            } else {
+                                let _ = instance.record.set_val(ivov);
+                            }
                         }
                         false
                     }
@@ -791,11 +799,18 @@ impl PvDatabase {
             }
         }
 
-        // 5. FLNK
-        if let Some(flnk) = flnk_name {
-            let _ = self
-                .process_record_with_links(&flnk, visited, depth + 1)
-                .await;
+        // 5. FLNK -- only process if target is Passive (like C dbScanFwdLink)
+        if let Some(ref flnk) = flnk_name {
+            let is_passive = if let Some(rec) = self.get_record(flnk).await {
+                rec.read().await.common.scan == crate::server::record::ScanType::Passive
+            } else {
+                false
+            };
+            if is_passive {
+                let _ = self
+                    .process_record_with_links(flnk, visited, depth + 1)
+                    .await;
+            }
         }
 
         // 6. CP link targets -- process records that have CP input links from this record
@@ -1245,11 +1260,18 @@ impl PvDatabase {
             }
         }
 
-        // FLNK
-        if let Some(flnk) = flnk_name {
-            let _ = self
-                .process_record_with_links(&flnk, visited, depth + 1)
-                .await;
+        // FLNK -- only process if target is Passive
+        if let Some(ref flnk) = flnk_name {
+            let is_passive = if let Some(rec) = self.get_record(flnk).await {
+                rec.read().await.common.scan == crate::server::record::ScanType::Passive
+            } else {
+                false
+            };
+            if is_passive {
+                let _ = self
+                    .process_record_with_links(flnk, visited, depth + 1)
+                    .await;
+            }
         }
 
         // CP link targets

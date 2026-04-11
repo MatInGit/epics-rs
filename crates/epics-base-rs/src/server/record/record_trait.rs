@@ -212,8 +212,26 @@ pub trait Record: Send + Sync + 'static {
     }
 
     /// Set the primary value.
+    ///
+    /// Matches C EPICS `dbPut` behavior: if the value type doesn't match
+    /// the field type, it is automatically coerced (e.g., Long→Double for
+    /// ai, Long→Enum for bi/mbbi). This prevents silent failures when
+    /// asyn device support provides Int32 values to Enum-typed records.
     fn set_val(&mut self, value: EpicsValue) -> CaResult<()> {
-        self.put_field(self.primary_field(), value)
+        let field = self.primary_field();
+        match self.put_field(field, value.clone()) {
+            Ok(()) => Ok(()),
+            Err(crate::error::CaError::TypeMismatch(_)) => {
+                // Auto-coerce: determine target type from current VAL
+                let target_type = self
+                    .get_field(field)
+                    .map(|v| v.db_field_type())
+                    .unwrap_or(DbFieldType::Double);
+                let coerced = value.convert_to(target_type);
+                self.put_field(field, coerced)
+            }
+            Err(e) => Err(e),
+        }
     }
 
     /// Whether this record type supports device write (output records only).

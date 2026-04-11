@@ -117,14 +117,14 @@ pub fn extract_roi_2d(src: &NDArray, config: &ROIConfig) -> Option<NDArray> {
     let src_y = src.dims[1].size;
 
     // Resolve effective min/size for X dimension
+    // C++: when autoSize, size = full dimension size (src_dim), offset is clamped later
     let (eff_x_min, eff_x_size) = if !config.dims[0].enable {
         (0, src_x)
     } else if config.dims[0].auto_size {
-        let min = config.dims[0].min.min(src_x);
-        (min, src_x.saturating_sub(min))
+        (config.dims[0].min.min(src_x), src_x)
     } else {
         let min = config.dims[0].min.min(src_x);
-        let size = config.dims[0].size.min(src_x - min);
+        let size = config.dims[0].size.min(src_x.saturating_sub(min));
         (min, size)
     };
 
@@ -132,11 +132,10 @@ pub fn extract_roi_2d(src: &NDArray, config: &ROIConfig) -> Option<NDArray> {
     let (eff_y_min, eff_y_size) = if !config.dims[1].enable {
         (0, src_y)
     } else if config.dims[1].auto_size {
-        let min = config.dims[1].min.min(src_y);
-        (min, src_y.saturating_sub(min))
+        (config.dims[1].min.min(src_y), src_y)
     } else {
         let min = config.dims[1].min.min(src_y);
-        let size = config.dims[1].size.min(src_y - min);
+        let size = config.dims[1].size.min(src_y.saturating_sub(min));
         (min, size)
     };
 
@@ -188,18 +187,19 @@ pub fn extract_roi_2d(src: &NDArray, config: &ROIConfig) -> Option<NDArray> {
             for oy in 0..out_y {
                 for ox in 0..out_x {
                     let mut sum = 0.0f64;
-                    let mut count = 0usize;
+                    let mut _count = 0usize;
                     for by in 0..bin_y {
                         for bx in 0..bin_x {
                             let sx = roi_x_min + ox * bin_x + bx;
                             let sy = roi_y_min + oy * bin_y + by;
                             if sx < src_x && sy < src_y {
                                 sum += $vec[sy * src_x + sx] as f64;
-                                count += 1;
+                                _count += 1;
                             }
                         }
                     }
-                    let val = if count > 0 { sum / count as f64 } else { 0.0 };
+                    // C++ sums binned pixels (no averaging); scale is a divisor
+                    let val = sum;
                     let idx = if config.dims[0].reverse {
                         out_x - 1 - ox
                     } else {
@@ -209,8 +209,8 @@ pub fn extract_roi_2d(src: &NDArray, config: &ROIConfig) -> Option<NDArray> {
                     } else {
                         oy
                     } * out_x;
-                    let scaled = if config.enable_scale {
-                        val * config.scale
+                    let scaled = if config.enable_scale && config.scale != 0.0 {
+                        val / config.scale
                     } else {
                         val
                     };
@@ -234,8 +234,14 @@ pub fn extract_roi_2d(src: &NDArray, config: &ROIConfig) -> Option<NDArray> {
         NDDataBuffer::F64(v) => NDDataBuffer::F64(extract!(v, f64, 0.0)),
     };
 
-    let out_dims = if config.collapse_dims && out_y == 1 {
-        vec![NDDimension::new(out_x)]
+    let out_dims = if config.collapse_dims {
+        let all_dims = vec![NDDimension::new(out_x), NDDimension::new(out_y)];
+        let filtered: Vec<NDDimension> = all_dims.into_iter().filter(|d| d.size > 1).collect();
+        if filtered.is_empty() {
+            vec![NDDimension::new(out_x)]
+        } else {
+            filtered
+        }
     } else {
         vec![NDDimension::new(out_x), NDDimension::new(out_y)]
     };
@@ -601,8 +607,8 @@ mod tests {
         assert_eq!(roi.dims[0].size, 2);
         assert_eq!(roi.dims[1].size, 2);
         if let NDDataBuffer::U8(ref v) = roi.data {
-            // top-left 2x2: (0+1+4+5)/4 = 2.5 → 2
-            assert_eq!(v[0], 2);
+            // top-left 2x2: sum = 0+1+4+5 = 10 (C++ sums, not averages)
+            assert_eq!(v[0], 10);
         }
     }
 
@@ -688,8 +694,9 @@ mod tests {
 
         let roi = extract_roi_2d(&arr, &config).unwrap();
         if let NDDataBuffer::U8(ref v) = roi.data {
-            assert_eq!(v[0], 0); // 0 * 2 = 0
-            assert_eq!(v[1], 2); // 1 * 2 = 2
+            // C++: scale is a divisor
+            assert_eq!(v[0], 0); // 0 / 2 = 0
+            assert_eq!(v[1], 0); // 1 / 2 = 0.5 → 0
         }
     }
 
@@ -776,15 +783,9 @@ mod tests {
         };
 
         let roi = extract_roi_2d(&arr, &config).unwrap();
-        assert_eq!(roi.dims[0].size, 3); // 4 - 1 = 3
-        assert_eq!(roi.dims[1].size, 4); // 4 - 0 = 4
-
-        if let NDDataBuffer::U8(ref v) = roi.data {
-            // First row (y=0): pixels at x=1,2,3 => values 1,2,3
-            assert_eq!(v[0], 1);
-            assert_eq!(v[1], 2);
-            assert_eq!(v[2], 3);
-        }
+        // C++: autoSize uses full dimension size, not src_dim - min
+        assert_eq!(roi.dims[0].size, 4); // full dim size
+        assert_eq!(roi.dims[1].size, 4); // full dim size
     }
 
     #[test]

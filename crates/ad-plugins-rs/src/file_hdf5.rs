@@ -15,14 +15,16 @@ use rust_hdf5::format::messages::filter::{
 };
 use rust_hdf5::swmr::SwmrFileWriter;
 
-/// C ADCore compression type enum values.
+/// C ADCore compression type enum values (matching NDFileHDF5.h).
 const COMPRESS_NONE: i32 = 0;
 const COMPRESS_NBIT: i32 = 1;
 const COMPRESS_SZIP: i32 = 2;
 const COMPRESS_ZLIB: i32 = 3;
 const COMPRESS_BLOSC: i32 = 4;
-const COMPRESS_JPEG: i32 = 5;
+#[allow(dead_code)]
+const COMPRESS_BSHUF: i32 = 5;
 const COMPRESS_LZ4: i32 = 6;
+const COMPRESS_JPEG: i32 = 7;
 
 /// C ADCore BLOSC compressor sub-types.
 const BLOSC_LZ: i32 = 0;
@@ -335,56 +337,16 @@ impl Hdf5Writer {
         }
 
         match &array.data {
+            NDDataBuffer::I8(v) => write_typed!(i8, v),
             NDDataBuffer::U8(v) => write_typed!(u8, v),
+            NDDataBuffer::I16(v) => write_typed!(i16, v),
             NDDataBuffer::U16(v) => write_typed!(u16, v),
             NDDataBuffer::I32(v) => write_typed!(i32, v),
+            NDDataBuffer::U32(v) => write_typed!(u32, v),
+            NDDataBuffer::I64(v) => write_typed!(i64, v),
+            NDDataBuffer::U64(v) => write_typed!(u64, v),
             NDDataBuffer::F32(v) => write_typed!(f32, v),
             NDDataBuffer::F64(v) => write_typed!(f64, v),
-            _ => {
-                let raw = array.data.as_u8_slice();
-                let ds = if let Some(ref pl) = pipeline {
-                    h5file
-                        .new_dataset::<u8>()
-                        .shape([raw.len()])
-                        .chunk(&[raw.len()])
-                        .filter_pipeline(pl.clone())
-                        .create(dataset_name.as_str())
-                        .map_err(|e| {
-                            ADError::UnsupportedConversion(format!("HDF5 dataset error: {}", e))
-                        })?
-                } else {
-                    h5file
-                        .new_dataset::<u8>()
-                        .shape([raw.len()])
-                        .create(dataset_name.as_str())
-                        .map_err(|e| {
-                            ADError::UnsupportedConversion(format!("HDF5 dataset error: {}", e))
-                        })?
-                };
-                if pipeline.is_some() {
-                    ds.write_chunk(0, raw).map_err(|e| {
-                        ADError::UnsupportedConversion(format!("HDF5 write error: {}", e))
-                    })?;
-                } else {
-                    ds.write_raw(raw).map_err(|e| {
-                        ADError::UnsupportedConversion(format!("HDF5 write error: {}", e))
-                    })?;
-                }
-                if self.store_attributes {
-                    for attr in array.attributes.iter() {
-                        let val_str = attr.value.as_string();
-                        let _ = ds
-                            .new_attr::<rust_hdf5::types::VarLenUnicode>()
-                            .shape(())
-                            .create(attr.name.as_str())
-                            .and_then(|a| {
-                                let s: rust_hdf5::types::VarLenUnicode =
-                                    val_str.parse().unwrap_or_default();
-                                a.write_scalar(&s)
-                            });
-                    }
-                }
-            }
         }
         Ok(())
     }

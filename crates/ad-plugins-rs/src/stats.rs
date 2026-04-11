@@ -54,6 +54,21 @@ pub struct NDStatsParams {
     pub compute_profiles: usize,
     pub cursor_x: usize,
     pub cursor_y: usize,
+    pub cursor_val: usize,
+    pub profile_size_x: usize,
+    pub profile_size_y: usize,
+    pub skewx_value: usize,
+    pub skewy_value: usize,
+    pub profile_average_x: usize,
+    pub profile_average_y: usize,
+    pub profile_threshold_x: usize,
+    pub profile_threshold_y: usize,
+    pub profile_centroid_x: usize,
+    pub profile_centroid_y: usize,
+    pub profile_cursor_x: usize,
+    pub profile_cursor_y: usize,
+    pub hist_array: usize,
+    pub hist_x_array: usize,
 }
 
 /// Statistics computed from an NDArray.
@@ -82,6 +97,7 @@ pub struct StatsResult {
     pub profile_centroid_y: Vec<f64>,
     pub profile_cursor_x: Vec<f64>,
     pub profile_cursor_y: Vec<f64>,
+    pub cursor_value: f64,
 }
 
 /// Centroid and higher-order moment results.
@@ -543,7 +559,11 @@ pub fn compute_centroid(
 
     let sigma_x = (mu20 / m00).sqrt();
     let sigma_y = (mu02 / m00).sqrt();
-    let sigma_xy = mu11 / m00;
+    let sigma_xy = if sigma_x > 0.0 && sigma_y > 0.0 {
+        (mu11 / m00) / (sigma_x * sigma_y)
+    } else {
+        0.0
+    };
 
     // Skewness: M30_central / (M00 * sigma_x^3)
     let skewness_x = if sigma_x > 0.0 {
@@ -569,20 +589,17 @@ pub fn compute_centroid(
         0.0
     };
 
-    // Eccentricity: ((mu20 - mu02)^2 + 4*mu11^2) / (mu20 + mu02)^2
-    let mu20_norm = mu20 / m00;
-    let mu02_norm = mu02 / m00;
-    let mu11_norm = mu11 / m00;
-    let denom = mu20_norm + mu02_norm;
+    // Eccentricity: ((mu20 - mu02)^2 - 4*mu11^2) / (mu20 + mu02)^2
+    // Uses un-normalized central moments (normalization cancels in the ratio)
+    let denom = mu20 + mu02;
     let eccentricity = if denom > 0.0 {
-        ((mu20_norm - mu02_norm).powi(2) + 4.0 * mu11_norm.powi(2)) / denom.powi(2)
+        ((mu20 - mu02).powi(2) - 4.0 * mu11.powi(2)) / denom.powi(2)
     } else {
         0.0
     };
 
     // Orientation: 0.5 * atan2(2*mu11, mu20 - mu02) in degrees
-    let orientation =
-        0.5 * (2.0 * mu11_norm).atan2(mu20_norm - mu02_norm) * 180.0 / std::f64::consts::PI;
+    let orientation = 0.5 * (2.0 * mu11).atan2(mu20 - mu02) * 180.0 / std::f64::consts::PI;
 
     CentroidResult {
         centroid_x: cx,
@@ -682,17 +699,16 @@ pub fn compute_histogram(
         }
     }
 
-    // Compute entropy: -sum(p * ln(p)) for non-zero bins
-    let total_in_bins: f64 = histogram.iter().sum();
-    let entropy = if total_in_bins > 0.0 {
+    // Compute entropy matching C++: -sum(count * ln(count)) / nElements
+    // Zero-count bins are treated as count=1 (so ln(1)=0, effectively skipped)
+    let n_elements = data.len() as f64;
+    let entropy = if n_elements > 0.0 {
         let mut ent = 0.0f64;
         for &count in &histogram {
-            if count > 0.0 {
-                let p = count / total_in_bins;
-                ent -= p * p.ln();
-            }
+            let c = if count <= 0.0 { 1.0 } else { count };
+            ent += c * c.ln();
         }
-        ent
+        -ent / n_elements
     } else {
         0.0
     };
@@ -931,6 +947,15 @@ impl NDPluginProcess for StatsProcessor {
             result.profile_cursor_y = profiles.cursor_y;
         }
 
+        // Compute cursor value: pixel at (cursor_x, cursor_y)
+        if info.color_size == 1 && array.dims.len() >= 2 {
+            let cx = self.cursor_x;
+            let cy = self.cursor_y;
+            if cx < info.x_size && cy < info.y_size {
+                result.cursor_value = array.data.get_as_f64(cy * info.x_size + cx).unwrap_or(0.0);
+            }
+        }
+
         let updates = vec![
             ParamUpdate::float64(p.min_value, result.min),
             ParamUpdate::float64(p.max_value, result.max),
@@ -957,6 +982,9 @@ impl NDPluginProcess for StatsProcessor {
             ParamUpdate::float64(p.hist_below, result.hist_below),
             ParamUpdate::float64(p.hist_above, result.hist_above),
             ParamUpdate::float64(p.hist_entropy, result.hist_entropy),
+            ParamUpdate::float64(p.cursor_val, result.cursor_value),
+            ParamUpdate::int32(p.profile_size_x, info.x_size as i32),
+            ParamUpdate::int32(p.profile_size_y, info.y_size as i32),
         ];
 
         // Send time series data to TS port driver (if configured)
@@ -992,7 +1020,12 @@ impl NDPluginProcess for StatsProcessor {
         }
 
         *self.latest_stats.lock() = result;
-        ProcessResult::sink(updates)
+        // C++ Stats forwards the input array to downstream plugins
+        ProcessResult {
+            output_arrays: vec![Arc::new(array.clone())],
+            param_updates: updates,
+            scatter_index: None,
+        }
     }
 
     fn plugin_type(&self) -> &str {
@@ -1052,6 +1085,31 @@ impl NDPluginProcess for StatsProcessor {
         base.set_int32_param(self.params.cursor_x, 0, 0)?;
         self.params.cursor_y = base.create_param("CURSOR_Y", ParamType::Int32)?;
         base.set_int32_param(self.params.cursor_y, 0, 0)?;
+
+        self.params.cursor_val = base.create_param("CURSOR_VAL", ParamType::Float64)?;
+        self.params.profile_size_x = base.create_param("PROFILE_SIZE_X", ParamType::Int32)?;
+        self.params.profile_size_y = base.create_param("PROFILE_SIZE_Y", ParamType::Int32)?;
+
+        self.params.skewx_value = base.create_param("SKEWX_VALUE", ParamType::Float64)?;
+        self.params.skewy_value = base.create_param("SKEWY_VALUE", ParamType::Float64)?;
+        self.params.profile_average_x =
+            base.create_param("PROFILE_AVERAGE_X", ParamType::Float64Array)?;
+        self.params.profile_average_y =
+            base.create_param("PROFILE_AVERAGE_Y", ParamType::Float64Array)?;
+        self.params.profile_threshold_x =
+            base.create_param("PROFILE_THRESHOLD_X", ParamType::Float64Array)?;
+        self.params.profile_threshold_y =
+            base.create_param("PROFILE_THRESHOLD_Y", ParamType::Float64Array)?;
+        self.params.profile_centroid_x =
+            base.create_param("PROFILE_CENTROID_X", ParamType::Float64Array)?;
+        self.params.profile_centroid_y =
+            base.create_param("PROFILE_CENTROID_Y", ParamType::Float64Array)?;
+        self.params.profile_cursor_x =
+            base.create_param("PROFILE_CURSOR_X", ParamType::Float64Array)?;
+        self.params.profile_cursor_y =
+            base.create_param("PROFILE_CURSOR_Y", ParamType::Float64Array)?;
+        self.params.hist_array = base.create_param("HIST_ARRAY", ParamType::Float64Array)?;
+        self.params.hist_x_array = base.create_param("HIST_X_ARRAY", ParamType::Float64Array)?;
 
         // Export params so create_stats_runtime can retrieve them after the move
         *self.params_out.lock() = self.params;
@@ -1300,8 +1358,9 @@ mod tests {
         // Each bin should have ~1 count (uniform distribution)
         let total: f64 = hist.iter().sum();
         assert!((total - 10.0).abs() < 1e-10);
-        // Entropy of uniform distribution over 10 bins = ln(10)
-        assert!((entropy - 10.0f64.ln()).abs() < 0.1);
+        // C++ entropy: -sum(count * ln(count)) / nElements
+        // Uniform: each bin has 1, so sum(1*ln(1)) = 0, entropy = 0
+        assert!(entropy.abs() < 1e-10);
     }
 
     #[test]
@@ -1320,8 +1379,11 @@ mod tests {
         let (hist, below, above, entropy) = compute_histogram(&data, 10, 0.0, 10.0);
         assert_eq!(below, 0.0);
         assert_eq!(above, 0.0);
-        // All values go to one bin -> entropy = 0
-        assert!((entropy - 0.0).abs() < 1e-10);
+        // C++ entropy: one bin has 100, 9 bins have 0→1
+        // sum = 100*ln(100) + 9*(1*ln(1)) = 100*ln(100)
+        // entropy = -100*ln(100)/100 = -ln(100)
+        let expected = -(100.0f64.ln());
+        assert!((entropy - expected).abs() < 1e-10);
         let total: f64 = hist.iter().sum();
         assert!((total - 100.0).abs() < 1e-10);
     }
@@ -1426,7 +1488,8 @@ mod tests {
         }
 
         let result = proc.process_array(&arr, &pool);
-        assert!(result.output_arrays.is_empty(), "stats is a sink");
+        // C++ Stats forwards the input array to downstream plugins
+        assert_eq!(result.output_arrays.len(), 1, "stats forwards the array");
 
         let stats = proc.stats_handle().lock().clone();
         assert_eq!(stats.min, 10.0);

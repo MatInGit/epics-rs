@@ -341,6 +341,25 @@ impl EpicsValue {
     }
 
     /// Convert to f64, if possible.
+    /// Return the DbFieldType that matches this value's variant.
+    pub fn db_field_type(&self) -> DbFieldType {
+        match self {
+            Self::Double(_) => DbFieldType::Double,
+            Self::Float(_) => DbFieldType::Float,
+            Self::Long(_) => DbFieldType::Long,
+            Self::Short(_) => DbFieldType::Short,
+            Self::Enum(_) => DbFieldType::Enum,
+            Self::Char(_) => DbFieldType::Char,
+            Self::String(_) => DbFieldType::String,
+            Self::CharArray(_) => DbFieldType::Char,
+            Self::ShortArray(_) => DbFieldType::Short,
+            Self::LongArray(_) => DbFieldType::Long,
+            Self::EnumArray(_) => DbFieldType::Enum,
+            Self::FloatArray(_) => DbFieldType::Float,
+            Self::DoubleArray(_) => DbFieldType::Double,
+        }
+    }
+
     pub fn to_f64(&self) -> Option<f64> {
         match self {
             Self::Double(v) => Some(*v),

@@ -84,6 +84,10 @@ pub struct NDArrayDriverParams {
 
     // WaitForPlugins
     pub wait_for_plugins: usize,
+
+    // Acquire (needed by plugins that use NDArrayDriverParams directly)
+    pub acquire: usize,
+    pub acquire_busy: usize,
 }
 
 impl NDArrayDriverParams {
@@ -169,6 +173,10 @@ impl NDArrayDriverParams {
 
             // WaitForPlugins
             wait_for_plugins: base.create_param("WAIT_FOR_PLUGINS", ParamType::Int32)?,
+
+            // Acquire (needed by plugins that use NDArrayDriverParams directly)
+            acquire: base.create_param("ACQUIRE", ParamType::Int32)?,
+            acquire_busy: base.create_param("ACQUIRE_BUSY", ParamType::Int32)?,
         })
     }
 }
