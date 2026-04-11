@@ -14,6 +14,7 @@ default-members = [
     "crates/std-rs",
     "crates/scaler-rs",
     "crates/optics-rs",
+    "crates/mqtt-rs",
 ]
 resolver = "3"
 
@@ -37,3 +38,4 @@ motor-rs = { path = "crates/motor-rs", version = "0.9.0" }
 std-rs = { path = "crates/std-rs", version = "0.9.0" }
 scaler-rs = { path = "crates/scaler-rs", version = "0.9.0" }
 optics-rs = { path = "crates/optics-rs", version = "0.9.0" }
+mqtt-rs = { path = "crates/mqtt-rs", version = "0.9.0" }
