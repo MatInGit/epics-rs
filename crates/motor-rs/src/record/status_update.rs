@@ -111,6 +111,18 @@ impl MotorRecord {
             self.pos.rmp
         };
 
+        // URIP path: use external readback link value with RRES conversion
+        if !self.conv.ueip && self.conv.urip && self.initialized {
+            if let Some(rdbl_value) = self.conv.rdbl_value {
+                let rres = if self.conv.rres != 0.0 {
+                    self.conv.rres
+                } else {
+                    1.0
+                };
+                self.pos.rrbv = ((rdbl_value * rres) / self.conv.mres).round() as i32;
+            }
+        }
+
         // DRBV: use ERES for encoder path (UEIP), MRES for motor position path
         let resolution = if self.conv.ueip && eres_valid {
             self.conv.eres
@@ -124,13 +136,35 @@ impl MotorRecord {
 
         // DIFF and RDIF
         self.pos.diff = self.pos.dval - self.pos.drbv;
-        self.pos.rdif = self.pos.val - self.pos.rbv;
+        // C: rdif = NINT(diff / mres) -- raw step difference
+        self.pos.rdif = if self.conv.mres != 0.0 {
+            (self.pos.diff / self.conv.mres).round() as i32
+        } else {
+            0
+        };
 
-        // MOVN: true if phase is active OR driver reports moving
-        self.stat.movn = self.stat.phase != MotionPhase::Idle || status.moving;
+        // MOVN: C uses RAW limit switches (rhls/rlls) with RAW cdir
+        // Must compute ls_active BEFORE mapping limits to user coordinates
+        let ls_active =
+            (status.high_limit && self.stat.cdir) || (status.low_limit && !self.stat.cdir);
+        self.stat.movn = !(ls_active || status.done || status.problem);
+
+        // Limit switches: map raw -> user based on DIR and MRES sign
+        // C: hls = ((dir == Pos) == (mres >= 0)) ? rhls : rlls
+        let same_polarity = (self.conv.dir == MotorDir::Pos) == (self.conv.mres >= 0.0);
+        if same_polarity {
+            self.limits.hls = status.high_limit;
+            self.limits.lls = status.low_limit;
+        } else {
+            self.limits.hls = status.low_limit;
+            self.limits.lls = status.high_limit;
+        }
 
         // Build MSTA from driver status
         let mut msta = MstaFlags::empty();
+        if status.direction {
+            msta |= MstaFlags::DIRECTION;
+        }
         if status.done {
             msta |= MstaFlags::DONE;
         }
@@ -147,23 +181,35 @@ impl MotorRecord {
             msta |= MstaFlags::HOME_LS;
         }
         if status.powered {
-            msta |= MstaFlags::GAIN_SUPPORT;
+            msta |= MstaFlags::POSITION;
         }
         if status.problem {
             msta |= MstaFlags::PROBLEM;
         }
+        if status.slip_stall {
+            msta |= MstaFlags::SLIP_STALL;
+        }
+        if status.comms_error {
+            msta |= MstaFlags::COMM_ERR;
+        }
+        if status.gain_support {
+            msta |= MstaFlags::GAIN_SUPPORT;
+        }
+        if status.has_encoder {
+            msta |= MstaFlags::ENCODER_PRESENT;
+        }
         // Preserve record-managed bits
-        if self.stat.msta.contains(MstaFlags::HOMED) {
+        if self.stat.msta.contains(MstaFlags::HOMED) || status.homed {
             msta |= MstaFlags::HOMED;
         }
+        // Preserve ENCODER_PRESENT if record set it (via UEIP)
         if self.stat.msta.contains(MstaFlags::ENCODER_PRESENT) {
             msta |= MstaFlags::ENCODER_PRESENT;
         }
         self.stat.msta = msta;
 
-        // Limit switches
-        self.limits.hls = status.high_limit;
-        self.limits.lls = status.low_limit;
+        // C: tdir = msta.RA_DIRECTION (from driver on every poll)
+        self.stat.tdir = status.direction;
 
         // Recompute LVIO from current position and soft limits
         self.limits.lvio =
@@ -176,7 +222,7 @@ impl MotorRecord {
         self.pos.val = self.pos.rbv;
         self.pos.rval = self.pos.rrbv;
         self.pos.diff = 0.0;
-        self.pos.rdif = 0.0;
+        self.pos.rdif = 0;
         self.internal.lval = self.pos.val;
         self.internal.ldvl = self.pos.dval;
         self.internal.lrvl = self.pos.rval;

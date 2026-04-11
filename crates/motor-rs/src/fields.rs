@@ -8,7 +8,7 @@ pub struct PositionFields {
     pub rlv: f64,
     pub off: f64,
     pub diff: f64,
-    pub rdif: f64,
+    pub rdif: i32,
     pub dval: f64,
     pub drbv: f64,
     pub rval: i32,
@@ -25,7 +25,7 @@ impl Default for PositionFields {
             rlv: 0.0,
             off: 0.0,
             diff: 0.0,
-            rdif: 0.0,
+            rdif: 0,
             dval: 0.0,
             drbv: 0.0,
             rval: 0,
@@ -50,6 +50,7 @@ pub struct ConversionFields {
     pub ueip: bool,
     pub urip: bool,
     pub rres: f64,
+    pub rdbl_value: Option<f64>,
 }
 
 impl Default for ConversionFields {
@@ -66,6 +67,7 @@ impl Default for ConversionFields {
             ueip: false,
             urip: false,
             rres: 0.0,
+            rdbl_value: None,
         }
     }
 }
@@ -97,7 +99,7 @@ impl Default for VelocityFields {
             s: 0.0,
             sbas: 0.0,
             smax: 0.0,
-            accl: 0.5,
+            accl: 0.2,
             bvel: 1.0,
             bacc: 0.5,
             hvel: 1.0,
@@ -129,7 +131,7 @@ impl Default for RetryFields {
             rdbd: 0.0,
             spdb: 0.0,
             rtry: 10,
-            rmod: RetryMode::Arithmetic,
+            rmod: RetryMode::Default,
             rcnt: 0,
             miss: false,
         }
@@ -143,6 +145,10 @@ pub struct LimitFields {
     pub llm: f64,
     pub dhlm: f64,
     pub dllm: f64,
+    /// Raw high limit (in motor steps) — invariant for MRES changes
+    pub rhlm: f64,
+    /// Raw low limit (in motor steps) — invariant for MRES changes
+    pub rllm: f64,
     pub lvio: bool,
     pub hls: bool,
     pub lls: bool,
@@ -156,6 +162,8 @@ impl Default for LimitFields {
             llm: 0.0,
             dhlm: 0.0,
             dllm: 0.0,
+            rhlm: 0.0,
+            rllm: 0.0,
             lvio: true,
             hls: false,
             lls: false,
@@ -289,4 +297,6 @@ pub struct InternalFields {
     pub backlash_pending: bool,
     /// Pending retarget value (for NTM stop-and-replan)
     pub pending_retarget: Option<f64>,
+    /// Remember jog direction for backlash (cleared by stop_jog)
+    pub jog_was_forward: bool,
 }

@@ -47,9 +47,10 @@ pub fn dial_limits_to_user(dhlm: f64, dllm: f64, dir: MotorDir, off: f64) -> (f6
 }
 
 /// Check soft limit violation.
-/// Returns true if target violates limits. Limits disabled if dhlm == dllm.
+/// Returns true if target violates limits.
+/// C: limits disabled only when dhlm == dllm == 0.0.
 pub fn check_soft_limits(dval: f64, dhlm: f64, dllm: f64) -> bool {
-    if dhlm == dllm {
+    if dhlm == dllm && dllm == 0.0 {
         return false;
     }
     dval > dhlm || dval < dllm
@@ -67,7 +68,7 @@ pub fn cascade_from_val(
     val: f64,
     dir: MotorDir,
     off: f64,
-    foff: FreezeOffset,
+    _foff: FreezeOffset,
     mres: f64,
     set_mode: bool,
     current_dval: f64,
@@ -78,19 +79,11 @@ pub fn cascade_from_val(
         let rval = dial_to_raw(current_dval, mres)?;
         Ok((current_dval, rval, new_off))
     } else {
-        match foff {
-            FreezeOffset::Variable => {
-                let dval = user_to_dial(val, dir, off);
-                let rval = dial_to_raw(dval, mres)?;
-                Ok((dval, rval, off))
-            }
-            FreezeOffset::Frozen => {
-                // FOFF=Frozen: DVAL stays the same, OFF adjusts
-                let new_off = calc_offset(val, current_dval, dir);
-                let rval = dial_to_raw(current_dval, mres)?;
-                Ok((current_dval, rval, new_off))
-            }
-        }
+        // C: non-SET mode always cascades VAL -> DVAL normally.
+        // FOFF has no effect outside SET mode.
+        let dval = user_to_dial(val, dir, off);
+        let rval = dial_to_raw(dval, mres)?;
+        Ok((dval, rval, off))
     }
 }
 
@@ -100,7 +93,7 @@ pub fn cascade_from_dval(
     dval: f64,
     dir: MotorDir,
     off: f64,
-    foff: FreezeOffset,
+    _foff: FreezeOffset,
     mres: f64,
     set_mode: bool,
     current_val: f64,
@@ -110,16 +103,9 @@ pub fn cascade_from_dval(
         let new_off = calc_offset(current_val, dval, dir);
         Ok((current_val, rval, new_off))
     } else {
-        match foff {
-            FreezeOffset::Variable => {
-                let val = dial_to_user(dval, dir, off);
-                Ok((val, rval, off))
-            }
-            FreezeOffset::Frozen => {
-                let new_off = calc_offset(current_val, dval, dir);
-                Ok((current_val, rval, new_off))
-            }
-        }
+        // C: non-SET mode always recalculates VAL from DVAL. FOFF has no effect.
+        let val = dial_to_user(dval, dir, off);
+        Ok((val, rval, off))
     }
 }
 
@@ -129,7 +115,7 @@ pub fn cascade_from_rval(
     rval: i32,
     dir: MotorDir,
     off: f64,
-    foff: FreezeOffset,
+    _foff: FreezeOffset,
     mres: f64,
     set_mode: bool,
     current_val: f64,
@@ -139,16 +125,9 @@ pub fn cascade_from_rval(
         let new_off = calc_offset(current_val, dval, dir);
         (current_val, dval, new_off)
     } else {
-        match foff {
-            FreezeOffset::Variable => {
-                let val = dial_to_user(dval, dir, off);
-                (val, dval, off)
-            }
-            FreezeOffset::Frozen => {
-                let new_off = calc_offset(current_val, dval, dir);
-                (current_val, dval, new_off)
-            }
-        }
+        // C: non-SET mode always recalculates VAL from DVAL. FOFF has no effect.
+        let val = dial_to_user(dval, dir, off);
+        (val, dval, off)
     }
 }
 
@@ -282,6 +261,7 @@ mod tests {
 
     #[test]
     fn test_cascade_dval_frozen_off() {
+        // C: FOFF has no effect in non-SET mode -- VAL recalculated normally
         let (val, rval, off) = cascade_from_dval(
             5.0,
             MotorDir::Pos,
@@ -292,9 +272,9 @@ mod tests {
             10.0,
         )
         .unwrap();
-        assert_eq!(val, 10.0); // unchanged
+        assert_eq!(val, 5.0); // recalculated: dial_to_user(5.0, Pos, 0.0)
         assert_eq!(rval, 500);
-        assert_eq!(off, 5.0); // 10 - 1*5
+        assert_eq!(off, 0.0); // unchanged
     }
 
     #[test]
@@ -358,8 +338,8 @@ mod tests {
     }
 
     #[test]
-    fn test_frozen_offset_preserves_off() {
-        // FOFF=Frozen, writing DVAL changes OFF to keep VAL constant
+    fn test_frozen_offset_non_set_cascades_normally() {
+        // C: FOFF has no effect in non-SET mode -- VAL recalculated, OFF unchanged
         let (val, _rval, off) = cascade_from_dval(
             20.0,
             MotorDir::Pos,
@@ -370,7 +350,7 @@ mod tests {
             30.0,
         )
         .unwrap();
-        assert_eq!(val, 30.0); // VAL preserved
-        assert_eq!(off, 10.0); // 30 - 1*20
+        assert_eq!(val, 25.0); // dial_to_user(20.0, Pos, 5.0) = 20+5
+        assert_eq!(off, 5.0); // unchanged
     }
 }

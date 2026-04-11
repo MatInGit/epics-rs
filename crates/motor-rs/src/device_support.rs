@@ -86,14 +86,22 @@ impl MotorDeviceSupport {
                     tracing::info!("motor command: MoveAbsolute pos={position}, vel={velocity}");
                     motor.move_absolute(&user, *position, *velocity, *acceleration)
                 }
+                MotorCommand::MoveRelative {
+                    distance,
+                    velocity,
+                    acceleration,
+                } => {
+                    tracing::info!("motor command: MoveRelative dist={distance}, vel={velocity}");
+                    motor.move_relative(&user, *distance, *velocity, *acceleration)
+                }
                 MotorCommand::MoveVelocity {
                     direction,
                     velocity,
                     acceleration,
                 } => {
-                    let target = if *direction { 1e9 } else { -1e9 };
+                    let signed_vel = if *direction { *velocity } else { -*velocity };
                     tracing::info!("motor command: MoveVelocity dir={direction}, vel={velocity}");
-                    motor.move_absolute(&user, target, *velocity, *acceleration)
+                    motor.move_velocity(&user, signed_vel, *acceleration)
                 }
                 MotorCommand::Home {
                     forward,
@@ -114,6 +122,30 @@ impl MotorDeviceSupport {
                 MotorCommand::SetClosedLoop { enable } => {
                     tracing::info!("motor command: SetClosedLoop enable={enable}");
                     motor.set_closed_loop(&user, *enable)
+                }
+                MotorCommand::DeferMoves { defer } => {
+                    tracing::info!("motor command: DeferMoves defer={defer}");
+                    motor.set_deferred_moves(&user, *defer)
+                }
+                MotorCommand::ProfileInitialize { max_points } => {
+                    tracing::info!("motor command: ProfileInitialize max_points={max_points}");
+                    motor.initialize_profile(&user, *max_points)
+                }
+                MotorCommand::ProfileBuild => {
+                    tracing::info!("motor command: ProfileBuild");
+                    motor.build_profile(&user)
+                }
+                MotorCommand::ProfileExecute => {
+                    tracing::info!("motor command: ProfileExecute");
+                    motor.execute_profile(&user)
+                }
+                MotorCommand::ProfileAbort => {
+                    tracing::info!("motor command: ProfileAbort");
+                    motor.abort_profile(&user)
+                }
+                MotorCommand::ProfileReadback => {
+                    tracing::info!("motor command: ProfileReadback");
+                    motor.readback_profile(&user).map(|_| ())
                 }
                 MotorCommand::Poll => Ok(()),
             };
@@ -143,6 +175,8 @@ impl MotorDeviceSupport {
             let _ = self
                 .poll_cmd_tx
                 .try_send(PollCommand::ScheduleDelay(delay.id, delay.duration));
+            // Poll loop goes idle during delay — sync our tracking flag
+            self.polling_active = false;
         }
     }
 }
@@ -158,17 +192,23 @@ impl DeviceSupport for MotorDeviceSupport {
             motor_rec.set_device_state(self.device_state.clone());
         }
 
-        // Sync driver position with pass0-restored VAL (if any).
-        // This matches C EPICS init_record which calls set_position so
-        // that motors without absolute encoders start at the saved position.
+        // Sync driver position with pass0-restored DVAL (if any).
+        // C: set_position uses dval/mres (raw steps), not val (user coordinates)
         let user = self.make_user();
-        if let Some(EpicsValue::Double(val)) = record.get_field("VAL") {
-            if val != 0.0 {
-                let mut motor = self.motor.lock().map_err(|e| {
-                    epics_base_rs::error::CaError::InvalidValue(format!("motor lock: {e}"))
-                })?;
-                let _ = motor.set_position(&user, val);
-            }
+        let dval = record
+            .get_field("DVAL")
+            .and_then(|v| match v {
+                EpicsValue::Double(d) => Some(d),
+                _ => None,
+            })
+            .unwrap_or(0.0);
+        if dval != 0.0 {
+            let mut motor = self.motor.lock().map_err(|e| {
+                epics_base_rs::error::CaError::InvalidValue(format!("motor lock: {e}"))
+            })?;
+            // Send dial position directly — the AsynMotor interface
+            // operates in dial coordinates, not raw steps
+            let _ = motor.set_position(&user, dval);
         }
 
         let status = {

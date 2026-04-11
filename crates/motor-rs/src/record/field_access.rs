@@ -38,7 +38,7 @@ pub(crate) static FIELDS: &[FieldDesc] = &[
     },
     FieldDesc {
         name: "RDIF",
-        dbf_type: DbFieldType::Double,
+        dbf_type: DbFieldType::Long,
         read_only: true,
     },
     FieldDesc {
@@ -124,6 +124,11 @@ pub(crate) static FIELDS: &[FieldDesc] = &[
     },
     FieldDesc {
         name: "RRES",
+        dbf_type: DbFieldType::Double,
+        read_only: false,
+    },
+    FieldDesc {
+        name: "RDBL_VAL",
         dbf_type: DbFieldType::Double,
         read_only: false,
     },
@@ -430,7 +435,7 @@ pub(crate) fn motor_get_field(rec: &MotorRecord, name: &str) -> Option<EpicsValu
         "RLV" => Some(EpicsValue::Double(rec.pos.rlv)),
         "OFF" => Some(EpicsValue::Double(rec.pos.off)),
         "DIFF" => Some(EpicsValue::Double(rec.pos.diff)),
-        "RDIF" => Some(EpicsValue::Double(rec.pos.rdif)),
+        "RDIF" => Some(EpicsValue::Long(rec.pos.rdif)),
         "DVAL" => Some(EpicsValue::Double(rec.pos.dval)),
         "DRBV" => Some(EpicsValue::Double(rec.pos.drbv)),
         "RVAL" => Some(EpicsValue::Long(rec.pos.rval)),
@@ -449,6 +454,7 @@ pub(crate) fn motor_get_field(rec: &MotorRecord, name: &str) -> Option<EpicsValu
         "UEIP" => Some(EpicsValue::Short(if rec.conv.ueip { 1 } else { 0 })),
         "URIP" => Some(EpicsValue::Short(if rec.conv.urip { 1 } else { 0 })),
         "RRES" => Some(EpicsValue::Double(rec.conv.rres)),
+        "RDBL_VAL" => Some(EpicsValue::Double(rec.conv.rdbl_value.unwrap_or(0.0))),
         // Velocity
         "VELO" => Some(EpicsValue::Double(rec.vel.velo)),
         "VBAS" => Some(EpicsValue::Double(rec.vel.vbas)),
@@ -531,23 +537,36 @@ pub(crate) fn motor_put_field(
                 _ => return Err(CaError::TypeMismatch(name.into())),
             };
             if rec.conv.set && !rec.conv.igset {
-                // SET mode: recalculate offset, signal SetPosition
-                if let Ok((dval, rval, off)) = coordinate::cascade_from_val(
-                    v,
-                    rec.conv.dir,
-                    rec.pos.off,
-                    rec.conv.foff,
-                    rec.conv.mres,
-                    true,
-                    rec.pos.dval,
-                ) {
-                    rec.pos.val = v;
-                    rec.pos.dval = dval;
-                    rec.pos.rval = rval;
-                    rec.pos.off = off;
+                if rec.conv.foff == FreezeOffset::Variable {
+                    // SET+FOFF=Variable: recalculate offset, DVAL stays, SetPosition
+                    if let Ok((dval, rval, off)) = coordinate::cascade_from_val(
+                        v,
+                        rec.conv.dir,
+                        rec.pos.off,
+                        rec.conv.foff,
+                        rec.conv.mres,
+                        true,
+                        rec.pos.dval,
+                    ) {
+                        rec.pos.val = v;
+                        rec.pos.dval = dval;
+                        rec.pos.rval = rval;
+                        rec.pos.off = off;
+                    }
+                    rec.last_write = Some(CommandSource::Set);
+                } else {
+                    // SET+FOFF=Frozen: cascade VAL->DVAL normally, then SetPosition
+                    // C: dval = (val - off) / dir, then load_pos(dval/mres)
+                    let dval = coordinate::user_to_dial(v, rec.conv.dir, rec.pos.off);
+                    if let Ok(rval) = coordinate::dial_to_raw(dval, rec.conv.mres) {
+                        rec.pos.val = v;
+                        rec.pos.dval = dval;
+                        rec.pos.rval = rval;
+                    }
+                    rec.last_write = Some(CommandSource::Set);
                 }
-                rec.last_write = Some(CommandSource::Set);
             } else {
+                // Normal move (not in SET mode)
                 if let Ok((dval, rval, off)) = coordinate::cascade_from_val(
                     v,
                     rec.conv.dir,
@@ -572,22 +591,33 @@ pub(crate) fn motor_put_field(
                 _ => return Err(CaError::TypeMismatch(name.into())),
             };
             if rec.conv.set && !rec.conv.igset {
-                if let Ok((val, rval, off)) = coordinate::cascade_from_dval(
-                    v,
-                    rec.conv.dir,
-                    rec.pos.off,
-                    rec.conv.foff,
-                    rec.conv.mres,
-                    true,
-                    rec.pos.val,
-                ) {
-                    rec.pos.dval = v;
-                    rec.pos.val = val;
-                    rec.pos.rval = rval;
-                    rec.pos.off = off;
+                if rec.conv.foff == FreezeOffset::Variable {
+                    // SET+FOFF=Variable: recalculate offset, signal SetPosition
+                    if let Ok((val, rval, off)) = coordinate::cascade_from_dval(
+                        v,
+                        rec.conv.dir,
+                        rec.pos.off,
+                        rec.conv.foff,
+                        rec.conv.mres,
+                        true,
+                        rec.pos.val,
+                    ) {
+                        rec.pos.dval = v;
+                        rec.pos.val = val;
+                        rec.pos.rval = rval;
+                        rec.pos.off = off;
+                    }
+                } else {
+                    // SET+FOFF=Frozen: DVAL changes directly, SetPosition
+                    if let Ok(rval) = coordinate::dial_to_raw(v, rec.conv.mres) {
+                        rec.pos.dval = v;
+                        rec.pos.val = coordinate::dial_to_user(v, rec.conv.dir, rec.pos.off);
+                        rec.pos.rval = rval;
+                    }
                 }
                 rec.last_write = Some(CommandSource::Set);
             } else {
+                // Normal move
                 if let Ok((val, rval, off)) = coordinate::cascade_from_dval(
                     v,
                     rec.conv.dir,
@@ -612,21 +642,31 @@ pub(crate) fn motor_put_field(
                 _ => return Err(CaError::TypeMismatch(name.into())),
             };
             if rec.conv.set && !rec.conv.igset {
-                let (val, dval, off) = coordinate::cascade_from_rval(
-                    v,
-                    rec.conv.dir,
-                    rec.pos.off,
-                    rec.conv.foff,
-                    rec.conv.mres,
-                    true,
-                    rec.pos.val,
-                );
-                rec.pos.rval = v;
-                rec.pos.val = val;
-                rec.pos.dval = dval;
-                rec.pos.off = off;
+                if rec.conv.foff == FreezeOffset::Variable {
+                    // SET+FOFF=Variable: recalculate offset, signal SetPosition
+                    let (val, dval, off) = coordinate::cascade_from_rval(
+                        v,
+                        rec.conv.dir,
+                        rec.pos.off,
+                        rec.conv.foff,
+                        rec.conv.mres,
+                        true,
+                        rec.pos.val,
+                    );
+                    rec.pos.rval = v;
+                    rec.pos.val = val;
+                    rec.pos.dval = dval;
+                    rec.pos.off = off;
+                } else {
+                    // SET+FOFF=Frozen: RVAL->DVAL directly, SetPosition
+                    let dval = coordinate::raw_to_dial(v, rec.conv.mres);
+                    rec.pos.rval = v;
+                    rec.pos.dval = dval;
+                    rec.pos.val = coordinate::dial_to_user(dval, rec.conv.dir, rec.pos.off);
+                }
                 rec.last_write = Some(CommandSource::Set);
             } else {
+                // Normal move
                 let (val, dval, off) = coordinate::cascade_from_rval(
                     v,
                     rec.conv.dir,
@@ -660,6 +700,9 @@ pub(crate) fn motor_put_field(
                     // Recalculate user coords from dial
                     rec.pos.val = coordinate::dial_to_user(rec.pos.dval, rec.conv.dir, rec.pos.off);
                     rec.pos.rbv = coordinate::dial_to_user(rec.pos.drbv, rec.conv.dir, rec.pos.off);
+                    // C: also update LVAL so offset change doesn't trigger false retarget
+                    rec.internal.lval =
+                        coordinate::dial_to_user(rec.internal.ldvl, rec.conv.dir, rec.pos.off);
                     let (hlm, llm) = coordinate::dial_limits_to_user(
                         rec.limits.dhlm,
                         rec.limits.dllm,
@@ -678,8 +721,19 @@ pub(crate) fn motor_put_field(
             match value {
                 EpicsValue::Short(v) => {
                     rec.conv.dir = MotorDir::from_i16(v);
-                    // Recalculate user coords from dial using new direction
-                    rec.pos.val = coordinate::dial_to_user(rec.pos.dval, rec.conv.dir, rec.pos.off);
+                    // C: branch on FOFF
+                    match rec.conv.foff {
+                        FreezeOffset::Frozen => {
+                            // FOFF=Frozen: recalculate VAL from DVAL
+                            rec.pos.val =
+                                coordinate::dial_to_user(rec.pos.dval, rec.conv.dir, rec.pos.off);
+                        }
+                        FreezeOffset::Variable => {
+                            // FOFF=Variable: recalculate OFF to preserve VAL
+                            rec.pos.off =
+                                coordinate::calc_offset(rec.pos.val, rec.pos.dval, rec.conv.dir);
+                        }
+                    }
                     rec.pos.rbv = coordinate::dial_to_user(rec.pos.drbv, rec.conv.dir, rec.pos.off);
                     let (hlm, llm) = coordinate::dial_limits_to_user(
                         rec.limits.dhlm,
@@ -717,42 +771,84 @@ pub(crate) fn motor_put_field(
         },
         "MRES" => match value {
             EpicsValue::Double(v) => {
+                if v == 0.0 {
+                    return Ok(()); // C: reject zero MRES
+                }
+                let old_mres = rec.conv.mres;
                 rec.conv.mres = v;
+                // C: cascade UREV from MRES
+                rec.conv.urev = v * rec.conv.srev as f64;
+                apply_mres_cascade(rec, old_mres);
                 Ok(())
             }
             _ => Err(CaError::TypeMismatch(name.into())),
         },
         "ERES" => match value {
             EpicsValue::Double(v) => {
-                rec.conv.eres = v;
+                // C: if ERES==0, set to MRES
+                rec.conv.eres = if v == 0.0 { rec.conv.mres } else { v };
                 Ok(())
             }
             _ => Err(CaError::TypeMismatch(name.into())),
         },
         "SREV" => match value {
             EpicsValue::Long(v) => {
+                if v <= 0 {
+                    return Ok(()); // C: reject non-positive SREV
+                }
+                let old_mres = rec.conv.mres;
                 rec.conv.srev = v;
+                // C: recalculate MRES from UREV/SREV
+                if rec.conv.urev != 0.0 {
+                    rec.conv.mres = rec.conv.urev / v as f64;
+                }
+                // Cascade velocity and limits like MRES handler
+                apply_mres_cascade(rec, old_mres);
                 Ok(())
             }
             _ => Err(CaError::TypeMismatch(name.into())),
         },
         "UREV" => match value {
             EpicsValue::Double(v) => {
+                let old_mres = rec.conv.mres;
                 rec.conv.urev = v;
+                // C: recalculate MRES from UREV/SREV
+                if rec.conv.srev > 0 {
+                    rec.conv.mres = v / rec.conv.srev as f64;
+                }
+                // C: cascade velocities and limits from new UREV
+                apply_mres_cascade(rec, old_mres);
                 Ok(())
             }
             _ => Err(CaError::TypeMismatch(name.into())),
         },
         "UEIP" => match value {
             EpicsValue::Short(v) => {
-                rec.conv.ueip = v != 0;
+                let ueip = v != 0;
+                if ueip {
+                    // C: if UEIP=Yes and encoder present, set URIP=No
+                    // If no encoder present, override UEIP back to No
+                    if rec.stat.msta.contains(MstaFlags::ENCODER_PRESENT) {
+                        rec.conv.urip = false;
+                    } else {
+                        // No encoder available, cannot use UEIP
+                        rec.conv.ueip = false;
+                        return Ok(());
+                    }
+                }
+                rec.conv.ueip = ueip;
                 Ok(())
             }
             _ => Err(CaError::TypeMismatch(name.into())),
         },
         "URIP" => match value {
             EpicsValue::Short(v) => {
-                rec.conv.urip = v != 0;
+                let urip = v != 0;
+                if urip {
+                    // C: if URIP=Yes and UEIP=Yes, set UEIP=No
+                    rec.conv.ueip = false;
+                }
+                rec.conv.urip = urip;
                 Ok(())
             }
             _ => Err(CaError::TypeMismatch(name.into())),
@@ -764,10 +860,21 @@ pub(crate) fn motor_put_field(
             }
             _ => Err(CaError::TypeMismatch(name.into())),
         },
-        // Velocity
+        "RDBL_VAL" => match value {
+            EpicsValue::Double(v) => {
+                rec.conv.rdbl_value = Some(v);
+                Ok(())
+            }
+            _ => Err(CaError::TypeMismatch(name.into())),
+        },
+        // Velocity -- C: cross-calculate EGU/s <-> rev/s pairs
         "VELO" => match value {
             EpicsValue::Double(v) => {
                 rec.vel.velo = v;
+                let urev_abs = rec.conv.urev.abs();
+                if urev_abs > 0.0 {
+                    rec.vel.s = v / urev_abs;
+                }
                 Ok(())
             }
             _ => Err(CaError::TypeMismatch(name.into())),
@@ -775,6 +882,10 @@ pub(crate) fn motor_put_field(
         "VBAS" => match value {
             EpicsValue::Double(v) => {
                 rec.vel.vbas = v;
+                let urev_abs = rec.conv.urev.abs();
+                if urev_abs > 0.0 {
+                    rec.vel.sbas = v / urev_abs;
+                }
                 Ok(())
             }
             _ => Err(CaError::TypeMismatch(name.into())),
@@ -782,6 +893,10 @@ pub(crate) fn motor_put_field(
         "VMAX" => match value {
             EpicsValue::Double(v) => {
                 rec.vel.vmax = v;
+                let urev_abs = rec.conv.urev.abs();
+                if urev_abs > 0.0 {
+                    rec.vel.smax = v / urev_abs;
+                }
                 Ok(())
             }
             _ => Err(CaError::TypeMismatch(name.into())),
@@ -789,6 +904,10 @@ pub(crate) fn motor_put_field(
         "S" => match value {
             EpicsValue::Double(v) => {
                 rec.vel.s = v;
+                let urev_abs = rec.conv.urev.abs();
+                if urev_abs > 0.0 {
+                    rec.vel.velo = v * urev_abs;
+                }
                 Ok(())
             }
             _ => Err(CaError::TypeMismatch(name.into())),
@@ -796,6 +915,10 @@ pub(crate) fn motor_put_field(
         "SBAS" => match value {
             EpicsValue::Double(v) => {
                 rec.vel.sbas = v;
+                let urev_abs = rec.conv.urev.abs();
+                if urev_abs > 0.0 {
+                    rec.vel.vbas = v * urev_abs;
+                }
                 Ok(())
             }
             _ => Err(CaError::TypeMismatch(name.into())),
@@ -803,13 +926,18 @@ pub(crate) fn motor_put_field(
         "SMAX" => match value {
             EpicsValue::Double(v) => {
                 rec.vel.smax = v;
+                let urev_abs = rec.conv.urev.abs();
+                if urev_abs > 0.0 {
+                    rec.vel.vmax = v * urev_abs;
+                }
                 Ok(())
             }
             _ => Err(CaError::TypeMismatch(name.into())),
         },
         "ACCL" => match value {
             EpicsValue::Double(v) => {
-                rec.vel.accl = v;
+                // C: ACCL must be > 0 (forces to 0.1 if <= 0)
+                rec.vel.accl = if v <= 0.0 { 0.1 } else { v };
                 Ok(())
             }
             _ => Err(CaError::TypeMismatch(name.into())),
@@ -817,13 +945,18 @@ pub(crate) fn motor_put_field(
         "BVEL" => match value {
             EpicsValue::Double(v) => {
                 rec.vel.bvel = v;
+                let urev_abs = rec.conv.urev.abs();
+                if urev_abs > 0.0 {
+                    rec.vel.sbak = v / urev_abs;
+                }
                 Ok(())
             }
             _ => Err(CaError::TypeMismatch(name.into())),
         },
         "BACC" => match value {
             EpicsValue::Double(v) => {
-                rec.vel.bacc = v;
+                // C: BACC must be > 0 (forces to 0.1 if <= 0)
+                rec.vel.bacc = if v <= 0.0 { 0.1 } else { v };
                 Ok(())
             }
             _ => Err(CaError::TypeMismatch(name.into())),
@@ -852,6 +985,10 @@ pub(crate) fn motor_put_field(
         "SBAK" => match value {
             EpicsValue::Double(v) => {
                 rec.vel.sbak = v;
+                let urev_abs = rec.conv.urev.abs();
+                if urev_abs > 0.0 {
+                    rec.vel.bvel = v * urev_abs;
+                }
                 Ok(())
             }
             _ => Err(CaError::TypeMismatch(name.into())),
@@ -866,14 +1003,17 @@ pub(crate) fn motor_put_field(
         },
         "FRAC" => match value {
             EpicsValue::Double(v) => {
-                rec.retry.frac = v;
+                // C: FRAC clamped to [0.1, 1.5]
+                rec.retry.frac = v.clamp(0.1, 1.5);
                 Ok(())
             }
             _ => Err(CaError::TypeMismatch(name.into())),
         },
         "RDBD" => match value {
             EpicsValue::Double(v) => {
-                rec.retry.rdbd = v;
+                // C: enforceMinRetryDeadband - RDBD must be >= |MRES|
+                let min_rdbd = rec.conv.mres.abs();
+                rec.retry.rdbd = if v < min_rdbd { min_rdbd } else { v };
                 Ok(())
             }
             _ => Err(CaError::TypeMismatch(name.into())),
@@ -911,6 +1051,11 @@ pub(crate) fn motor_put_field(
                 );
                 rec.limits.dhlm = dhlm;
                 rec.limits.dllm = dllm;
+                // Update raw limits
+                if rec.conv.mres != 0.0 {
+                    rec.limits.rhlm = rec.limits.dhlm / rec.conv.mres;
+                    rec.limits.rllm = rec.limits.dllm / rec.conv.mres;
+                }
                 Ok(())
             }
             _ => Err(CaError::TypeMismatch(name.into())),
@@ -926,6 +1071,10 @@ pub(crate) fn motor_put_field(
                 );
                 rec.limits.dhlm = dhlm;
                 rec.limits.dllm = dllm;
+                if rec.conv.mres != 0.0 {
+                    rec.limits.rhlm = rec.limits.dhlm / rec.conv.mres;
+                    rec.limits.rllm = rec.limits.dllm / rec.conv.mres;
+                }
                 Ok(())
             }
             _ => Err(CaError::TypeMismatch(name.into())),
@@ -933,6 +1082,10 @@ pub(crate) fn motor_put_field(
         "DHLM" => match value {
             EpicsValue::Double(v) => {
                 rec.limits.dhlm = v;
+                // Update raw limit for MRES cascade invariance
+                if rec.conv.mres != 0.0 {
+                    rec.limits.rhlm = v / rec.conv.mres;
+                }
                 let (hlm, llm) = coordinate::dial_limits_to_user(
                     rec.limits.dhlm,
                     rec.limits.dllm,
@@ -948,6 +1101,9 @@ pub(crate) fn motor_put_field(
         "DLLM" => match value {
             EpicsValue::Double(v) => {
                 rec.limits.dllm = v;
+                if rec.conv.mres != 0.0 {
+                    rec.limits.rllm = v / rec.conv.mres;
+                }
                 let (hlm, llm) = coordinate::dial_limits_to_user(
                     rec.limits.dhlm,
                     rec.limits.dllm,
@@ -1133,7 +1289,8 @@ pub(crate) fn motor_put_field(
         },
         "NTMF" => match value {
             EpicsValue::Double(v) => {
-                rec.timing.ntmf = v;
+                // C: NTMF minimum is 2.0
+                rec.timing.ntmf = if v < 2.0 { 2.0 } else { v };
                 Ok(())
             }
             _ => Err(CaError::TypeMismatch(name.into())),
@@ -1144,5 +1301,26 @@ pub(crate) fn motor_put_field(
             Ok(())
         }
         _ => Err(CaError::FieldNotFound(name.into())),
+    }
+}
+
+/// Apply velocity and limit cascade after MRES changes.
+/// Used by MRES, SREV, and UREV handlers to avoid duplication.
+fn apply_mres_cascade(rec: &mut MotorRecord, _old_mres: f64) {
+    let urev_abs = rec.conv.urev.abs();
+    if urev_abs > 0.0 {
+        rec.vel.velo = urev_abs * rec.vel.s;
+        rec.vel.vbas = urev_abs * rec.vel.sbas;
+        rec.vel.bvel = urev_abs * rec.vel.sbak;
+        rec.vel.vmax = urev_abs * rec.vel.smax;
+    }
+    // Update RHLM/RLLM from current dial limits with new MRES
+    // This preserves the user-set dial limits across MRES changes.
+    // C uses RHLM/RLLM set at init_record; since Rust templates set
+    // DHLM/DLLM directly, we keep dial limits as the source of truth
+    // and only update the raw step equivalents.
+    if rec.conv.mres != 0.0 {
+        rec.limits.rhlm = rec.limits.dhlm / rec.conv.mres;
+        rec.limits.rllm = rec.limits.dllm / rec.conv.mres;
     }
 }
