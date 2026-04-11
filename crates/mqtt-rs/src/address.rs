@@ -48,9 +48,8 @@ impl TopicAddress {
     ///   everything between FORMAT:TYPE and the last token is the topic
     pub fn parse(drv_info: &str) -> MqttResult<Self> {
         // Split off FORMAT:TYPE (first token)
-        let (format_type_str, rest) = drv_info
-            .split_once(char::is_whitespace)
-            .ok_or_else(|| {
+        let (format_type_str, rest) =
+            drv_info.split_once(char::is_whitespace).ok_or_else(|| {
                 MqttError::InvalidAddress(format!(
                     "expected at least 'FORMAT:TYPE topic', got: {drv_info:?}"
                 ))
@@ -137,7 +136,11 @@ impl TopicAddress {
         let format = match fmt_str.to_ascii_uppercase().as_str() {
             "FLAT" => PayloadFormat::Flat,
             "JSON" => PayloadFormat::Json,
-            _ => return Err(MqttError::UnsupportedType(format!("unknown format: {fmt_str:?}"))),
+            _ => {
+                return Err(MqttError::UnsupportedType(format!(
+                    "unknown format: {fmt_str:?}"
+                )));
+            }
         };
 
         let value_type = match type_str.to_ascii_uppercase().as_str() {
@@ -147,7 +150,11 @@ impl TopicAddress {
             "STRING" => ValueType::String,
             "INTARRAY" => ValueType::IntArray,
             "FLOATARRAY" => ValueType::FloatArray,
-            _ => return Err(MqttError::UnsupportedType(format!("unknown type: {type_str:?}"))),
+            _ => {
+                return Err(MqttError::UnsupportedType(format!(
+                    "unknown type: {type_str:?}"
+                )));
+            }
         };
 
         Ok((format, value_type))
@@ -288,8 +295,7 @@ mod tests {
 
     #[test]
     fn parse_json_topic_with_spaces() {
-        let addr =
-            TopicAddress::parse("JSON:FLOAT zigbee2mqtt/living room plug power").unwrap();
+        let addr = TopicAddress::parse("JSON:FLOAT zigbee2mqtt/living room plug power").unwrap();
         assert_eq!(addr.format, PayloadFormat::Json);
         assert_eq!(addr.topic, "zigbee2mqtt/living room plug");
         assert_eq!(addr.json_field.as_deref(), Some("power"));
@@ -297,21 +303,16 @@ mod tests {
 
     #[test]
     fn parse_json_topic_with_spaces_nested_field() {
-        let addr = TopicAddress::parse(
-            "JSON:FLOAT zigbee2mqtt/desk light update.installed_version",
-        )
-        .unwrap();
+        let addr =
+            TopicAddress::parse("JSON:FLOAT zigbee2mqtt/desk light update.installed_version")
+                .unwrap();
         assert_eq!(addr.topic, "zigbee2mqtt/desk light");
-        assert_eq!(
-            addr.json_field.as_deref(),
-            Some("update.installed_version")
-        );
+        assert_eq!(addr.json_field.as_deref(), Some("update.installed_version"));
     }
 
     #[test]
     fn parse_flat_topic_with_multiple_spaces() {
-        let addr =
-            TopicAddress::parse("FLAT:STRING zigbee2mqtt/my cool device name").unwrap();
+        let addr = TopicAddress::parse("FLAT:STRING zigbee2mqtt/my cool device name").unwrap();
         assert_eq!(addr.topic, "zigbee2mqtt/my cool device name");
     }
 

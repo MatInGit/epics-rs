@@ -26,11 +26,8 @@ pub async fn mqtt_event_loop(
     mut publish_rx: mpsc::UnboundedReceiver<PublishRequest>,
     connected_param: usize,
 ) {
-    let mut mqttoptions = MqttOptions::new(
-        &config.client_id,
-        &config.broker_host,
-        config.broker_port,
-    );
+    let mut mqttoptions =
+        MqttOptions::new(&config.client_id, &config.broker_host, config.broker_port);
     mqttoptions.set_keep_alive(Duration::from_secs(config.keep_alive_secs));
     mqttoptions.set_clean_session(config.clean_session);
 
@@ -146,7 +143,10 @@ fn handle_incoming_message(
                         // No ParamSetValue::UInt32Digital; use submit_no_wait
                         let user = AsynUser::new(*reason).with_addr(0);
                         port_handle.submit_no_wait(
-                            RequestOp::UInt32DigitalWrite { value: v, mask: 0xFFFF_FFFF },
+                            RequestOp::UInt32DigitalWrite {
+                                value: v,
+                                mask: 0xFFFF_FFFF,
+                            },
                             user,
                         );
                     }

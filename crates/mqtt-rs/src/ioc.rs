@@ -69,7 +69,10 @@ pub fn mqtt_add_topic_command() -> CommandDef {
             };
 
             let addr = TopicAddress::parse(&drv_info).map_err(|e| e.to_string())?;
-            println!("mqttAddTopic: port={port_name} topic={}", addr.to_drv_info());
+            println!(
+                "mqttAddTopic: port={port_name} topic={}",
+                addr.to_drv_info()
+            );
             register_pending_topic(&port_name, addr);
             Ok(CommandOutcome::Continue)
         },
@@ -204,10 +207,14 @@ impl CommandHandler for MqttConfigHandler {
             let macros = std::collections::HashMap::new();
             if let Ok(defs) = epics_base_rs::server::db_loader::parse_db(&db_str, &macros) {
                 for def in defs {
-                    if let Ok(mut record) = epics_base_rs::server::db_loader::create_record(&def.record_type) {
+                    if let Ok(mut record) =
+                        epics_base_rs::server::db_loader::create_record(&def.record_type)
+                    {
                         let mut common_fields = Vec::new();
                         let _ = epics_base_rs::server::db_loader::apply_fields(
-                            &mut record, &def.fields, &mut common_fields,
+                            &mut record,
+                            &def.fields,
+                            &mut common_fields,
                         );
                         ctx.block_on(async {
                             ctx.db().add_record(&def.name, record).await;

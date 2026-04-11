@@ -37,13 +37,7 @@ struct RecordDef {
 }
 
 /// Generate a .db string from record definitions and load it via db_loader.
-fn load_records(
-    prefix: &str,
-    dev: &str,
-    port: &str,
-    records: &[RecordDef],
-    ctx: &CommandContext,
-) {
+fn load_records(prefix: &str, dev: &str, port: &str, records: &[RecordDef], ctx: &CommandContext) {
     let mut db_string = String::new();
     for r in records {
         let pv_name = format!("{prefix}{dev}:{}", r.suffix);
@@ -220,7 +214,10 @@ pub fn cmd_z2m_plug() -> CommandDef {
                     suffix: "SetState",
                     dtyp: "asynOctetWrite",
                     link_field: "OUT",
-                    drv_info: add_topic_normalized(&port, &format!("JSON:STRING {topic}/set state")),
+                    drv_info: add_topic_normalized(
+                        &port,
+                        &format!("JSON:STRING {topic}/set state"),
+                    ),
                     egu: "",
                     prec: None,
                     scan_io_intr: false,
@@ -326,7 +323,10 @@ pub fn cmd_z2m_light() -> CommandDef {
                     suffix: "SetState",
                     dtyp: "asynOctetWrite",
                     link_field: "OUT",
-                    drv_info: add_topic_normalized(&port, &format!("JSON:STRING {topic}/set state")),
+                    drv_info: add_topic_normalized(
+                        &port,
+                        &format!("JSON:STRING {topic}/set state"),
+                    ),
                     egu: "",
                     prec: None,
                     scan_io_intr: false,
@@ -374,7 +374,10 @@ pub fn cmd_z2m_switch() -> CommandDef {
                     suffix: "SetState",
                     dtyp: "asynOctetWrite",
                     link_field: "OUT",
-                    drv_info: add_topic_normalized(&port, &format!("JSON:STRING {topic}/set state")),
+                    drv_info: add_topic_normalized(
+                        &port,
+                        &format!("JSON:STRING {topic}/set state"),
+                    ),
                     egu: "",
                     prec: None,
                     scan_io_intr: false,
