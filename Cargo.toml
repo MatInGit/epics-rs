@@ -35,3 +35,9 @@ motor-rs = { path = "crates/motor-rs", version = "0.7.12" }
 std-rs = { path = "crates/std-rs", version = "0.7.12" }
 scaler-rs = { path = "crates/scaler-rs", version = "0.7.12" }
 optics-rs = { path = "crates/optics-rs", version = "0.7.12" }
+
+[patch.crates-io]
+spvirit-client = { path = "../spvirit/spvirit-client" }
+spvirit-codec = { path = "../spvirit/spvirit-codec" }
+spvirit-server = { path = "../spvirit/spvirit-server" }
+spvirit-types = { path = "../spvirit/spvirit-types" }
