@@ -1,6 +1,31 @@
 use proc_macro::TokenStream;
+use proc_macro_crate::{FoundCrate, crate_name};
 use quote::quote;
 use syn::{Data, DeriveInput, Fields, ItemFn, Lit, parse_macro_input};
+
+/// Resolve the path to `epics_base_rs`, supporting both direct dependency
+/// (`epics-base-rs`) and umbrella crate (`epics-rs`) usage.
+fn epics_base_path() -> proc_macro2::TokenStream {
+    if let Ok(found) = crate_name("epics-base-rs") {
+        match found {
+            FoundCrate::Itself => quote!(crate),
+            FoundCrate::Name(name) => {
+                let ident = proc_macro2::Ident::new(&name, proc_macro2::Span::call_site());
+                quote!(::#ident)
+            }
+        }
+    } else if let Ok(found) = crate_name("epics-rs") {
+        match found {
+            FoundCrate::Itself => quote!(crate::base),
+            FoundCrate::Name(name) => {
+                let ident = proc_macro2::Ident::new(&name, proc_macro2::Span::call_site());
+                quote!(::#ident::base)
+            }
+        }
+    } else {
+        quote!(::epics_base_rs)
+    }
+}
 
 /// Marks an `async fn main()` as an EPICS IOC entry point.
 ///
@@ -57,11 +82,12 @@ pub fn epics_main(attr: TokenStream, item: TokenStream) -> TokenStream {
     let vis = &input.vis;
     let ret = &sig.output;
     let body = &input.block;
+    let base = epics_base_path();
 
     quote! {
         #(#attrs)*
         #vis fn main() #ret {
-            ::epics_base_rs::__tokio::runtime::Builder::new_multi_thread()
+            #base::__tokio::runtime::Builder::new_multi_thread()
                 .enable_all()
                 .build()
                 .expect("failed to build tokio runtime")
@@ -134,12 +160,13 @@ pub fn epics_test(attr: TokenStream, item: TokenStream) -> TokenStream {
     let name = &sig.ident;
     let ret = &sig.output;
     let body = &input.block;
+    let base = epics_base_path();
 
     quote! {
         #[test]
         #(#attrs)*
         #vis fn #name() #ret {
-            ::epics_base_rs::__tokio::runtime::Builder::new_current_thread()
+            #base::__tokio::runtime::Builder::new_current_thread()
                 .enable_all()
                 .build()
                 .expect("failed to build tokio runtime")
