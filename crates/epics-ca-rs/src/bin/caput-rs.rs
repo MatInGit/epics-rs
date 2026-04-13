@@ -5,7 +5,7 @@ use std::time::Duration;
 #[derive(Parser)]
 #[command(name = "caput", about = "Write a value to an EPICS PV")]
 struct Args {
-    /// Asynchronous put (use ca_put_callback and wait for completion)
+    /// Wait for completion callback (ca_put_callback)
     #[arg(short = 'c', long = "callback")]
     callback: bool,
 
@@ -33,11 +33,15 @@ async fn main() {
         std::process::exit(1);
     }
 
-    // Read old value
-    let (native_type, old_value) = match ch.get().await {
-        Ok((t, val)) => (t, val.to_string()),
-        Err(e) => {
+    // Read old value with timeout
+    let (native_type, old_value) = match tokio::time::timeout(timeout, ch.get()).await {
+        Ok(Ok((t, val))) => (t, val.to_string()),
+        Ok(Err(e)) => {
             eprintln!("error: {e}");
+            std::process::exit(1);
+        }
+        Err(_) => {
+            eprintln!("error: read operation timed out");
             std::process::exit(1);
         }
     };
@@ -62,10 +66,10 @@ async fn main() {
         std::process::exit(1);
     }
 
-    // Re-read new value from server (matches C caput behavior)
-    let new_value = match ch.get().await {
-        Ok((_, val)) => val.to_string(),
-        Err(_) => args.value.clone(),
+    // Re-read new value from server with timeout (C: caget after put)
+    let new_value = match tokio::time::timeout(timeout, ch.get()).await {
+        Ok(Ok((_, val))) => val.to_string(),
+        _ => args.value.clone(),
     };
 
     println!("Old : {} {}", args.pv_name, old_value);
