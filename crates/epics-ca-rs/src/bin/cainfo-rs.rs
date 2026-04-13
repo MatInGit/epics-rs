@@ -3,7 +3,7 @@ use epics_ca_rs::client::CaClient;
 
 #[derive(Parser)]
 #[command(
-    name = "rcainfo",
+    name = "cainfo",
     about = "Show EPICS PV channel information and client diagnostics"
 )]
 struct Args {

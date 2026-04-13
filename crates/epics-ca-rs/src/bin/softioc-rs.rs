@@ -13,7 +13,7 @@ use std::collections::HashMap;
 ///
 /// Example: rsoftioc --pv TEMP:double:25.0 --record ai:TEMP_REC:25.0 --db test.db
 #[derive(Parser)]
-#[command(name = "rsoftioc")]
+#[command(name = "softioc")]
 struct Args {
     /// PV definitions in the format NAME:TYPE:VALUE
     /// Supported types: string, short, float, enum, char, long, double
